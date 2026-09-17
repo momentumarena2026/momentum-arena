@@ -26,6 +26,7 @@ const allNavItems = [
   // admin nav — a tournament is an on-court operation, not a marketing one.
   { href: "/admin/tournaments", label: "Tournaments", group: "Courts & Pricing", permission: "MANAGE_TOURNAMENTS" },
   { href: "/admin/camps", label: "Camps", group: "Courts & Pricing", permission: "MANAGE_CAMPS" },
+  { href: "/admin/challenges", label: "Challenges", group: "Courts & Pricing", permission: "MANAGE_BOOKINGS" },
   { href: "/admin/cafe-menu", label: "Menu", group: "Cafe", permission: "MANAGE_CAFE_MENU" },
   { href: "/admin/cafe-orders", label: "Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },
   { href: "/admin/cafe-live", label: "Live Orders", group: "Cafe", permission: "MANAGE_CAFE_ORDERS" },

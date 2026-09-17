@@ -47,6 +47,11 @@ export type HomeStackParamList = {
 
 export type AccountStackParamList = {
   AccountHome: undefined;
+  // The challenge board. App-only feature — there is no web equivalent to
+  // deep-link to, so these three screens are the whole of it.
+  ChallengeBoard: undefined;
+  PostChallenge: undefined;
+  ChallengeDetail: { id: string };
   /// Tournament scoring by code — reachable without an admin account so a
   /// third-party organiser can run their own matches. The code is the
   /// credential (CSPRNG, rotatable, rate-limited).

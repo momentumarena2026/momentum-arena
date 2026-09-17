@@ -26,6 +26,7 @@ import {
   Ticket,
   Trash2,
   User as UserIcon,
+  Swords,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -225,6 +226,13 @@ export function AccountScreen() {
           title="My Passes"
           subtitle="Prepaid hours — balances & sharing"
           onPress={() => navigation.navigate("MyPasses")}
+        />
+        <ActionTile
+          icon={<Swords size={20} color="#fca5a5" />}
+          iconBg="rgba(239, 68, 68, 0.14)"
+          title="Challenges"
+          subtitle="Post a match, or take one on"
+          onPress={() => navigation.navigate("ChallengeBoard")}
         />
         <ActionTile
           icon={<Bell size={20} color={colors.warning} />}

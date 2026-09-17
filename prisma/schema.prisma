@@ -288,6 +288,9 @@ model User {
   // "Tournament Players"); `couponEligibilities` is a direct,
   // per-user assignment that bypasses any group routing.
   groupMemberships    UserGroupMember[]
+  challengesPosted    Challenge[]        @relation("challengeCreator")
+  challengesAccepted  Challenge[]        @relation("challengeAcceptor")
+  challengePayments   ChallengePayment[]
   couponEligibilities CouponEligibleUser[]
 
   // FCM push tokens for the mobile app — one row per device the user
@@ -373,6 +376,7 @@ model CourtConfig {
   isActive Boolean     @default(true)
 
   tournamentMatches TournamentMatch[]
+  challengeWindows  ChallengeWindow[]
 
   // Within CRICKET, this distinguishes the regular Box-Cricket
   // configs (full field + the two half courts) from the
@@ -594,6 +598,8 @@ model Booking {
 
   // QR check-in
   checkedInAt DateTime?
+  /// Set when this booking was created by a challenge being confirmed.
+  challenges  Challenge[]
   qrToken     String?   @unique @default(cuid())
 
   // Booking reminders
@@ -4045,4 +4051,204 @@ model CafeRegisterUpload {
   createdAt         DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ===========================
+// CHALLENGE BOARD (app-only)
+// ===========================
+// A captain with a half-built side posts a match; another captain takes it.
+// The venue's problem is that a ₹2,000 ground needs two teams and most
+// people only have one — so the board's whole job is to introduce the two.
+//
+// APP ONLY by decision: there is no customer-facing web surface. The admin
+// screens are web, because that is where the venue works.
+//
+// Nothing here holds a court until money arrives. Two captains agreeing
+// costs the venue nothing and must cost its inventory nothing.
+
+enum ChallengeStatus {
+  /// Posted, visible on the board, nobody has taken it.
+  OPEN
+  /// Somebody wants the match at a different time; back with the poster.
+  COUNTERED
+  /// A window is settled. Both sides owe their half of the advance.
+  AGREED
+  /// One side has paid, the other has not.
+  PART_PAID
+  /// Both halves in, booking created, court blocked.
+  CONFIRMED
+  /// Both paid but the hour went to somebody else first.
+  SLOT_LOST
+  /// Nobody took it, or the payment window ran out.
+  EXPIRED
+  /// Pulled by the captain, or taken down by the venue.
+  WITHDRAWN
+}
+
+/// Which side of a challenge someone is on. Stored as a string rather than
+/// two nullable user columns so a window or a payment can say who it came
+/// from without the reader having to work it out.
+enum ChallengeSide {
+  CHALLENGER
+  ACCEPTOR
+}
+
+enum ChallengeWindowStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  /// Replaced by a later counter from the same side.
+  SUPERSEDED
+}
+
+model Challenge {
+  id String @id @default(cuid())
+
+  createdByUserId String
+  createdBy       User   @relation("challengeCreator", fields: [createdByUserId], references: [id])
+
+  sport Sport
+  /// Free text — a side calls itself something, and it is what the other
+  /// captain sees on the board.
+  teamName    String?
+  /// How many players they already have. Display-only: it tells the other
+  /// captain what they are walking into and how many to bring.
+  playerCount Int
+  notes       String?
+
+  status ChallengeStatus @default(OPEN)
+
+  /// Whoever took it. Set the moment a window is accepted.
+  acceptedByUserId String?
+  acceptedBy       User?   @relation("challengeAcceptor", fields: [acceptedByUserId], references: [id])
+  acceptedAt       DateTime?
+
+  /// The window both sides settled on.
+  agreedWindowId String?
+  agreedAt       DateTime?
+
+  /// Counters are capped per side, so the board cannot become a chat.
+  counterCountChallenger Int @default(0)
+  counterCountAcceptor   Int @default(0)
+
+  /// Set once the advance is in and the court is booked.
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  /// After this the challenge stops being offerable. Derived on create
+  /// from the last proposed window and the configured TTL, then stored —
+  /// a deadline that moves because a setting changed is not a deadline.
+  expiresAt DateTime
+
+  withdrawnAt     DateTime?
+  /// User id, or the admin id when the venue takes it down.
+  withdrawnBy     String?
+  withdrawReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  windows  ChallengeWindow[]
+  payments ChallengePayment[]
+
+  @@index([status, expiresAt])
+  @@index([sport, status])
+  @@index([createdByUserId])
+}
+
+/// One time the match could be played. A counter-proposal is just another
+/// window authored by the other side — not a separate concept, which keeps
+/// the negotiation a list rather than a state machine of its own.
+model ChallengeWindow {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  date      DateTime @db.Date
+  startHour Int
+  endHour   Int
+  /// Optional preference. Null means any court that fits the sport.
+  courtConfigId String?
+  courtConfig   CourtConfig? @relation(fields: [courtConfigId], references: [id])
+
+  proposedBy       ChallengeSide
+  proposedByUserId String
+
+  status ChallengeWindowStatus @default(OFFERED)
+
+  createdAt DateTime @default(now())
+
+  @@index([challengeId, status])
+}
+
+/// Each side's half of the advance. Kept on the challenge rather than the
+/// booking because a booking has one payer and this has two — the booking
+/// is created once, with the whole advance already settled.
+model ChallengePayment {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User          @relation(fields: [userId], references: [id])
+  side   ChallengeSide
+  amount Int
+
+  paidAt   DateTime?
+  /// Gateway refs, whichever rail collected it.
+  razorpayOrderId      String? @unique
+  razorpayPaymentId    String?
+  phonePeMerchantTxnId String? @unique
+
+  /// Refunds here are MANUAL by decision — the venue returns the money and
+  /// marks it, rather than the system calling the gateway. Recorded so the
+  /// refunds queue can show what is still owed to whom.
+  refundedAt     DateTime?
+  refundedBy     String?
+  refundNote     String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([challengeId, side])
+  @@index([challengeId])
+}
+
+/// Everything about the board the venue can change without a deploy.
+/// Singleton, like ArenaSettings and CafeSettings.
+model ChallengeSettings {
+  id      String  @id @default("singleton")
+  enabled Boolean @default(false)
+
+  /// Sports a challenge may be posted for. Empty = all active sports.
+  sports Sport[]
+
+  minPlayers Int @default(1)
+  maxPlayers Int @default(30)
+
+  /// How many times the poster may be offered, and how hard the two sides
+  /// may haggle before it is take-it-or-leave-it.
+  maxWindows         Int @default(3)
+  maxCountersPerSide Int @default(1)
+
+  /// A challenge dies at the earlier of its last window and this many days.
+  ttlDays Int @default(7)
+
+  // ── Money. Stored now, used when payments land in phase 3.
+  advancePct        Int @default(50)
+  paymentWindowMins Int @default(120)
+  /// The court is held only once SOMEBODY has paid — never on agreement.
+  holdMinsAfterFirstPayment Int @default(15)
+
+  // ── Push. Stored now, used in phase 4.
+  /// ALL | SPORT | RECENT — who hears about a new challenge.
+  pushAudience String @default("SPORT")
+  /// Broadcasts per day. Past it, challenges still post, they just go quiet.
+  pushDailyCap Int @default(3)
+
+  // ── Copy, so the venue can word the board itself.
+  boardTitle    String?
+  boardSubtitle String?
+  emptyText     String?
+
+  updatedAt DateTime @updatedAt
 }

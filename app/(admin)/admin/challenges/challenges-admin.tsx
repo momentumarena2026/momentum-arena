@@ -1,0 +1,428 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2, Swords, Settings2 } from "lucide-react";
+import {
+  saveChallengeSettings,
+  adminWithdrawChallenge,
+  type ChallengeSettingsInput,
+} from "@/actions/admin-challenges";
+
+/**
+ * The venue's control room for the challenge board.
+ *
+ * Two halves, deliberately. The settings are what the board IS — and they
+ * are all here rather than in code because the board is new and none of
+ * these numbers are known to be right yet. The list is what the board is
+ * DOING, which is the only way to see whether the thing works at all
+ * before push and payments exist.
+ */
+
+type Settings = {
+  enabled: boolean;
+  sports: string[];
+  minPlayers: number;
+  maxPlayers: number;
+  maxWindows: number;
+  maxCountersPerSide: number;
+  ttlDays: number;
+  advancePct: number;
+  paymentWindowMins: number;
+  holdMinsAfterFirstPayment: number;
+  pushAudience: string;
+  pushDailyCap: number;
+  boardTitle: string | null;
+  boardSubtitle: string | null;
+  emptyText: string | null;
+};
+
+type Row = {
+  id: string;
+  sport: string;
+  teamName: string | null;
+  playerCount: number;
+  status: string;
+  notes: string | null;
+  expiresAt: string;
+  createdAt: string;
+  withdrawReason: string | null;
+  createdBy: { name: string | null; phone: string | null } | null;
+  acceptedBy: { name: string | null; phone: string | null } | null;
+  windows: {
+    id: string;
+    date: string;
+    startHour: number;
+    endHour: number;
+    proposedBy: string;
+    status: string;
+  }[];
+  payments: { side: string; amount: number; paidAt: string | null; refundedAt: string | null }[];
+};
+
+const SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+
+const STATUS_TONE: Record<string, string> = {
+  OPEN: "border-sky-500/40 bg-sky-500/10 text-sky-300",
+  COUNTERED: "border-violet-500/40 bg-violet-500/10 text-violet-300",
+  AGREED: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+  PART_PAID: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+  CONFIRMED: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+  SLOT_LOST: "border-red-500/40 bg-red-500/10 text-red-300",
+  EXPIRED: "border-zinc-700 bg-zinc-900 text-zinc-500",
+  WITHDRAWN: "border-zinc-700 bg-zinc-900 text-zinc-500",
+};
+
+const hr = (h: number) => {
+  const x = h % 24;
+  return x === 0 ? "12am" : x < 12 ? `${x}am` : x === 12 ? "12pm" : `${x - 12}pm`;
+};
+
+export function ChallengesAdmin({
+  initial,
+}: {
+  initial: { settings: Settings; challenges: Row[]; counts: Record<string, number> };
+}) {
+  const router = useRouter();
+  const [tab, setTab] = useState<"board" | "settings">("board");
+  const [s, setS] = useState<Settings>(initial.settings);
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = (patch: ChallengeSettingsInput) => {
+    setErr(null);
+    setMsg(null);
+    start(async () => {
+      const res = await saveChallengeSettings(patch).catch(() => ({
+        ok: false as const,
+        error: "Couldn't reach the server.",
+      }));
+      if (!res.ok) setErr(res.error);
+      else {
+        setMsg("Saved.");
+        router.refresh();
+      }
+    });
+  };
+
+  const field = "w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50";
+  const label = "mb-1 block text-xs uppercase tracking-wide text-zinc-500";
+  const hint = "mt-1 text-xs text-zinc-600 leading-relaxed";
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <Swords className="h-5 w-5 text-emerald-400" />
+        <h1 className="text-xl font-bold text-white">Challenge board</h1>
+        <span
+          className={`rounded-full border px-2.5 py-0.5 text-xs ${
+            s.enabled
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+              : "border-zinc-700 bg-zinc-900 text-zinc-500"
+          }`}
+        >
+          {s.enabled ? "Live in the app" : "Off"}
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-zinc-500">
+        A captain posts a match they can&apos;t fill; another takes it. App only —
+        there is no customer web page for this.
+      </p>
+
+      <div className="mt-4 flex gap-2">
+        {(["board", "settings"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`rounded-lg border px-3 py-1.5 text-sm ${
+              tab === t
+                ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-300"
+                : "border-zinc-800 text-zinc-400 hover:bg-zinc-900"
+            }`}
+          >
+            {t === "board" ? `Challenges (${initial.challenges.length})` : "Settings"}
+          </button>
+        ))}
+      </div>
+
+      {err && <p className="mt-3 text-sm text-red-400">{err}</p>}
+      {msg && <p className="mt-3 text-sm text-emerald-400">{msg}</p>}
+
+      {tab === "settings" ? (
+        <div className="mt-5 space-y-5">
+          <Panel
+            title="Master switch"
+            desc="Off hides the board in the app and refuses new challenges. Anything already agreed is untouched."
+          >
+            <button
+              onClick={() => {
+                setS({ ...s, enabled: !s.enabled });
+                save({ enabled: !s.enabled });
+              }}
+              disabled={pending}
+              className={`flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm font-medium ${
+                s.enabled
+                  ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-300"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-400"
+              }`}
+            >
+              {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {s.enabled ? "Board is ON — tap to switch off" : "Board is OFF — tap to switch on"}
+            </button>
+          </Panel>
+
+          <Panel title="Which sports" desc="Nothing selected means every sport the arena runs.">
+            <div className="flex flex-wrap gap-2">
+              {SPORTS.map((sp) => {
+                const on = s.sports.includes(sp);
+                return (
+                  <button
+                    key={sp}
+                    disabled={pending}
+                    onClick={() => {
+                      const next = on ? s.sports.filter((x) => x !== sp) : [...s.sports, sp];
+                      setS({ ...s, sports: next });
+                      save({ sports: next });
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-sm ${
+                      on
+                        ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-300"
+                        : "border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+                    }`}
+                  >
+                    {sp[0] + sp.slice(1).toLowerCase()}
+                  </button>
+                );
+              })}
+            </div>
+          </Panel>
+
+          <Panel title="Posting" desc="What a captain may put up.">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Num label="Minimum players" value={s.minPlayers} onSave={(v) => { setS({ ...s, minPlayers: v }); save({ minPlayers: v }); }} hint="Below this, a challenge can't be posted." />
+              <Num label="Maximum players" value={s.maxPlayers} onSave={(v) => { setS({ ...s, maxPlayers: v }); save({ maxPlayers: v }); }} hint="Sanity ceiling on the squad size claimed." />
+              <Num label="Times per challenge" value={s.maxWindows} onSave={(v) => { setS({ ...s, maxWindows: v }); save({ maxWindows: v }); }} hint="More windows means more matches made. One is allowed but mostly expires." />
+              <Num label="Counter-offers per side" value={s.maxCountersPerSide} onSave={(v) => { setS({ ...s, maxCountersPerSide: v }); save({ maxCountersPerSide: v }); }} hint="Zero turns haggling off entirely — accept a time or leave it." />
+              <Num label="Days a challenge lives" value={s.ttlDays} onSave={(v) => { setS({ ...s, ttlDays: v }); save({ ttlDays: v }); }} hint="It dies at this, or at its last offered time, whichever comes first." />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Money"
+            desc="Stored now, used when payments land. Both captains pay half the advance each."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Num label="Advance %" value={s.advancePct} onSave={(v) => { setS({ ...s, advancePct: v }); save({ advancePct: v }); }} hint="50 on a ₹2,000 slot = ₹500 from each side, ₹1,000 at the venue." />
+              <Num label="Payment window (minutes)" value={s.paymentWindowMins} onSave={(v) => { setS({ ...s, paymentWindowMins: v }); save({ paymentWindowMins: v }); }} hint="How long they have to pay after agreeing, before it lapses." />
+              <Num label="Hold after FIRST payment (minutes)" value={s.holdMinsAfterFirstPayment} onSave={(v) => { setS({ ...s, holdMinsAfterFirstPayment: v }); save({ holdMinsAfterFirstPayment: v }); }} hint="The court is never held on a promise — only once somebody has actually paid. Zero means no hold at all, and a walk-in can take the slot between the two payments." />
+            </div>
+          </Panel>
+
+          <Panel title="Push" desc="Stored now, used when notifications land.">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={label}>Who hears about a new challenge</label>
+                <select
+                  className={field}
+                  value={s.pushAudience}
+                  disabled={pending}
+                  onChange={(e) => {
+                    setS({ ...s, pushAudience: e.target.value });
+                    save({ pushAudience: e.target.value });
+                  }}
+                >
+                  <option value="ALL">Everyone on the app</option>
+                  <option value="SPORT">Everyone who plays that sport</option>
+                  <option value="RECENT">Played in the last 90 days</option>
+                </select>
+                <p className={hint}>
+                  Reach is what a cold board needs. Narrow it once there are enough
+                  challenges that people start muting you.
+                </p>
+              </div>
+              <Num label="Broadcasts per day" value={s.pushDailyCap} onSave={(v) => { setS({ ...s, pushDailyCap: v }); save({ pushDailyCap: v }); }} hint="Past this, challenges still post — they just go up quietly. Messages to the two people in a challenge never count against it." />
+            </div>
+          </Panel>
+
+          <Panel title="Wording" desc="What the board says in the app. Blank uses the built-in copy.">
+            <div className="space-y-3">
+              <Txt label="Board title" value={s.boardTitle} onSave={(v) => { setS({ ...s, boardTitle: v }); save({ boardTitle: v }); }} />
+              <Txt label="Board subtitle" value={s.boardSubtitle} onSave={(v) => { setS({ ...s, boardSubtitle: v }); save({ boardSubtitle: v }); }} />
+              <Txt label="Empty board message" value={s.emptyText} onSave={(v) => { setS({ ...s, emptyText: v }); save({ emptyText: v }); }} />
+            </div>
+          </Panel>
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(initial.counts).map(([k, v]) => (
+              <span
+                key={k}
+                className={`rounded-full border px-2.5 py-0.5 text-xs ${STATUS_TONE[k] ?? "border-zinc-700 text-zinc-400"}`}
+              >
+                {k.replace("_", " ").toLowerCase()} {v}
+              </span>
+            ))}
+            {initial.challenges.length === 0 && (
+              <p className="text-sm text-zinc-500">
+                Nothing posted yet. Switch the board on and it&apos;ll show up here.
+              </p>
+            )}
+          </div>
+
+          {initial.challenges.map((c) => (
+            <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-white">
+                      {c.teamName || c.createdBy?.name || "A team"}
+                    </span>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] ${STATUS_TONE[c.status] ?? ""}`}
+                    >
+                      {c.status.replace("_", " ").toLowerCase()}
+                    </span>
+                    <span className="text-xs text-zinc-500">
+                      {c.sport[0] + c.sport.slice(1).toLowerCase()} · {c.playerCount} players
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {c.createdBy?.name || "—"} {c.createdBy?.phone || ""}
+                    {c.acceptedBy && ` · taken by ${c.acceptedBy.name || c.acceptedBy.phone}`}
+                  </p>
+                  {c.notes && <p className="mt-1 text-sm text-zinc-400">{c.notes}</p>}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {c.windows.map((w) => (
+                      <span
+                        key={w.id}
+                        className={`rounded border px-2 py-0.5 text-[11px] ${
+                          w.status === "ACCEPTED"
+                            ? "border-emerald-500/40 text-emerald-300"
+                            : w.status === "OFFERED"
+                              ? "border-zinc-700 text-zinc-400"
+                              : "border-zinc-800 text-zinc-600 line-through"
+                        }`}
+                      >
+                        {new Date(w.date).toISOString().slice(0, 10)} {hr(w.startHour)}–{hr(w.endHour)}
+                        <span className="ml-1 text-zinc-600">
+                          {w.proposedBy === "CHALLENGER" ? "them" : "reply"}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                  {c.withdrawReason && (
+                    <p className="mt-2 text-xs text-amber-400">Taken down: {c.withdrawReason}</p>
+                  )}
+                </div>
+                {!["CONFIRMED", "WITHDRAWN", "EXPIRED"].includes(c.status) && (
+                  <button
+                    disabled={pending}
+                    onClick={() => {
+                      const reason = window.prompt(
+                        "Why are you taking this down? The poster sees this.",
+                      );
+                      if (!reason) return;
+                      start(async () => {
+                        const res = await adminWithdrawChallenge(c.id, reason).catch(() => ({
+                          ok: false as const,
+                          error: "Couldn't reach the server.",
+                        }));
+                        if (!res.ok) setErr(res.error);
+                        else router.refresh();
+                      });
+                    }}
+                    className="shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:border-red-500/40 hover:text-red-400"
+                  >
+                    Take down
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  desc,
+  children,
+}: {
+  title: string;
+  desc: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+      <div className="mb-3 flex items-start gap-2">
+        <Settings2 className="mt-0.5 h-4 w-4 shrink-0 text-zinc-600" />
+        <div>
+          <h2 className="text-sm font-semibold text-white">{title}</h2>
+          <p className="text-xs text-zinc-500">{desc}</p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** A number that saves when you leave the field, not on every keystroke. */
+function Num({
+  label,
+  value,
+  onSave,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onSave: (v: number) => void;
+  hint?: string;
+}) {
+  const [v, setV] = useState(String(value));
+  return (
+    <div>
+      <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">{label}</label>
+      <input
+        inputMode="numeric"
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => {
+          const n = parseInt(v.replace(/[^\d]/g, ""), 10);
+          if (Number.isInteger(n) && n !== value) onSave(n);
+          else setV(String(value));
+        }}
+        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+      />
+      {hint && <p className="mt-1 text-xs leading-relaxed text-zinc-600">{hint}</p>}
+    </div>
+  );
+}
+
+function Txt({
+  label,
+  value,
+  onSave,
+}: {
+  label: string;
+  value: string | null;
+  onSave: (v: string) => void;
+}) {
+  const [v, setV] = useState(value ?? "");
+  return (
+    <div>
+      <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">{label}</label>
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => {
+          if (v !== (value ?? "")) onSave(v);
+        }}
+        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+      />
+    </div>
+  );
+}

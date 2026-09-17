@@ -25,6 +25,9 @@ import { TournamentDetailScreen } from "../screens/tournaments/TournamentDetailS
 import { TournamentRegisterScreen } from "../screens/tournaments/TournamentRegisterScreen";
 import { TournamentLiveScreen } from "../screens/tournaments/TournamentLiveScreen";
 import { MatchCentreScreen } from "../screens/tournaments/MatchCentreScreen";
+import { ChallengeBoardScreen } from "../screens/challenges/ChallengeBoardScreen";
+import { PostChallengeScreen } from "../screens/challenges/PostChallengeScreen";
+import { ChallengeDetailScreen } from "../screens/challenges/ChallengeDetailScreen";
 import type { AccountStackParamList } from "./types";
 import { stackHeaderOptions } from "./headerOptions";
 
@@ -43,6 +46,21 @@ export function AccountStack() {
         // screens (BookingsList, RecurringBookings, BookingDetail). Without
         // an explicit title the route name "AccountHome" leaks through.
         options={{ headerShown: false, title: "Account" }}
+      />
+      <Stack.Screen
+        name="ChallengeBoard"
+        component={ChallengeBoardScreen}
+        options={{ title: "Challenges" }}
+      />
+      <Stack.Screen
+        name="PostChallenge"
+        component={PostChallengeScreen}
+        options={{ title: "Post a challenge" }}
+      />
+      <Stack.Screen
+        name="ChallengeDetail"
+        component={ChallengeDetailScreen}
+        options={{ title: "Challenge" }}
       />
       <Stack.Screen
         name="EditName"
