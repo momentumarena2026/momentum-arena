@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { View, ScrollView, Pressable, TextInput, Alert } from "react-native";
+import {
+  View,
+  ScrollView,
+  Pressable,
+  TextInput,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react-native";
@@ -103,8 +111,22 @@ export function PostChallengeScreen() {
   };
 
   return (
-    <Screen>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 18 }}>
+    <Screen padded={false}>
+      {/* The submit button sits at the bottom of a long form, so on a real
+          device it is behind the keyboard the whole time somebody is
+          filling it in — and behind the tab bar even when they are not.
+          The avoiding view lifts it clear of the keyboard; the padding
+          clears the tab bar. Both are needed: neither alone is enough. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 96 : 0}
+      >
+        <ScrollView
+          contentContainerStyle={{ padding: 16, paddingBottom: 140, gap: 18 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
         <View style={{ gap: 4 }}>
           <Text variant="title" color={colors.foreground}>
             Post a challenge
@@ -287,10 +309,11 @@ export function PostChallengeScreen() {
           disabled={busy || windows.length === 0 || !players.trim()}
           onPress={submit}
         />
-        <Text variant="tiny" color={colors.zinc600} style={{ textAlign: "center" }}>
-          Nothing is booked or charged yet. The court is only held once both sides pay.
-        </Text>
-      </ScrollView>
+          <Text variant="tiny" color={colors.zinc600} style={{ textAlign: "center" }}>
+            Nothing is booked or charged yet. The court is only held once both sides pay.
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

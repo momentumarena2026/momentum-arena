@@ -97,7 +97,7 @@ export function ChallengeDetailScreen() {
   return (
     <Screen>
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 16 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 140, gap: 16 }}
         refreshControl={<RefreshControl refreshing={q.isFetching} onRefresh={refresh} />}
       >
         <View style={{ gap: 4 }}>
