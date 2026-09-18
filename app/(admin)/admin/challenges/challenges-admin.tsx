@@ -188,6 +188,7 @@ export function ChallengesAdmin({
             </p>
             <div className="space-y-1.5">
               {[
+                ["Saw the home card", "cardShown"],
                 ["Tapped the home card", "cardTapped"],
                 ["Opened the board", "boardViewed"],
                 ["Opened a challenge", "detailViewed"],
@@ -197,7 +198,15 @@ export function ChallengesAdmin({
                 ["Agreed a match", "accepted"],
               ].map(([label, key]) => {
                 const v = initial.funnel[key] ?? 0;
-                const top = Math.max(initial.funnel.cardTapped ?? 0, initial.funnel.boardViewed ?? 0, 1);
+                // Scale every bar against the widest step, which is normally
+                // the impression — the one number every later step is a
+                // fraction of.
+                const top = Math.max(
+                  initial.funnel.cardShown ?? 0,
+                  initial.funnel.cardTapped ?? 0,
+                  initial.funnel.boardViewed ?? 0,
+                  1,
+                );
                 return (
                   <div key={key} className="flex items-center gap-3">
                     <span className="w-44 shrink-0 text-xs text-zinc-400">{label}</span>

@@ -49,11 +49,16 @@ export async function GET(request: NextRequest) {
   }
 
   const settings = await challengeSettings();
-  void logChallengeEvent({
-    type: "BOARD_VIEWED",
-    userId: user.id,
-    detail: url.searchParams.get("sport") || "all sports",
-  });
+  // The Home card reads this endpoint for its copy on every render. Logging
+  // that as a board view would make board views a count of Home renders, and
+  // the impression-to-open step of the funnel would always read 100%.
+  if (url.searchParams.get("for") !== "home") {
+    void logChallengeEvent({
+      type: "BOARD_VIEWED",
+      userId: user.id,
+      detail: url.searchParams.get("sport") || "all sports",
+    });
+  }
   const [board, mine] = await Promise.all([
     listOpenChallenges({ sport: url.searchParams.get("sport") || undefined }),
     listMyChallenges(user.id),

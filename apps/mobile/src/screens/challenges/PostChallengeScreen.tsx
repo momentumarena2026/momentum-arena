@@ -46,6 +46,14 @@ export function PostChallengeScreen() {
   const [windows, setWindows] = useState<ProposedWindow[]>([]);
   const [busy, setBusy] = useState(false);
 
+  // A disabled button that doesn't say why reads as a broken button. Name the
+  // one thing that is missing, in the order the form asks for it.
+  const missing = !players.trim()
+    ? "Tell us how many players you have."
+    : windows.length === 0
+      ? "Add at least one time you can play."
+      : null;
+
   // The next seven days, which is as far ahead as anyone plans a pickup game.
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
@@ -309,9 +317,13 @@ export function PostChallengeScreen() {
           disabled={busy || windows.length === 0 || !players.trim()}
           onPress={submit}
         />
-          <Text variant="tiny" color={colors.zinc600} style={{ textAlign: "center" }}>
-            Nothing is booked or charged yet. The court is only held once both sides pay.
-          </Text>
+        <Text
+          variant="tiny"
+          color={missing ? colors.zinc500 : colors.zinc600}
+          style={{ textAlign: "center" }}
+        >
+          {missing ?? "Nothing is booked or charged yet. The court is only held once both sides pay."}
+        </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

@@ -73,9 +73,18 @@ export function trackChallenge(
     .catch(() => undefined);
 }
 
-export async function fetchChallengeBoard(sport?: string): Promise<ChallengeBoard> {
-  const q = sport ? `?sport=${encodeURIComponent(sport)}` : "";
-  return api.get<ChallengeBoard>(`/api/mobile/challenges${q}`);
+// `settingsOnly` marks the Home screen's read, which wants the card copy and
+// nothing else. It must not be counted as somebody opening the board, or board
+// views become a count of Home renders and the funnel loses its meaning.
+export async function fetchChallengeBoard(
+  sport?: string,
+  settingsOnly = false,
+): Promise<ChallengeBoard> {
+  const params = new URLSearchParams();
+  if (sport) params.set("sport", sport);
+  if (settingsOnly) params.set("for", "home");
+  const q = params.toString();
+  return api.get<ChallengeBoard>(`/api/mobile/challenges${q ? `?${q}` : ""}`);
 }
 
 export async function fetchChallenge(

@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-16 · accurate as of `main` = `48b83d0d` (app 1.0.7).
+**Last substantive update:** 2026-09-18 · accurate as of `main` = `48b83d0d` (app 1.0.7).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -198,6 +198,21 @@ Anything else means main has drifted — stop and investigate, do not push.
 6. **`StyleSheet.absoluteFillObject` does not typecheck** in this RN version — write the four
    absolute offsets out by hand.
 7. **`grep -c` exits 1 when the count is 0**, which breaks `&&` chains. Bitten twice.
+
+7b. **The app NEVER talks to your dev server. Metro serves the JS; the API is
+    always a deployed host.** `apps/mobile/src/config/env.ts` picks the base URL
+    at bundle time from `build-config.generated.ts`: `GIT_BRANCH === "main"` →
+    `https://www.momentumarena.com`, anything else → `https://development.momentumarena.com`.
+    There is no localhost branch. So a server change is invisible to the
+    simulator until it is **committed, pushed and deployed** — while a client
+    change appears instantly through fast refresh. This is a genuinely
+    confusing half-state: the screen you just edited is live, the endpoint it
+    calls is yesterday's. It cost a debugging session on the challenge home
+    card, where the card was correctly hidden because the deployed API had no
+    `homeCard` field yet and the card fails closed. **Symptom to recognise:** a
+    new field reads as `undefined` in the app while `curl` against localhost
+    returns it fine. Check the deploy (`gh api repos/:owner/:repo/commits/<sha>/status`)
+    before debugging the client.
 8. **Next.js dev mode forces `Cache-Control: no-store`.** Any cache-header work *must* be
    verified against a real `next build` + `next start`, never the dev server.
 9. Web pages that render bare against the black background usually mean a **missing
@@ -570,6 +585,60 @@ its templates here, or it ships with no push voice at all.
   has said it is working fine, but it was never formally closed out. Related history: a
   Paytm-intent stuck-payment incident means the **intent toggle** has been handled cautiously.
 - Older backlog context lives in the user's memory files (see §9).
+
+---
+
+## 7b. Challenges (team matchmaking) — phase 1, `development` only
+
+**The problem it solves.** A whole-ground booking is ₹2,000, which is nothing
+between two full sides and impossible for one person or a half-team. Challenges
+let a captain put up a match — sport, how many players they have, up to three
+times they could play — and let another captain take it, so two halves of a
+booking find each other before either pays.
+
+**Shape.** One API door (`app/api/mobile/challenges/route.ts`): GET returns the
+whole viewer-shaped payload (`board`, `mine`, `limits`, `copy`, `homeCard`), POST
+is a discriminated union of `post | accept | counter | withdraw | track`. Rules
+are pure and separately tested in `lib/challenge-rules.ts`; everything that
+touches the database is in `lib/challenges.ts`. **App-only by design** — there is
+no public web surface, and every knob is admin-configured at
+`/admin/challenges`.
+
+**Why the module logs so heavily.** `ChallengeEvent` records every action that
+reaches the server *and every refusal, with the exact sentence the user was
+shown*. The reason is that a board with no posts looks identical whether nobody
+found the feature, found it and left, or tried to post and was turned away —
+and only the refusal reasons tell those three apart. Before rolling this out
+the venue asked to see every click, and the refusals are the half of that which
+is actually diagnostic. Logging is best-effort (`void logChallengeEvent(...)`),
+never awaited into a failure: a board that broke because its telemetry did
+would be worse than one nobody can measure.
+
+**Two traps already hit inside the funnel:**
+
+- The Home card reads the same GET endpoint for its copy, so it was logging a
+  `BOARD_VIEWED` on every Home render — which made board views a count of Home
+  renders and pinned the impression→open step at 100%. The Home read now sends
+  `?for=home` and is excluded from that log. **Any new caller of that endpoint
+  must decide which side of this line it is on.**
+- `HOME_CARD_SHOWN` is the funnel's denominator and is fired once per app
+  session from a ref, not per render. Without it a tap count means nothing:
+  40 taps is a triumph against 200 impressions and a failure against 20,000.
+
+**The home card fails CLOSED** (`!!enabled && !!homeCard?.enabled`), unlike
+Quick book which fails open. Quick book hidden in error costs a working booking
+route; a challenge card shown in error sends somebody to a board that refuses
+them, which is a worse first impression of a feature they have never heard of.
+
+**Screens are registered in BOTH the Home and Account stacks** (the
+Notifications precedent), so Back from the Home card returns to Home rather
+than stranding the user on a tab they never chose.
+
+Phases 2–4 (accept/counter polish, the two payments, push + admin room) are not
+started. The payment question — how you hold a court for two strangers who have
+not both paid — is unresolved; the research is that Razorpay auth/capture is
+card-only and UPI mandates exclude PhonePe and GPay, so no clean hold rail
+exists yet.
 
 ---
 

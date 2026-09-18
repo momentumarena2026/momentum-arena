@@ -178,12 +178,23 @@ export function HomeScreen() {
   // no equivalent loss here.
   const { data: challengeCfg } = useQuery({
     queryKey: ["challenge-home-card"],
-    queryFn: () => fetchChallengeBoard(),
+    queryFn: () => fetchChallengeBoard(undefined, true),
     staleTime: 5 * 60 * 1000,
   });
   const showChallengeCard =
     !!challengeCfg?.enabled && !!challengeCfg?.homeCard?.enabled;
   const challengeBadge = challengeCfg?.homeCard?.badge ?? "NEW";
+
+  // The impression is the funnel's denominator. Without it a tap count says
+  // nothing — 40 taps is a triumph against 200 impressions and a failure
+  // against 20,000 — so record the card being seen, once per app session
+  // rather than once per render, which would drown the feed.
+  const challengeShownRef = useRef(false);
+  useEffect(() => {
+    if (!showChallengeCard || challengeShownRef.current) return;
+    challengeShownRef.current = true;
+    trackChallenge("HOME_CARD_SHOWN");
+  }, [showChallengeCard]);
 
   const quickBookEnabled = quickBook?.enabled ?? true;
   const showNewBadge = quickBook?.newBadge ?? true;

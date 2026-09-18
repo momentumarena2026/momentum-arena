@@ -98,6 +98,7 @@ export async function getChallengeAdmin() {
     eventCounts: Object.fromEntries(eventCounts.map((e) => [e.type, e._count])),
     refusals: refusals.map((r) => ({ reason: r.detail ?? "(no reason)", count: r._count })),
     funnel: {
+      cardShown: n("HOME_CARD_SHOWN"),
       cardTapped: n("HOME_CARD_TAPPED"),
       boardViewed: n("BOARD_VIEWED"),
       postOpened: n("POST_OPENED"),
