@@ -290,9 +290,11 @@ export function ChallengesAdmin({
                       className={`w-36 shrink-0 font-mono text-[11px] ${
                         e.type === "REFUSED"
                           ? "text-amber-400"
-                          : e.type === "POSTED" || e.type === "ACCEPTED"
-                            ? "text-emerald-400"
-                            : "text-zinc-500"
+                          : e.type === "EXPIRED" || e.type === "WITHDRAWN"
+                            ? "text-rose-400"
+                            : e.type === "POSTED" || e.type === "ACCEPTED"
+                              ? "text-emerald-400"
+                              : "text-zinc-500"
                       }`}
                     >
                       {e.type.toLowerCase().replace(/_/g, " ")}

@@ -4291,6 +4291,7 @@ enum ChallengeEventType {
   WITHDRAWN
   REFUSED
   ADMIN_TOOK_DOWN
+  EXPIRED
 }
 
 model ChallengeEvent {

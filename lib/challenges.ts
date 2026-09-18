@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { Prisma } from "@prisma/client";
+import { Prisma, type ChallengeEventType } from "@prisma/client";
 import {
   DEFAULT_LIMITS,
   postRefusal,
@@ -36,20 +36,10 @@ const SINGLETON = "singleton";
  * away, and only the reasons tell those apart.
  */
 export async function logChallengeEvent(args: {
-  type:
-    | "HOME_CARD_SHOWN"
-    | "HOME_CARD_TAPPED"
-    | "BOARD_VIEWED"
-    | "POST_OPENED"
-    | "POSTED"
-    | "DETAIL_VIEWED"
-    | "ACCEPT_TAPPED"
-    | "ACCEPTED"
-    | "COUNTER_OPENED"
-    | "COUNTERED"
-    | "WITHDRAWN"
-    | "REFUSED"
-    | "ADMIN_TOOK_DOWN";
+  // Taken from the schema rather than restated here: a hand-copied union of
+  // the same names drifts the first time someone adds an event type and only
+  // edits one of the two lists.
+  type: ChallengeEventType;
   userId?: string | null;
   challengeId?: string | null;
   detail?: string | null;
@@ -411,13 +401,32 @@ export async function withdrawChallenge(
  * take.
  */
 export async function expireStaleChallenges(): Promise<number> {
-  const res = await db.challenge.updateMany({
+  // Read the doomed rows before updating them, so each one can be logged
+  // individually. An expiry is the outcome half of the funnel: without it the
+  // feed shows POSTED and then silence forever, and nothing distinguishes a
+  // challenge still waiting for an answer from one that died unanswered —
+  // which is this feature's whole failure mode.
+  const stale = await db.challenge.findMany({
     where: {
       status: { in: ["OPEN", "COUNTERED"] },
       expiresAt: { lte: new Date() },
     },
+    select: { id: true, createdByUserId: true, sport: true, status: true },
+  });
+  if (stale.length === 0) return 0;
+
+  const res = await db.challenge.updateMany({
+    where: { id: { in: stale.map((c) => c.id) } },
     data: { status: "EXPIRED" },
   });
+  for (const c of stale) {
+    void logChallengeEvent({
+      type: "EXPIRED",
+      challengeId: c.id,
+      userId: c.createdByUserId,
+      detail: `${c.sport} · nobody took it${c.status === "COUNTERED" ? " (a counter was on the table)" : ""}`,
+    });
+  }
   return res.count;
 }
 

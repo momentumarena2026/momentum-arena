@@ -624,6 +624,22 @@ would be worse than one nobody can measure.
 - `HOME_CARD_SHOWN` is the funnel's denominator and is fired once per app
   session from a ref, not per render. Without it a tap count means nothing:
   40 taps is a triumph against 200 impressions and a failure against 20,000.
+- Both challenge screens wrapped their calls in
+  `.catch(() => "Couldn't reach the arena.")`, and `api.ts` signals a refusal
+  by *throwing* — so every deliberate server refusal was reported to the user
+  as a network failure while the event log recorded the real reason. The log
+  and the user's experience disagreed, which makes a refusal log worse than
+  none. `challengeErrorMessage` reads the reason off `ApiError` and keeps the
+  reachability sentence for `status === 0`, which is how `api.ts` reports an
+  actual unreachable host.
+- `expireStaleChallenges` reads the doomed rows before updating them so each
+  gets its own `EXPIRED` event. A bulk `updateMany` was cheaper and left the
+  feed showing `POSTED` then silence forever, with nothing to separate a
+  challenge still waiting from one that died unanswered — the feature's whole
+  failure mode.
+- `logChallengeEvent` takes Prisma's `ChallengeEventType`, not a hand-copied
+  union of the same names: the copy drifts the first time somebody adds a
+  type and edits only one of the two lists.
 
 **The home card fails CLOSED** (`!!enabled && !!homeCard?.enabled`), unlike
 Quick book which fails open. Quick book hidden in error costs a working booking
