@@ -309,7 +309,7 @@ export async function createChallengePaymentOrder(
     type: "PAY_STARTED",
     userId,
     challengeId,
-    detail: `${quote.yourSide.toLowerCase()} · ₹${quote.yourShare} of ₹${quote.total}`,
+    detail: `${quote.yourSide.toLowerCase()} · ₹${quote.yourShare} of the ₹${quote.advance} advance (court ₹${quote.total})`,
   });
 
   return {
