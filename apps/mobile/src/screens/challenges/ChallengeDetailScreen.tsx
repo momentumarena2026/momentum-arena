@@ -114,7 +114,7 @@ export function ChallengeDetailScreen() {
       : null);
   const mine = c.createdByUserId === me;
   const iAmIn = mine || c.acceptedByUserId === me;
-  const live = ["OPEN", "COUNTERED"].includes(c.status);
+  const live = ["OPEN", "COUNTERED", "AGREED"].includes(c.status);
   // Only a time the OTHER side put up can be accepted — accepting your own
   // suggestion is just waiting for an answer.
   const mySide = mine ? "CHALLENGER" : "ACCEPTOR";

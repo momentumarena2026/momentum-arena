@@ -223,10 +223,18 @@ export async function challengeQuote(
 
   // A stranger paying into an OPEN or COUNTERED challenge becomes its
   // acceptor by doing so. That is the flow now: money is the acceptance.
+  // The ACCEPTOR slot must actually be vacant. A COUNTERED challenge already
+  // HAS an acceptor — countering claims the slot — but it creates no payment
+  // row, and its original windows stay OFFERED. Without the
+  // `!c.acceptedByUserId` clause a complete stranger could pay the acceptor
+  // half of somebody else's negotiation: the money banked, a court blocked,
+  // the real acceptor told they had already paid, and the payer told they
+  // were not part of the match.
   const acceptingNow =
     !existingSide &&
+    !c.acceptedByUserId &&
     !!acceptWindowId &&
-    (c.status === "OPEN" || c.status === "COUNTERED") &&
+    c.status === "OPEN" &&
     c.windows.some((w) => w.id === acceptWindowId && w.status === "OFFERED");
   const side: ChallengeSide | null = existingSide ?? (acceptingNow ? "ACCEPTOR" : null);
 
@@ -280,10 +288,26 @@ export async function challengeQuote(
   const advancePct = settings?.advancePct ?? 50;
   const advance = Math.round((total * advancePct) / 100);
   const shares = splitShare(advance);
+  // The lead-time gate belongs on whichever payment BLOCKS the court, not
+  // only on a stranger's first one. Once a challenge is AGREED with no money
+  // in it, either side's payment is the one that creates the booking — and
+  // both were being issued orders two hours before the slot. The exemption
+  // in the spec is for the SECOND half, where the hour is already held.
+  const blocksTheCourt = paidSides.length === 0;
+  const lateRefusal =
+    blocksTheCourt && win && settings?.minLeadMins
+      ? leadTimeRefusal(
+          slotStart(win.date, win.startHour),
+          new Date(),
+          settings.minLeadMins,
+        )
+      : null;
+
   const refusal =
     (acceptingNow
       ? acceptGateRefusal(c, win, settings?.minLeadMins ?? 240, new Date(), settings?.enabled ?? false)
       : payRefusal(c, viewerId, new Date(), paidSides)) ??
+    lateRefusal ??
     (courtId
       ? null
       : // Only reachable for the first payer: once one half is in, the
@@ -334,8 +358,16 @@ export async function createChallengePaymentOrder(
   if (!quote.yourSide || quote.yourShare === null) {
     return { ok: false, error: "You're not part of this match." };
   }
-  if (quote.total <= 0 || quote.advance <= 0) {
+  if (quote.total <= 0) {
     return { ok: false, error: "That court has no price set — the venue needs to fix that first." };
+  }
+  if (quote.advance <= 0) {
+    // advancePct is zero, so there is nothing to collect online. Say that,
+    // rather than blaming the court's price — which is set correctly.
+    return {
+      ok: false,
+      error: "Challenges aren't taking payment right now. Please tell the arena.",
+    };
   }
   // A missing key is a deployment fault, not a user's. Refuse before
   // creating the row, so nobody ends up with a payment record and no way
@@ -348,63 +380,66 @@ export async function createChallengePaymentOrder(
   // the sheet re-stamps the order id on the SAME row rather than making a
   // second one, so a captain who backs out and returns cannot end up owing
   // twice.
-  // Two strangers can reach for the same OPEN challenge at once, and the
-  // ACCEPTOR slot is unique per challenge. An upsert alone would quietly
-  // hand the in-flight row to whoever called second — and then the first
-  // one's payment captures against a row that is no longer theirs, which is
-  // money taken for nothing. So an unpaid row belonging to somebody else
-  // locks the slot for the length of the payment window, and only goes
-  // stale after that.
-  const held = await db.challengePayment.findUnique({
-    where: { challengeId_side: { challengeId, side: quote.yourSide } },
-    select: { id: true, userId: true, paidAt: true, createdAt: true, razorpayOrderId: true },
-  });
-  if (held && held.userId !== userId) {
-    if (held.paidAt) return { ok: false, error: "Somebody else has taken this one." };
-    const windowMins =
-      (await db.challengeSettings.findFirst({ select: { paymentWindowMins: true } }))
-        ?.paymentWindowMins ?? 120;
-    const staleAt = held.createdAt.getTime() + windowMins * 60000;
-    if (Date.now() < staleAt) {
-      return { ok: false, error: "Someone else is paying for this right now. Try again shortly." };
-    }
-  }
 
-  // Taking over a stale row abandons whatever order the previous holder
-  // was given. Their capture will land on a row that no longer names them,
-  // so record it BEFORE the takeover — otherwise the money exists at
-  // Razorpay with nothing in this system pointing at it, and
-  // ChallengePayment.refundedAt (the module's stated refund trail) has
-  // nowhere to live.
-  if (held && held.userId !== userId && held.razorpayOrderId) {
-    await logChallengeEvent({
-      type: "REFUSED",
-      userId: held.userId,
-      challengeId,
-      detail: `their payment slot was reassigned after ${
-        (await db.challengeSettings.findFirst({ select: { paymentWindowMins: true } }))
-          ?.paymentWindowMins ?? 120
-      } minutes — refund owed if they paid`,
+  // The create IS the lock. The previous version read `held` and then
+  // upserted, so two strangers racing pay-order both passed the check and
+  // both got a live Razorpay order for one ACCEPTOR slot — and the pre-
+  // takeover audit line never fired, because `held` was null for both.
+  // @@unique([challengeId, side]) makes exactly one create win.
+  let row: { id: string; paidAt: Date | null };
+  try {
+    row = await db.challengePayment.create({
+      data: {
+        challengeId,
+        userId,
+        side: quote.yourSide,
+        amount: quote.yourShare,
+        acceptWindowId: acceptWindowId ?? null,
+        quotedCourtConfigId: quote.courtConfigId,
+      },
+      select: { id: true, paidAt: true },
     });
+  } catch {
+    // The slot already exists. Only its owner, or a takeover of a hold that
+    // has genuinely gone stale, may proceed.
+    const current = await db.challengePayment.findUnique({
+      where: { challengeId_side: { challengeId, side: quote.yourSide } },
+      select: { id: true, userId: true, paidAt: true, createdAt: true, razorpayOrderId: true },
+    });
+    if (!current) return { ok: false, error: "Couldn't start that payment. Try again." };
+    if (current.userId !== userId) {
+      if (current.paidAt) return { ok: false, error: "Somebody else has taken this one." };
+      const windowMins =
+        (await db.challengeSettings.findFirst({ select: { paymentWindowMins: true } }))
+          ?.paymentWindowMins ?? 120;
+      if (Date.now() < current.createdAt.getTime() + windowMins * 60000) {
+        return { ok: false, error: "Someone else is paying for this right now. Try again shortly." };
+      }
+      if (current.razorpayOrderId) {
+        await logChallengeEvent({
+          type: "REFUSED",
+          userId: current.userId,
+          challengeId,
+          detail: `their payment slot went stale after ${windowMins} minutes and was reassigned — refund owed if they paid`,
+        });
+      }
+    }
+    const taken = await db.challengePayment.updateMany({
+      where: { id: current.id, paidAt: null },
+      data: {
+        userId,
+        amount: quote.yourShare,
+        acceptWindowId: acceptWindowId ?? null,
+        quotedCourtConfigId: quote.courtConfigId,
+        // The previous holder's order must not stay attached to a row that
+        // now names somebody else.
+        razorpayOrderId: null,
+      },
+    });
+    if (taken.count === 0) return { ok: false, error: "You've already paid your half." };
+    row = { id: current.id, paidAt: null };
   }
 
-  const row = await db.challengePayment.upsert({
-    where: { challengeId_side: { challengeId, side: quote.yourSide } },
-    create: {
-      challengeId,
-      userId,
-      side: quote.yourSide,
-      amount: quote.yourShare,
-      acceptWindowId: acceptWindowId ?? null,
-    },
-    update: {
-      amount: quote.yourShare,
-      userId,
-      createdAt: new Date(),
-      acceptWindowId: acceptWindowId ?? null,
-    },
-    select: { id: true, paidAt: true },
-  });
   if (row.paidAt) return { ok: false, error: "You've already paid your half." };
 
   let order: { id: string };
@@ -472,6 +507,7 @@ export async function confirmChallengePayment(args: {
       amount: true,
       paidAt: true,
       acceptWindowId: true,
+      quotedCourtConfigId: true,
     },
   });
   if (!row || row.challengeId !== challengeId) {
@@ -496,6 +532,26 @@ export async function confirmChallengePayment(args: {
       ok: false,
       error: "Somebody else took this one while you were paying. The arena will refund you.",
     };
+  }
+  // CLAIM the payment row before anything else. The old `if (row.paidAt)`
+  // was a READ, and paidAt was not written until the very end — so three
+  // concurrent verifies of one capture (a double-tapped Pay button, or the
+  // app retrying a slow response) each passed the check and each created a
+  // booking. One ₹400 capture produced three PENDING bookings and three
+  // claims on the gate. A conditional update is the only thing that
+  // serialises this.
+  if (!row.paidAt) {
+    const claimed = await db.challengePayment.updateMany({
+      where: { id: row.id, paidAt: null },
+      data: { paidAt: new Date(), razorpayPaymentId },
+    });
+    if (claimed.count === 0) {
+      const settled = await db.challenge.findUnique({
+        where: { id: challengeId },
+        select: { status: true, bookingId: true },
+      });
+      return { ok: true, status: settled?.status ?? "PART_PAID", bookingId: settled?.bookingId ?? null };
+    }
   }
   // Idempotent: a retried verify (double tap, flaky network) must not
   // create a second booking or re-notify anybody.
@@ -582,48 +638,31 @@ export async function confirmChallengePayment(args: {
 
   let bookingId = c.bookingId;
 
-  if (isFirstHalf) {
-    // CLAIM the right to create the booking before doing any of the work.
-    // `isFirstHalf` was decided hundreds of milliseconds earlier — before a
-    // court search and a price lookup — so two captains paying in the same
-    // instant both believed they were first and created two PENDING
-    // bookings for one hour: ₹500 stranded on an orphan booking no report
-    // can see, a gate balance overstated by ₹500, and a challenge stuck at
-    // PART_PAID that never confirms. The module deliberately RACES the two
-    // captains ("whoever pays first blocks the court"), so this is a
-    // designed-for collision, not a rare one.
-    //
-    // This conditional update is the serialisation point: only one caller
-    // can move the challenge off bookingId = null. The loser becomes the
-    // second half and settles against the booking the winner created.
-    const claim = await db.challenge.updateMany({
-      where: { id: challengeId, bookingId: null },
-      data: { status: "PART_PAID" },
-    });
-    if (claim.count === 0) {
-      isFirstHalf = false;
-      bookingId =
-        (
-          await db.challenge.findUnique({
-            where: { id: challengeId },
-            select: { bookingId: true },
-          })
-        )?.bookingId ?? null;
-    }
-  }
 
   if (isFirstHalf) {
-    // THE BLOCKING MOMENT. Availability is re-asked here, after the money
+    // THE BLOCKING MOMENT — and the race. Two captains paying in the same
+    // instant both reach here believing they are first, because
+    // `isFirstHalf` was decided before a court search and a price lookup.
+    // The booking is created and then attached CONDITIONALLY, because the
+    // claim has to write the very field its predicate tests; the loser
+    // deletes the booking it made and settles as the second half. Availability is re-asked here, after the money
     // has been taken but before anything is promised, because the gap
     // between the quote and the charge is exactly where a walk-in books
     // the hour. If it has gone, the money is already captured, so say so
     // plainly and leave the payment recorded and refundable rather than
     // pretending the court exists.
-    // Prefer the court this payment was quoted against. Re-searching from
-    // scratch let the second half land on a cheaper court than the first
-    // was priced from, so the two halves stopped summing to the recorded
-    // advance.
-    const courtId = await freeCourtFor(c.sport, win.date, hours, win.courtConfigId);
+    // ONLY the court this half was quoted against. Re-searching let the
+    // booking silently land on a cheaper court when the quoted one went —
+    // two captains charged for a ₹2,000 full pitch and given half of one,
+    // with `amount` (1000) no longer equal to `advanceAmount` (600), which
+    // is precisely the invariant the spec names. Losing the quoted court is
+    // SLOT_LOST, not a downgrade nobody is told about.
+    const quotedCourt = row.quotedCourtConfigId ?? win.courtConfigId;
+    const courtId = quotedCourt
+      ? (await freeCourtFor(c.sport, win.date, hours, quotedCourt)) === quotedCourt
+        ? quotedCourt
+        : null
+      : await freeCourtFor(c.sport, win.date, hours, null);
     if (!courtId) {
       await db.$transaction([
         db.challengePayment.update({
@@ -693,19 +732,35 @@ export async function confirmChallengePayment(args: {
       },
       select: { id: true },
     });
-    bookingId = booking.id;
+    const attached = await db.challenge.updateMany({
+      where: { id: challengeId, bookingId: null },
+      data: { status: nextStatus, bookingId: booking.id },
+    });
+    if (attached.count === 0) {
+      // Somebody else's booking got there first. Undo ours — leaving it
+      // would remove an hour from sale that no report can see — and settle
+      // as the second half against theirs.
+      await db.payment.deleteMany({ where: { bookingId: booking.id } });
+      await db.bookingSlot.deleteMany({ where: { bookingId: booking.id } });
+      await db.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+      isFirstHalf = false;
+      bookingId =
+        (
+          await db.challenge.findUnique({
+            where: { id: challengeId },
+            select: { bookingId: true },
+          })
+        )?.bookingId ?? null;
+    } else {
+      bookingId = booking.id;
+    }
+  }
 
-    await db.$transaction([
-      db.challengePayment.update({
-        where: { id: row.id },
-        data: { paidAt: new Date(), razorpayPaymentId },
-      }),
-      db.challenge.update({
-        where: { id: challengeId },
-        data: { status: nextStatus, bookingId },
-      }),
-    ]);
-  } else {
+  // NOT an `else`. A caller that lost the booking race above is demoted to
+  // the second half mid-function, and an else-branch would skip it — its
+  // money would be banked with nothing settled against the winner's
+  // booking.
+  if (!isFirstHalf) {
     // The balance. The booking already holds the hour; this only settles it.
     const booking = bookingId
       ? await db.booking.findUnique({

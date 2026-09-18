@@ -46,7 +46,10 @@ export function ChallengeBoardScreen() {
   const mineLive = useMemo(
     () =>
       (q.data?.mine ?? []).filter((c) =>
-        ["OPEN", "COUNTERED", "AGREED", "PART_PAID"].includes(c.status),
+        // CONFIRMED belongs here. It used to drop out of every list the moment
+        // both halves landed — which is exactly when the poster earns their
+        // spin, so the prize had no route in at all.
+        ["OPEN", "COUNTERED", "AGREED", "PART_PAID", "CONFIRMED"].includes(c.status),
       ),
     [q.data?.mine],
   );
@@ -260,7 +263,13 @@ function ChallengeCard({
         ))}
       </View>
 
-      {mine && onWithdraw && !["AGREED", "PART_PAID", "CONFIRMED"].includes(c.status) ? (
+      {/* AGREED with no money in it IS withdrawable now — hiding the
+          control here left the user-visible half of that lockout in place,
+          with only the API able to unstick it. PART_PAID and CONFIRMED stay
+          hidden: those are the venue's to unwind. */}
+      {mine &&
+      onWithdraw &&
+      !["PART_PAID", "CONFIRMED", "EXPIRED", "WITHDRAWN"].includes(c.status) ? (
         <Pressable onPress={onWithdraw} hitSlop={8}>
           <Text variant="tiny" color={colors.zinc500}>
             Withdraw

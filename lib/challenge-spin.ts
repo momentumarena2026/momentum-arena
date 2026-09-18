@@ -358,7 +358,6 @@ export async function spinFor(
  */
 export async function sendOfferReminders(now = new Date()): Promise<number> {
   const cfg = await spinConfig();
-  if (!cfg.enabled) return 0;
 
   const live = await db.challengeOffer.findMany({
     where: { takenAt: null, expiresAt: { gt: now } },
@@ -369,6 +368,7 @@ export async function sendOfferReminders(now = new Date()): Promise<number> {
       discountPct: true,
       expiresAt: true,
       remindedAt: true,
+      windowMins: true,
       courtConfigId: true,
       date: true,
       startHour: true,
@@ -381,7 +381,13 @@ export async function sendOfferReminders(now = new Date()): Promise<number> {
 
   for (const offer of live) {
     const minsLeft = Math.ceil((offer.expiresAt.getTime() - now.getTime()) / 60000);
-    const templates = offer.kind === "ADJACENT" ? cfg.adjacentPushes : cfg.fallbackPushes;
+    const configured = offer.kind === "ADJACENT" ? cfg.adjacentPushes : cfg.fallbackPushes;
+    // Drop markers that could never fire inside THIS offer's real window.
+    // A spin ten minutes before the hour gets a ten-minute offer however
+    // long the setting says, and an unfiltered 30-minute ladder would fire
+    // its whole length in the first tick and consume the useful ones.
+    const room = offer.windowMins ?? Number.MAX_SAFE_INTEGER;
+    const templates = configured.filter((t) => (t.minsLeft ?? 0) < room);
     const due = pushesDue({ templates, minsLeft, alreadySent: offer.remindedAt });
     if (due.length === 0) continue;
 
@@ -439,15 +445,29 @@ export async function sendOfferReminders(now = new Date()): Promise<number> {
  * generosity one.
  */
 export async function expireOffers(now = new Date()): Promise<number> {
-  // Gated exactly as the reminders are. Switching the wheel off while an
-  // offer is live used to stop the nudges and keep the clock running, so
-  // the holder lost it in silence — worse than either choice made cleanly.
-  // Outstanding offers are honoured to the end of their window.
-  const cfg = await spinConfig();
-  if (!cfg.enabled) return 0;
-
+  // DELIBERATELY UNGATED, and so are the reminders above.
+  //
+  // `spinEnabled` stops ISSUING prizes. It cannot un-issue one: `expiresAt`
+  // is a stored timestamp, so gating this sweep does not stop the holder's
+  // clock — it only loses the OFFER_LAPSED row the venue is meant to see,
+  // and then stamps the lapse at whatever later moment the wheel is
+  // switched back on. A prize already won is honoured, nudged and closed
+  // out on its own schedule regardless of the switch.
+  // Includes offers CLAIMED but never booked: a process that died between
+  // the claim and the booking left the prize unusable for ever, invisible to
+  // this sweep and to the wheel's economics. A claim older than the grace is
+  // a dead claim.
+  const CLAIM_GRACE_MINS = 15;
+  const staleClaim = new Date(now.getTime() - CLAIM_GRACE_MINS * 60000);
   const dead = await db.challengeOffer.findMany({
-    where: { takenAt: null, lapsedAt: null, expiresAt: { lte: now } },
+    where: {
+      lapsedAt: null,
+      bookingId: null,
+      OR: [
+        { takenAt: null, expiresAt: { lte: now } },
+        { takenAt: { lte: staleClaim } },
+      ],
+    },
     select: {
       id: true,
       userId: true,
@@ -491,6 +511,13 @@ export async function offerQuote(
   userId: string,
   pick?: { courtConfigId: string; date: string; startHour: number },
   allowExpired = false,
+  /**
+   * Set by the caller that has ALREADY claimed this offer and is now
+   * pricing it to book. Without it the claim and the quote fight each
+   * other: the claim stamps takenAt, the quote refuses anything with
+   * takenAt, and every prize redemption fails on its first and only try.
+   */
+  claimedByCaller = false,
 ): Promise<
   | {
       ok: true;
@@ -523,7 +550,9 @@ export async function offerQuote(
   });
   if (!o) return { ok: false, error: "That offer is gone." };
   if (o.userId !== userId) return { ok: false, error: "That offer isn't yours." };
-  if (o.takenAt) return { ok: false, error: "You've already used this one." };
+  if (o.takenAt && !claimedByCaller) {
+    return { ok: false, error: "You've already used this one." };
+  }
   const minsLeft = Math.ceil((o.expiresAt.getTime() - Date.now()) / 60000);
   // `allowExpired` honours a sheet that was already open when the clock ran
   // out. It is NOT a licence to redeem something that died days ago, so the
@@ -642,7 +671,7 @@ export async function bookOfferHour(args: {
 }): Promise<{ ok: true; bookingId: string } | { ok: false; error: string }> {
   // No client `pick` here by design — the hour was pinned onto the offer
   // when the order was minted, and that is what is being paid for.
-  const q = await offerQuote(args.offerId, args.userId, undefined, args.allowExpired);
+  const q = await offerQuote(args.offerId, args.userId, undefined, args.allowExpired, true);
   if (!q.ok) return q;
   const pinnedPrice = (
     await db.challengeOffer.findUnique({
@@ -957,10 +986,13 @@ export async function offerSlots(
     hours: { startHour: number; label: string; fullPrice: number; price: number }[];
   }[] = [];
 
+  // IST days, matching offerQuote's own bound. Enumerating UTC days between
+  // midnight and 05:30 IST offered yesterday (every hour of it blocked as
+  // past) and hid tomorrow — the winner saw half the days the venue sells,
+  // during exactly the hours the arena is still open.
+  const today = istToday();
   for (let d = 0; d <= cfg.fallbackDays; d++) {
-    const day = new Date();
-    day.setUTCHours(0, 0, 0, 0);
-    day.setUTCDate(day.getUTCDate() + d);
+    const day = new Date(today.getTime() + d * 86400000);
     for (const court of courts) {
       const [avail, prices] = await Promise.all([
         getSlotAvailability(court.id, day),

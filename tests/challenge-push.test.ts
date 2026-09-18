@@ -17,6 +17,7 @@ import {
   DEFAULT_ADJACENT_PUSHES,
   DEFAULT_FALLBACK_PUSHES,
   DEFAULT_WON_PUSH,
+  PUSH_VARIABLES,
   type PushVars,
 } from "../lib/challenge-push";
 
@@ -125,4 +126,53 @@ test("a nudge is deduped by its exact stored marker", () => {
   const t = [{ minsLeft: 10, title: "t", body: "b" }];
   assert.equal(pushesDue({ templates: t, minsLeft: 9, alreadySent: [10] }).length, 0);
   assert.equal(pushesDue({ templates: t, minsLeft: 9, alreadySent: [] }).length, 1);
+});
+
+test("the admin screen's defaults are the lib's defaults, not a copy", () => {
+  // These WERE duplicated into challenges-admin.tsx and had already drifted:
+  // three of the six bodies lost their {date} placeholder, so the venue
+  // proofread and previewed copy that was not what sent. The screen now
+  // imports these; this asserts the shape they must keep.
+  for (const t of [DEFAULT_WON_PUSH, ...DEFAULT_ADJACENT_PUSHES, ...DEFAULT_FALLBACK_PUSHES]) {
+    assert.ok(t.title.trim().length > 0 && t.body.trim().length > 0);
+    assert.ok(t.title.length <= 120, `title too long to send: ${t.title}`);
+    assert.ok(t.body.length <= 300, `body too long to send: ${t.body}`);
+  }
+  // Every adjacent template names the day. "8pm–9pm is yours" with no date
+  // is unreadable for a match two days out.
+  for (const t of [DEFAULT_WON_PUSH, ...DEFAULT_ADJACENT_PUSHES]) {
+    assert.ok(t.body.includes("{date}"), `no {date} in: ${t.body}`);
+  }
+});
+
+test("every advertised variable is one renderPush can actually fill", () => {
+  const sample = Object.fromEntries(PUSH_VARIABLES.map((v) => [v.name, v.example]));
+  for (const v of PUSH_VARIABLES) {
+    const out = renderPush(`{${v.name}}`, sample as never);
+    assert.equal(out, v.example, `${v.name} did not substitute`);
+  }
+});
+
+test("the built-in schedule is judged against the window, not skipped", () => {
+  // Same regression on the other side: with no stored schedule, the built-in
+  // nudges are what fire, so a 3-minute window must be refused against them.
+  assert.ok(pushScheduleRefusal(DEFAULT_ADJACENT_PUSHES, 3));
+  assert.ok(pushScheduleRefusal(DEFAULT_FALLBACK_PUSHES, 20));
+  assert.equal(pushScheduleRefusal(DEFAULT_ADJACENT_PUSHES, 30), null);
+});
+
+test("a nudge ladder is trimmed to the offer's REAL window", () => {
+  // spinFor clamps expiry to the start of the hour being sold, so a spin
+  // ten minutes before that hour gets a ten-minute offer however long the
+  // setting says. An untrimmed 30-minute ladder fires its whole length in
+  // the first tick and consumes the markers that still mattered.
+  const room = 10;
+  const trimmed = DEFAULT_ADJACENT_PUSHES.filter((t) => (t.minsLeft ?? 0) < room);
+  assert.deepEqual(trimmed.map((t) => t.minsLeft), [5]);
+  const due = pushesDue({ templates: trimmed, minsLeft: 9, alreadySent: [] });
+  assert.deepEqual(due.map((t) => t.minsLeft), []);
+  assert.deepEqual(
+    pushesDue({ templates: trimmed, minsLeft: 5, alreadySent: [] }).map((t) => t.minsLeft),
+    [5],
+  );
 });

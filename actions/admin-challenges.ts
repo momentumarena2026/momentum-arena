@@ -3,8 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
-import { wheelRefusal } from "@/lib/challenge-rules";
-import { pushScheduleRefusal } from "@/lib/challenge-push";
+import { wheelRefusal, DEFAULT_WHEEL } from "@/lib/challenge-rules";
+import {
+  pushScheduleRefusal,
+  DEFAULT_ADJACENT_PUSHES,
+  DEFAULT_FALLBACK_PUSHES,
+} from "@/lib/challenge-push";
 import { challengeSettings } from "@/lib/challenges";
 
 /**
@@ -312,15 +316,27 @@ export async function saveChallengeSettings(
       ...(num(input.spinsPerPosterPerDays, 0, 365, "Spin cap window") !== undefined
         ? { spinsPerPosterPerDays: input.spinsPerPosterPerDays }
         : {}),
-      ...(input.spinWonPush ? { spinWonPush: input.spinWonPush as never } : {}),
+
     };
 
     if (input.spinSegments) Object.assign(data, { spinSegments: input.spinSegments as never });
     if (input.spinAdjacentPushes) {
-      Object.assign(data, { spinAdjacentPushes: input.spinAdjacentPushes as never });
+      Object.assign(data, {
+        spinAdjacentPushes: input.spinAdjacentPushes.map((t) => ({
+          ...t,
+          title: String(t.title ?? "").trim().slice(0, 120),
+          body: String(t.body ?? "").trim().slice(0, 300),
+        })) as never,
+      });
     }
     if (input.spinFallbackPushes) {
-      Object.assign(data, { spinFallbackPushes: input.spinFallbackPushes as never });
+      Object.assign(data, {
+        spinFallbackPushes: input.spinFallbackPushes.map((t) => ({
+          ...t,
+          title: String(t.title ?? "").trim().slice(0, 120),
+          body: String(t.body ?? "").trim().slice(0, 300),
+        })) as never,
+      });
     }
 
     // ── Validate the RESULT, not the patch ──────────────────────────
@@ -348,30 +364,72 @@ export async function saveChallengeSettings(
       };
     }
 
-    const segs = Array.isArray(next.spinSegments)
-      ? (next.spinSegments as { pct: number; weight: number }[])
-      : null;
-    if (segs) {
-      const bad = wheelRefusal(segs, n("spinAvgMinPct", 15), n("spinAvgMaxPct", 25));
-      if (bad) return { ok: false, error: bad };
+    // Json columns are typed `unknown` at the edge, so a string or an object
+    // reaches Prisma happily, stores, and is then silently ignored at
+    // runtime — a "Saved." that changed nothing.
+    for (const key of ["spinSegments", "spinAdjacentPushes", "spinFallbackPushes"] as const) {
+      const v = input[key];
+      if (v === undefined) continue;
+      if (!Array.isArray(v)) return { ok: false, error: "That has to be a list." };
+      if (v.some((x) => x === null || typeof x !== "object")) {
+        return { ok: false, error: "Every entry in that list has to be filled in." };
+      }
     }
 
-    for (const [key, winKey, winDefault] of [
-      ["spinAdjacentPushes", "spinAdjacentWindowMins", 30],
-      ["spinFallbackPushes", "spinFallbackWindowMins", 120],
-    ] as const) {
-      const list = next[key];
-      if (!Array.isArray(list) || list.length === 0) continue;
-      const bad = pushScheduleRefusal(
-        list as { minsLeft: number; title: string; body: string }[],
-        n(winKey, winDefault),
-      );
-      if (bad) return { ok: false, error: bad };
+    // Validate the EFFECTIVE configuration, not the stored column.
+    //
+    // A null column is not "nothing to check" — the runtime substitutes a
+    // code default for it, and that default is what actually pays out. On a
+    // fresh install (every column null) the previous version of this check
+    // skipped both guards entirely, so a band of 0–1% saved happily against
+    // a live wheel averaging 17.8%, and a 3-minute offer window saved
+    // against live nudges at 15 and 5 minutes. Resolve exactly as
+    // spinConfig() does, then judge that.
+    const effSegs =
+      Array.isArray(next.spinSegments) && (next.spinSegments as unknown[]).length > 0
+        ? (next.spinSegments as { pct: number; weight: number }[])
+        : DEFAULT_WHEEL;
+    const badWheel = wheelRefusal(effSegs, n("spinAvgMinPct", 15), n("spinAvgMaxPct", 25));
+    if (badWheel) {
+      return {
+        ok: false,
+        error: Array.isArray(next.spinSegments)
+          ? badWheel
+          : `${badWheel} (that's the built-in wheel, which is what runs until you save your own.)`,
+      };
     }
+
+    for (const [key, winKey, winDefault, fallbackList] of [
+      ["spinAdjacentPushes", "spinAdjacentWindowMins", 30, DEFAULT_ADJACENT_PUSHES],
+      ["spinFallbackPushes", "spinFallbackWindowMins", 120, DEFAULT_FALLBACK_PUSHES],
+    ] as const) {
+      const stored = next[key];
+      // An EMPTY list is a real choice ("no nudges") and needs no check. A
+      // missing one means the built-in schedule is what fires.
+      if (Array.isArray(stored) && stored.length === 0) continue;
+      const eff = Array.isArray(stored)
+        ? (stored as { minsLeft: number; title: string; body: string }[])
+        : fallbackList;
+      const bad = pushScheduleRefusal(eff, n(winKey, winDefault));
+      if (bad) {
+        return {
+          ok: false,
+          error: Array.isArray(stored)
+            ? bad
+            : `${bad} (that's the built-in schedule, which is what sends until you save your own.)`,
+        };
+      }
+    }
+
 
     // The won-it push had no validation at all, and a malformed one throws
     // inside renderPush AFTER the spin row is written — burning the
     // poster's single spin on a 500 they can never retry.
+    const capCopy = (t: { title: string; body: string }) => ({
+      ...t,
+      title: t.title.trim().slice(0, 120),
+      body: t.body.trim().slice(0, 300),
+    });
     if (input.spinWonPush !== undefined) {
       const w = input.spinWonPush as { title?: unknown; body?: unknown } | null;
       if (
@@ -384,6 +442,9 @@ export async function saveChallengeSettings(
       ) {
         return { ok: false, error: "The win message needs a title and a body." };
       }
+      Object.assign(data, {
+        spinWonPush: capCopy({ title: w.title, body: w.body }) as never,
+      });
     }
 
     if (input.pushAudience && !["ALL", "SPORT", "RECENT"].includes(input.pushAudience)) {
@@ -405,8 +466,11 @@ export async function saveChallengeSettings(
     // Only OUR messages reach the venue. A Prisma validation dump carries
     // absolute source paths, a code excerpt and the argument tree straight
     // into the admin UI.
+    // ALLOWLIST our own wording rather than denylisting Prisma's. A plain
+    // TypeError passed the old filter, so the venue was shown
+    // "Cannot read properties of null (reading 'minsLeft')".
     const msg = e instanceof Error ? e.message : "";
-    const ours = msg && !msg.includes("Invalid `prisma.") && msg.length < 200;
+    const ours = msg.length > 0 && msg.length < 160 && /must be|can't|cannot be a|needs a/i.test(msg);
     return { ok: false, error: ours ? msg : "That value isn't one this setting accepts." };
   }
 }

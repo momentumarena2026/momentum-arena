@@ -30,6 +30,7 @@ import {
   spinWheel,
   leadTimeRefusal,
   DEFAULT_WHEEL,
+  windowStart,
 } from "../lib/challenge-rules";
 
 const NOW = new Date("2026-09-17T06:00:00+05:30");
@@ -156,19 +157,19 @@ test("a stranger CANNOT accept for free — paying is what settles it", () => {
   // off the board for nothing, and a matched challenge could not then be
   // withdrawn, re-posted or expired — one call locked a captain out
   // permanently. Strangers go through pay-order with a windowId instead.
-  assert.match(acceptRefusal(challenge(), "other", NOW) ?? "", /paying your half/);
+  assert.match(acceptRefusal(challenge(), "other", NOW, limits) ?? "", /paying your half/);
 });
 
 test("somebody already in the match may settle on a time for free", () => {
   // The poster taking a counter owes their half either way, so no money is
   // skipped by letting them agree a time.
   const countered = challenge({ status: "COUNTERED", acceptedByUserId: "other" });
-  assert.equal(acceptRefusal(countered, "poster", NOW), null);
-  assert.equal(acceptRefusal(countered, "other", NOW), null);
+  assert.equal(acceptRefusal(countered, "poster", NOW, limits), null);
+  assert.equal(acceptRefusal(countered, "other", NOW, limits), null);
 });
 
 test("you cannot accept your own challenge", () => {
-  assert.match(acceptRefusal(challenge(), "poster", NOW) ?? "", /your own/i);
+  assert.match(acceptRefusal(challenge(), "poster", NOW, limits) ?? "", /your own/i);
 });
 
 test("an expired challenge cannot be accepted", () => {
@@ -177,21 +178,21 @@ test("an expired challenge cannot be accepted", () => {
     acceptedByUserId: "other",
     expiresAt: new Date("2026-09-17T05:00:00+05:30"),
   });
-  assert.match(acceptRefusal(past, "other", NOW) ?? "", /expired/i);
+  assert.match(acceptRefusal(past, "other", NOW, limits) ?? "", /expired/i);
 });
 
 test("once matched, nobody else can take it", () => {
   for (const status of ["AGREED", "PART_PAID", "CONFIRMED"] as const) {
-    assert.ok(acceptRefusal(challenge({ status }), "other", NOW), status);
+    assert.ok(acceptRefusal(challenge({ status }), "other", NOW, limits), status);
   }
 });
 
 test("a third party cannot muscle into a live negotiation", () => {
   const mid = challenge({ status: "COUNTERED", acceptedByUserId: "taker" });
-  assert.match(acceptRefusal(mid, "stranger", NOW) ?? "", /already negotiating/i);
+  assert.match(acceptRefusal(mid, "stranger", NOW, limits) ?? "", /already negotiating/i);
   // But the two involved can settle it.
-  assert.equal(acceptRefusal(mid, "poster", NOW), null);
-  assert.equal(acceptRefusal(mid, "taker", NOW), null);
+  assert.equal(acceptRefusal(mid, "poster", NOW, limits), null);
+  assert.equal(acceptRefusal(mid, "taker", NOW, limits), null);
 });
 
 // ── Countering ─────────────────────────────────────────────────────
@@ -442,4 +443,32 @@ test("a switched-off board refuses accepting and countering, not just posting", 
   assert.equal(acceptRefusal(inMatch, "taker", now, on), null);
   assert.match(counterRefusal(c, "taker", off, now) ?? "", /switched off/);
   assert.equal(counterRefusal(c, "taker", on, now), null);
+});
+
+test("the built-in wheel is judged against the band, not skipped", () => {
+  // The regression this guards: validating the STORED column meant a null
+  // one was "nothing to check" — but the runtime substitutes the built-in
+  // wheel for null, and that is what pays out. A band of 0–1% saved happily
+  // against a live wheel averaging 17.8%.
+  const avg = wheelAveragePct(DEFAULT_WHEEL);
+  assert.ok(wheelRefusal(DEFAULT_WHEEL, 0, 1), "a 0–1% band must refuse the built-in wheel");
+  assert.ok(wheelRefusal(DEFAULT_WHEEL, 40, 50), "a 40–50% band must refuse it too");
+  assert.equal(wheelRefusal(DEFAULT_WHEEL, Math.floor(avg), Math.ceil(avg)), null);
+});
+
+test("hours 24 and 25 are the small hours of the NEXT day", () => {
+  // `% 24` against the same date put a midnight slot a full day early: a
+  // legitimate 00:00 challenge read as "already passed", and a late-night
+  // one got an expiry 24h before its own match.
+  const midnight = windowStart("2026-09-20", 24);
+  assert.equal(midnight.toISOString(), "2026-09-20T18:30:00.000Z"); // 00:00 IST on the 21st
+  const onePm = windowStart("2026-09-20", 13);
+  assert.equal(onePm.toISOString(), "2026-09-20T07:30:00.000Z");
+  assert.ok(midnight.getTime() > onePm.getTime(), "midnight must come after 1pm the same day");
+});
+
+test("a late-night window's expiry is after the match, not a day before it", () => {
+  const w = [{ date: "2026-09-25", startHour: 24, endHour: 25 }];
+  const exp = expiryFor(w, { ...DEFAULT_LIMITS, ttlDays: 30 }, new Date("2026-09-20T00:00:00Z"));
+  assert.equal(exp.toISOString(), "2026-09-25T18:30:00.000Z");
 });

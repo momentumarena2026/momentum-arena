@@ -8,6 +8,8 @@ import {
   counterRefusal,
   withdrawRefusal,
   expiryFor,
+  windowStart,
+  KNOWN_SPORTS,
   windowRefusal,
   sideOf,
   type ChallengeLimits,
@@ -146,7 +148,12 @@ export async function listOpenChallenges(args?: { sport?: string; viewerId?: str
       ...(args?.viewerId
         ? { createdByUserId: { not: args.viewerId }, acceptedByUserId: null }
         : {}),
-      ...(args?.sport ? { sport: args.sport as never } : {}),
+      // Validated, not cast. An unknown string used to reach the Prisma
+      // enum and 500 the whole board for that caller — a lowercase "cricket"
+      // was enough.
+      ...(args?.sport && KNOWN_SPORTS.includes(args.sport)
+        ? { sport: args.sport as never }
+        : {}),
     },
     select: listSelect,
     orderBy: { createdAt: "desc" },
@@ -379,6 +386,13 @@ export async function counterChallenge(
       where: { id: challengeId },
       data: {
         status: "COUNTERED",
+        // A counter can propose a LATER date than anything on the original
+        // challenge. Leaving expiresAt alone meant the agreed match could be
+        // swept days before it was due to be played — and now that the sweep
+        // covers AGREED-but-unpaid, that sweep would delete it.
+        ...(windowStart(window.date, window.startHour).getTime() > c.expiresAt.getTime()
+          ? { expiresAt: windowStart(window.date, window.startHour) }
+          : {}),
         ...(side === "CHALLENGER"
           ? { counterCountChallenger: { increment: 1 } }
           : { counterCountAcceptor: { increment: 1 } }),

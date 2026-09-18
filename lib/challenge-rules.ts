@@ -14,6 +14,19 @@
 
 export type ChallengeSide = "CHALLENGER" | "ACCEPTOR";
 
+/**
+ * The real instant a proposed window begins.
+ *
+ * The arena runs to 1am, so `startHour` legitimately reaches 24 and 25 —
+ * and those mean the small hours of the NEXT day. Reducing them with
+ * `% 24` against the same date puts the slot 24 hours early, which made a
+ * midnight challenge read as "already passed" and gave a late-night one an
+ * expiry a full day before its own match.
+ */
+export function windowStart(date: string, startHour: number): Date {
+  return new Date(new Date(`${date}T00:00:00.000Z`).getTime() + (startHour - 5.5) * 3600000);
+}
+
 /** Mirrors the Sport enum. Kept here so the pure rules stay database-free. */
 export const KNOWN_SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 
@@ -122,15 +135,15 @@ export function postRefusal(
   // Posting is gated by the same notice the venue needs to staff an hour.
   // The app's day picker starts at tomorrow so this was unreachable there,
   // but the API is the API.
+  // windowRefusal runs FIRST, so a time in the past is reported as a time in
+  // the past rather than as "settle it four hours earlier".
+  for (const w of input.windows) {
+    const bad = windowRefusal(w, now);
+    if (bad) return bad;
+  }
   if (limits.minLeadMins && limits.minLeadMins > 0) {
     for (const w of input.windows) {
-      const bad = leadTimeRefusal(
-        new Date(`${w.date}T00:00:00.000Z`).getTime() + (w.startHour - 5.5) * 3600000 > 0
-          ? new Date(new Date(`${w.date}T00:00:00.000Z`).getTime() + (w.startHour - 5.5) * 3600000)
-          : now,
-        now,
-        limits.minLeadMins,
-      );
+      const bad = leadTimeRefusal(windowStart(w.date, w.startHour), now, limits.minLeadMins);
       if (bad) return bad;
     }
   }
@@ -155,9 +168,12 @@ export function windowRefusal(w: ProposedWindow, now: Date): string | null {
   if (w.endHour - w.startHour > 6) return "A match can't run more than six hours.";
   // Venue hours are 05:00–01:00, modelled as 5–25.
   if (w.startHour < 5 || w.endHour > 25) return "The arena is open 5am to 1am.";
-  // IST midnight of the proposed day, against the same instant everywhere.
-  const startsAt = new Date(`${w.date}T${String(w.startHour % 24).padStart(2, "0")}:00:00+05:30`);
-  if (startsAt.getTime() <= now.getTime()) return "That time has already passed.";
+  // windowStart, not a `% 24` on the same date — hours 24 and 25 are the
+  // small hours of the NEXT day, and reducing them in place put the slot a
+  // full day early.
+  if (windowStart(w.date, w.startHour).getTime() <= now.getTime()) {
+    return "That time has already passed.";
+  }
   return null;
 }
 
@@ -175,7 +191,7 @@ export function expiryFor(
 ): Date {
   const ttl = new Date(now.getTime() + limits.ttlDays * 24 * 60 * 60 * 1000);
   const last = windows
-    .map((w) => new Date(`${w.date}T${String(w.startHour % 24).padStart(2, "0")}:00:00+05:30`))
+    .map((w) => windowStart(w.date, w.startHour))
     .sort((a, b) => b.getTime() - a.getTime())[0];
   if (!last) return ttl;
   return last.getTime() < ttl.getTime() ? last : ttl;
@@ -189,16 +205,17 @@ export function acceptRefusal(
   userId: string,
   now: Date,
   /**
-   * Optional only so older callers keep compiling; pass it. A board that is
-   * switched off must stop new commitments, not merely hide its own screen
-   * — a notification deep-link drops the user straight onto the detail
-   * view, where Accept was still live.
+   * REQUIRED. A board that is switched off must stop new commitments, not
+   * merely hide its own screen — a notification deep-link drops the user
+   * straight onto the detail view, where Accept was still live. This was
+   * optional, which meant a caller could omit it and silently reopen that
+   * hole; there is no default worth having here.
    */
-  limits?: ChallengeLimits,
+  limits: ChallengeLimits,
   /** The window being settled on, so its start can be checked. */
   win?: { date: Date; startHour: number } | null,
 ): string | null {
-  if (limits && !limits.enabled) return "The challenge board is currently switched off.";
+  if (!limits.enabled) return "The challenge board is currently switched off.";
   if (!isLive(c.status)) return "That challenge is no longer open.";
   if (c.status === "AGREED" || c.status === "PART_PAID") {
     return "That challenge has already been matched.";
@@ -226,7 +243,7 @@ export function acceptRefusal(
   // The window being settled on must still be far enough out. Without this
   // the poster could free-accept a counter 3.5 hours away and both sides
   // then paid straight through the gate.
-  if (win && limits?.minLeadMins) {
+  if (win && limits.minLeadMins) {
     const start = new Date(win.date.getTime() + (win.startHour - 5.5) * 3600000);
     const late = leadTimeRefusal(start, now, limits.minLeadMins);
     if (late) return late;

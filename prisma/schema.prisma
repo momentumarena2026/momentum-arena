@@ -4206,6 +4206,12 @@ model ChallengePayment {
   /// to survive the round trip to be settled on.
   acceptWindowId String?
 
+  /// The court this half was QUOTED against. The booking used to re-search
+  /// for a free court at capture, so when the quoted one went and a cheaper
+  /// one was still free, two captains were charged for a full pitch and
+  /// given half of one — with `amount` no longer equal to `advanceAmount`.
+  quotedCourtConfigId String?
+
   paidAt   DateTime?
   /// Gateway refs, whichever rail collected it.
   razorpayOrderId      String? @unique
@@ -4308,6 +4314,13 @@ model ChallengeOffer {
   /// Which `minsLeft` markers have already fired, so a cron running every
   /// minute cannot send the same nudge twice.
   remindedAt Int[] @default([])
+
+  /// The offer's REAL length in minutes, which can be shorter than the
+  /// configured window when expiry was clamped to the start of the hour
+  /// being sold. Nudges are filtered against this, not the setting — a
+  /// 30-minute schedule inside a 3-minute offer otherwise fires every
+  /// marker in one tick and eats the rest.
+  windowMins Int?
 
   /// Set when spent. The booking is an ordinary booking, as everywhere else
   /// in this module.

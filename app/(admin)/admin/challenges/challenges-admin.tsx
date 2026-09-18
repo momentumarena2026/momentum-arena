@@ -4,6 +4,13 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Swords, Settings2 } from "lucide-react";
 import {
+  PUSH_VARIABLES,
+  DEFAULT_WON_PUSH,
+  DEFAULT_ADJACENT_PUSHES,
+  DEFAULT_FALLBACK_PUSHES,
+} from "@/lib/challenge-push";
+import { DEFAULT_WHEEL } from "@/lib/challenge-rules";
+import {
   saveChallengeSettings,
   adminWithdrawChallenge,
   type ChallengeSettingsInput,
@@ -1109,14 +1116,6 @@ function PromoTab({
   );
 }
 
-const DEFAULT_SEGMENTS = [
-  { pct: 5, weight: 10 },
-  { pct: 10, weight: 30 },
-  { pct: 15, weight: 25 },
-  { pct: 20, weight: 15 },
-  { pct: 25, weight: 10 },
-  { pct: 50, weight: 10 },
-];
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
@@ -1153,32 +1152,25 @@ function Toggle({
 
 type Push = { minsLeft?: number; title: string; body: string };
 
-const PUSH_VARS = [
-  { name: "minsLeft", example: "5", note: "minutes left before the offer dies" },
-  { name: "pct", example: "20", note: "the discount they won" },
-  { name: "price", example: "1600", note: "what the hour costs after the discount" },
-  { name: "saving", example: "400", note: "what the discount saves them" },
-  { name: "hour", example: "9pm–10pm", note: "the hour on offer" },
-  { name: "date", example: "Sun, 20 Sep", note: "the day of that hour" },
-  { name: "court", example: "Full Field", note: "which court" },
-];
+// Imported, never re-typed. These were copied into this file and had
+// already DRIFTED: three of the six bodies lost their {date} placeholder,
+// so the admin proofread and previewed copy that was not what sent.
+const PUSH_VARS = PUSH_VARIABLES;
+const DEFAULT_WON = DEFAULT_WON_PUSH;
+const DEFAULT_ADJ = DEFAULT_ADJACENT_PUSHES;
+const DEFAULT_FB = DEFAULT_FALLBACK_PUSHES;
+const DEFAULT_SEGMENTS = DEFAULT_WHEEL;
 
-const DEFAULT_WON: Push = {
-  title: "You won {pct}% off the next hour",
-  body: "Ask your side — {hour} is yours for ₹{price} if you take it in the next {minsLeft} minutes.",
-};
-const DEFAULT_ADJ: Push[] = [
-  { minsLeft: 15, title: "{minsLeft} minutes left on your {pct}% off", body: "{hour} is still free. ₹{price} for the hour — decide before it goes." },
-  { minsLeft: 5, title: "Last call — {minsLeft} minutes", body: "Your {pct}% off {hour} expires shortly. ₹{price}, saving ₹{saving}." },
-];
-const DEFAULT_FB: Push[] = [
-  { minsLeft: 60, title: "Your {pct}% off is still open", body: "Pick any hour in the next day at {pct}% off. {minsLeft} minutes left to choose." },
-  { minsLeft: 30, title: "{minsLeft} minutes to use your {pct}% off", body: "Any hour, {pct}% off. Once it lapses it's gone." },
-  { minsLeft: 10, title: "Last call — {minsLeft} minutes", body: "Your {pct}% off expires shortly. Pick an hour now." },
-];
 
+
+/**
+ * An EMPTY stored list means the venue turned nudges OFF, and the editor has
+ * to show that. Rendering the built-in schedule instead told them two
+ * nudges were configured while the runtime sent none — and any later Save
+ * on that panel silently re-instated the defaults they had removed.
+ */
 function asPushList(v: unknown, fallback: Push[]): Push[] {
-  if (Array.isArray(v) && v.length > 0) return v as Push[];
+  if (Array.isArray(v)) return v as Push[];
   if (v && typeof v === "object" && "title" in (v as object)) return [v as Push];
   return fallback;
 }
@@ -1206,15 +1198,11 @@ function PushEditor({
   single?: boolean;
 }) {
   const [list, setList] = useState<Push[]>(value);
-  const sample: Record<string, string> = {
-    minsLeft: "5",
-    pct: "20",
-    price: "1600",
-    saving: "400",
-    hour: "9pm–10pm",
-    date: "Sun, 20 Sep",
-    court: "Full Field",
-  };
+  // Built from PUSH_VARIABLES so the preview can never advertise a
+  // placeholder it cannot substitute.
+  const sample: Record<string, string> = Object.fromEntries(
+    PUSH_VARIABLES.map((v) => [v.name, v.example]),
+  );
   const render = (t: string) =>
     t.replace(/\{(\w+)\}/g, (whole, k: string) => sample[k] ?? whole);
 
