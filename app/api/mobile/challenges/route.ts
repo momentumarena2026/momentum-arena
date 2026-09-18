@@ -12,7 +12,9 @@ import {
   challengeSettings,
   expireStaleChallenges,
   logChallengeEvent,
+  challengeLimits,
 } from "@/lib/challenges";
+import { counterRefusal } from "@/lib/challenge-rules";
 
 /**
  * The challenge board, for the app.
@@ -45,7 +47,13 @@ export async function GET(request: NextRequest) {
     const one = await getChallenge(id);
     if (!one) return NextResponse.json({ error: "Not found" }, { status: 404 });
     void logChallengeEvent({ type: "DETAIL_VIEWED", userId: user.id, challengeId: id });
-    return NextResponse.json({ challenge: one, viewerId: user.id });
+    // Answer "can this viewer still counter?" here, with the same rule the
+    // write path enforces, so the screen can hide an affordance that would
+    // only be refused. Computing it again in the client would be a second
+    // copy of the rule, free to drift; letting the screen offer the button
+    // and find out on tap walks the user into a dead end.
+    const counterBlock = counterRefusal(one, user.id, await challengeLimits(), new Date());
+    return NextResponse.json({ challenge: one, viewerId: user.id, counterBlock });
   }
 
   const settings = await challengeSettings();

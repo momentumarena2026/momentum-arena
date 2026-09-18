@@ -109,7 +109,7 @@ export async function fetchChallengeBoard(
 
 export async function fetchChallenge(
   id: string,
-): Promise<{ challenge: Challenge; viewerId: string }> {
+): Promise<{ challenge: Challenge; viewerId: string; counterBlock: string | null }> {
   return api.get(`/api/mobile/challenges?id=${encodeURIComponent(id)}`);
 }
 

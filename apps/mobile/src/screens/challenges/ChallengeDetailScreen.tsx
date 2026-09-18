@@ -75,6 +75,7 @@ export function ChallengeDetailScreen() {
     );
   }
 
+  const counterBlock = q.data?.counterBlock ?? null;
   const mine = c.createdByUserId === me;
   const iAmIn = mine || c.acceptedByUserId === me;
   const live = ["OPEN", "COUNTERED"].includes(c.status);
@@ -194,7 +195,14 @@ export function ChallengeDetailScreen() {
             own. The server enforces the cap and says so if it is spent. */}
         {live && (
           <View style={{ gap: 8 }}>
-            {!showCounter ? (
+            {counterBlock ? (
+              // The server already told us this viewer's counter is spent (or
+              // otherwise not theirs to make), so say so instead of offering a
+              // button whose only outcome is that same sentence in an alert.
+              <Text variant="tiny" color={colors.zinc600}>
+                {counterBlock}
+              </Text>
+            ) : !showCounter ? (
               <>
                 <Text variant="tiny" color={colors.zinc600}>
                   None of those work? Suggest one of your own — one counter-offer each.
