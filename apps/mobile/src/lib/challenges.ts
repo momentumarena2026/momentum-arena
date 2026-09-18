@@ -133,8 +133,43 @@ export async function fetchChallenge(id: string): Promise<{
 
 export async function createChallengePayOrder(
   challengeId: string,
+  /** Present when this payment IS the acceptance of that window. */
+  windowId?: string,
 ): Promise<{ orderId: string; keyId: string; amount: number; courtLabel: string | null }> {
-  return api.post("/api/mobile/challenges", { op: "pay-order", challengeId });
+  return api.post("/api/mobile/challenges", { op: "pay-order", challengeId, windowId });
+}
+
+export type SpinResult = {
+  pct: number;
+  kind: "ADJACENT" | "FALLBACK";
+  offerId: string;
+  expiresAt: string;
+  hour: string | null;
+  price: number | null;
+  saving: number | null;
+};
+
+export async function spinChallengeWheel(challengeId: string): Promise<SpinResult> {
+  return api.post("/api/mobile/challenges", { op: "spin", challengeId });
+}
+
+export type OfferPick = { courtConfigId: string; date: string; startHour: number };
+
+export async function createOfferPayOrder(
+  offerId: string,
+  pick?: OfferPick,
+): Promise<{ orderId: string; keyId: string; amount: number; saving: number; minsLeft: number }> {
+  return api.post("/api/mobile/challenges", { op: "offer-order", offerId, pick });
+}
+
+export async function verifyOfferPayment(input: {
+  offerId: string;
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+  pick?: OfferPick;
+}): Promise<{ ok: boolean; bookingId: string }> {
+  return api.post("/api/mobile/challenges", { op: "offer-verify", ...input });
 }
 
 export async function verifyChallengePayment(input: {

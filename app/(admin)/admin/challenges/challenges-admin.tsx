@@ -990,6 +990,58 @@ function PromoTab({
       </Panel>
 
       <Panel
+        title="What the pushes say"
+        desc="Your words, not the app's. Anything in braces is filled in when it sends."
+      >
+        <div className="mb-3 flex flex-wrap gap-2">
+          {PUSH_VARS.map((v) => (
+            <span
+              key={v.name}
+              title={v.note}
+              className="rounded border border-zinc-700 bg-zinc-950 px-2 py-0.5 font-mono text-[11px] text-zinc-300"
+            >
+              {"{"}
+              {v.name}
+              {"}"} → {v.example}
+            </span>
+          ))}
+        </div>
+
+        <PushEditor
+          title="When they win"
+          desc="Sent the moment the wheel stops."
+          single
+          value={asPushList(s.spinWonPush, [DEFAULT_WON])}
+          onSave={(list) => {
+            setS({ ...s, spinWonPush: list[0] });
+            save({ spinWonPush: { title: list[0].title, body: list[0].body } });
+          }}
+        />
+
+        <PushEditor
+          title="Chasing the next hour"
+          desc={`Nudges inside the ${s.spinAdjacentWindowMins}-minute window. A nudge set at or above that never fires.`}
+          windowMins={s.spinAdjacentWindowMins}
+          value={asPushList(s.spinAdjacentPushes, DEFAULT_ADJ)}
+          onSave={(list) => {
+            setS({ ...s, spinAdjacentPushes: list });
+            save({ spinAdjacentPushes: list });
+          }}
+        />
+
+        <PushEditor
+          title="Chasing the any-day offer"
+          desc={`Nudges inside the ${s.spinFallbackWindowMins}-minute window.`}
+          windowMins={s.spinFallbackWindowMins}
+          value={asPushList(s.spinFallbackPushes, DEFAULT_FB)}
+          onSave={(list) => {
+            setS({ ...s, spinFallbackPushes: list });
+            save({ spinFallbackPushes: list });
+          }}
+        />
+      </Panel>
+
+      <Panel
         title="What it has actually cost"
         desc="Spins, what came back, and the realised average — which is the only one that matches the month's numbers."
       >
@@ -1066,5 +1118,160 @@ function Toggle({
     >
       {value ? `${label} — ON` : `${label} — OFF`}
     </button>
+  );
+}
+
+type Push = { minsLeft?: number; title: string; body: string };
+
+const PUSH_VARS = [
+  { name: "minsLeft", example: "5", note: "minutes left before the offer dies" },
+  { name: "pct", example: "20", note: "the discount they won" },
+  { name: "price", example: "1600", note: "what the hour costs after the discount" },
+  { name: "saving", example: "400", note: "what the discount saves them" },
+  { name: "hour", example: "9pm–10pm", note: "the hour on offer" },
+  { name: "date", example: "Sun, 20 Sep", note: "the day of that hour" },
+  { name: "court", example: "Full Field", note: "which court" },
+];
+
+const DEFAULT_WON: Push = {
+  title: "You won {pct}% off the next hour",
+  body: "Ask your side — {hour} is yours for ₹{price} if you take it in the next {minsLeft} minutes.",
+};
+const DEFAULT_ADJ: Push[] = [
+  { minsLeft: 15, title: "{minsLeft} minutes left on your {pct}% off", body: "{hour} is still free. ₹{price} for the hour — decide before it goes." },
+  { minsLeft: 5, title: "Last call — {minsLeft} minutes", body: "Your {pct}% off {hour} expires shortly. ₹{price}, saving ₹{saving}." },
+];
+const DEFAULT_FB: Push[] = [
+  { minsLeft: 60, title: "Your {pct}% off is still open", body: "Pick any hour in the next day at {pct}% off. {minsLeft} minutes left to choose." },
+  { minsLeft: 30, title: "{minsLeft} minutes to use your {pct}% off", body: "Any hour, {pct}% off. Once it lapses it's gone." },
+  { minsLeft: 10, title: "Last call — {minsLeft} minutes", body: "Your {pct}% off expires shortly. Pick an hour now." },
+];
+
+function asPushList(v: unknown, fallback: Push[]): Push[] {
+  if (Array.isArray(v) && v.length > 0) return v as Push[];
+  if (v && typeof v === "object" && "title" in (v as object)) return [v as Push];
+  return fallback;
+}
+
+/**
+ * Edits one push schedule.
+ *
+ * The preview is the point: a template is only correct once you have seen
+ * it with real values substituted, and "{minsLef}" reads as fine in a form
+ * field and as broken in a notification.
+ */
+function PushEditor({
+  title,
+  desc,
+  value,
+  onSave,
+  windowMins,
+  single,
+}: {
+  title: string;
+  desc: string;
+  value: Push[];
+  onSave: (v: Push[]) => void;
+  windowMins?: number;
+  single?: boolean;
+}) {
+  const [list, setList] = useState<Push[]>(value);
+  const sample: Record<string, string> = {
+    minsLeft: "5",
+    pct: "20",
+    price: "1600",
+    saving: "400",
+    hour: "9pm–10pm",
+    date: "Sun, 20 Sep",
+    court: "Full Field",
+  };
+  const render = (t: string) =>
+    t.replace(/\{(\w+)\}/g, (whole, k: string) => sample[k] ?? whole);
+
+  const tooLate = (p: Push) =>
+    !single && windowMins !== undefined && (p.minsLeft ?? 0) >= windowMins;
+
+  return (
+    <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+      <p className="text-sm font-medium text-zinc-200">{title}</p>
+      <p className="mt-0.5 text-xs text-zinc-500">{desc}</p>
+      <div className="mt-3 space-y-3">
+        {list.map((p, i) => (
+          <div key={i} className="space-y-1.5">
+            {!single && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-zinc-500">fires with</span>
+                <input
+                  type="number"
+                  value={p.minsLeft ?? 0}
+                  min={1}
+                  onChange={(e) => {
+                    const next = [...list];
+                    next[i] = { ...p, minsLeft: Number(e.target.value) };
+                    setList(next);
+                  }}
+                  className="w-20 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-100"
+                />
+                <span className="text-zinc-500">minutes left</span>
+                {tooLate(p) && (
+                  <span className="text-red-400">
+                    never fires — the offer is only {windowMins} minutes long
+                  </span>
+                )}
+                <button
+                  onClick={() => setList(list.filter((_, j) => j !== i))}
+                  className="ml-auto rounded border border-zinc-700 px-2 py-0.5 text-zinc-400 hover:bg-zinc-800"
+                >
+                  remove
+                </button>
+              </div>
+            )}
+            <input
+              value={p.title}
+              placeholder="Title"
+              onChange={(e) => {
+                const next = [...list];
+                next[i] = { ...p, title: e.target.value };
+                setList(next);
+              }}
+              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-100"
+            />
+            <textarea
+              value={p.body}
+              placeholder="Body"
+              rows={2}
+              onChange={(e) => {
+                const next = [...list];
+                next[i] = { ...p, body: e.target.value };
+                setList(next);
+              }}
+              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-100"
+            />
+            <div className="rounded border border-zinc-800 bg-black/40 px-2 py-1.5">
+              <p className="text-[10px] uppercase tracking-wide text-zinc-600">As it sends</p>
+              <p className="text-xs font-medium text-zinc-200">{render(p.title)}</p>
+              <p className="text-xs text-zinc-400">{render(p.body)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex gap-2">
+        {!single && (
+          <button
+            onClick={() => setList([...list, { minsLeft: 10, title: "", body: "" }])}
+            className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+          >
+            + add a nudge
+          </button>
+        )}
+        <button
+          onClick={() => onSave(list)}
+          disabled={list.some(tooLate) || list.some((p) => !p.title.trim() || !p.body.trim())}
+          className="rounded bg-emerald-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-40"
+        >
+          Save
+        </button>
+      </div>
+    </div>
   );
 }

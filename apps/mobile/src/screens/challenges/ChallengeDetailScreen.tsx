@@ -18,6 +18,10 @@ import {
   challengeErrorMessage,
   createChallengePayOrder,
   verifyChallengePayment,
+  spinChallengeWheel,
+  createOfferPayOrder,
+  verifyOfferPayment,
+  type SpinResult,
 } from "../../lib/challenges";
 import RazorpayCheckout from "react-native-razorpay";
 import { useAuth } from "../../providers/AuthProvider";
@@ -38,6 +42,8 @@ export function ChallengeDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [showCounter, setShowCounter] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [spinning, setSpinning] = useState(false);
+  const [spun, setSpun] = useState<SpinResult | null>(null);
   const { state: authState } = useAuth();
 
   // The next seven days — as far ahead as anyone arranges a pickup game.
@@ -102,10 +108,10 @@ export function ChallengeDetailScreen() {
    * screens constantly and telling them off for it is wrong — so it just
    * returns quietly and leaves the challenge as it was.
    */
-  const pay = async () => {
+  const pay = async (acceptWindowId?: string) => {
     setPaying(true);
     try {
-      const order = await createChallengePayOrder(id);
+      const order = await createChallengePayOrder(id, acceptWindowId);
       let paid: {
         razorpay_order_id?: string;
         razorpay_payment_id?: string;
@@ -141,10 +147,73 @@ export function ChallengeDetailScreen() {
         res.status === "CONFIRMED" ? "Match confirmed" : "Court held",
         res.status === "CONFIRMED"
           ? "Both halves are in and the court is booked. See you there."
-          : "Your half is paid and the hour is now blocked. We've told the other captain theirs is due.",
+          : acceptWindowId
+            ? "You're in, and the hour is now blocked. We've told the other captain their half is due."
+            : "Your half is paid and the hour is now blocked. We've told the other captain theirs is due.",
       );
     } catch (e) {
       Alert.alert("Payment problem", challengeErrorMessage(e));
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  /**
+   * Spin. The result is decided and stored on the server before this call
+   * returns — the animation shows what already happened, so backgrounding
+   * the app mid-spin cannot buy a second roll.
+   */
+  const spin = async () => {
+    setSpinning(true);
+    try {
+      setSpun(await spinChallengeWheel(id));
+    } catch (e) {
+      Alert.alert("No spin", challengeErrorMessage(e));
+    } finally {
+      setSpinning(false);
+    }
+  };
+
+  /** Pay for the whole discounted hour. No split — the captain fronts it. */
+  const takeOffer = async () => {
+    if (!spun) return;
+    setPaying(true);
+    try {
+      const order = await createOfferPayOrder(spun.offerId);
+      let paid: {
+        razorpay_order_id?: string;
+        razorpay_payment_id?: string;
+        razorpay_signature?: string;
+      };
+      try {
+        paid = (await RazorpayCheckout.open({
+          key: order.keyId,
+          amount: Math.round(order.amount * 100),
+          currency: "INR",
+          name: "Momentum Arena",
+          description: `${spun.pct}% off ${spun.hour ?? "an extra hour"}`,
+          order_id: order.orderId,
+          prefill: {
+            name: authState.user?.name ?? "",
+            email: authState.user?.email ?? "",
+            contact: authState.user?.phone ?? "",
+          },
+          theme: { color: colors.emerald500 },
+        })) as typeof paid;
+      } catch {
+        return; // sheet dismissed — the offer is still live
+      }
+      await verifyOfferPayment({
+        offerId: spun.offerId,
+        razorpayOrderId: paid.razorpay_order_id ?? "",
+        razorpayPaymentId: paid.razorpay_payment_id ?? "",
+        razorpaySignature: paid.razorpay_signature ?? "",
+      });
+      setSpun(null);
+      await refresh();
+      Alert.alert("Booked", `That hour is yours at ${spun.pct}% off. See you there.`);
+    } catch (e) {
+      Alert.alert("Couldn't book it", challengeErrorMessage(e));
     } finally {
       setPaying(false);
     }
@@ -215,9 +284,55 @@ export function ChallengeDetailScreen() {
             </Text>
 
             {c.status === "CONFIRMED" ? (
-              <Text variant="small" color={colors.zinc300}>
-                Both halves are in and the court is booked. See you there.
-              </Text>
+              <>
+                <Text variant="small" color={colors.zinc300}>
+                  Both halves are in and the court is booked. See you there.
+                </Text>
+                {mine && !spun && (
+                  <Button
+                    label="Spin for a discount on the next hour"
+                    variant="primary"
+                    loading={spinning}
+                    disabled={spinning}
+                    onPress={spin}
+                  />
+                )}
+                {spun && (
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.emerald400,
+                      borderRadius: radius.md,
+                      padding: 12,
+                      gap: 8,
+                    }}
+                  >
+                    <Text variant="bodyStrong" color={colors.emerald400}>
+                      {spun.pct}% off the next hour
+                    </Text>
+                    <Text variant="small" color={colors.zinc300}>
+                      {spun.kind === "ADJACENT" && spun.hour
+                        ? `${spun.hour} is free — ₹${spun.price} instead of ₹${(spun.price ?? 0) + (spun.saving ?? 0)}. Ask your side, then take it.`
+                        : `The hour after your match is taken, so this is good on any hour in the next day.`}
+                    </Text>
+                    <Text variant="tiny" color={colors.zinc500}>
+                      Expires {new Date(spun.expiresAt).toLocaleTimeString("en-IN", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </Text>
+                    {spun.kind === "ADJACENT" && (
+                      <Button
+                        label={`Book it — ₹${spun.price}`}
+                        variant="primary"
+                        loading={paying}
+                        disabled={paying}
+                        onPress={takeOffer}
+                      />
+                    )}
+                  </View>
+                )}
+              </>
             ) : quote.youHavePaid ? (
               <Text variant="small" color={colors.zinc300}>
                 Waiting on the other captain's half. The hour is held either way —
@@ -239,7 +354,7 @@ export function ChallengeDetailScreen() {
                   variant="primary"
                   loading={paying}
                   disabled={paying}
-                  onPress={pay}
+                  onPress={() => pay()}
                 />
               </>
             )}
@@ -279,18 +394,43 @@ export function ChallengeDetailScreen() {
                       {w.proposedBy === "CHALLENGER" ? "their time" : "counter-offer"}
                     </Text>
                   </View>
-                  {canTake && (
-                    <Button
-                      label={mine ? "Accept this time" : "Take this match"}
-                      variant="primary"
-                      size="sm"
-                      loading={busy}
-                      onPress={() => {
-                        trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
-                        void act(() => acceptChallenge(c.id, w.id));
-                      }}
-                    />
-                  )}
+                  {canTake &&
+                    (iAmIn ? (
+                      // Already in the match: settling on one of their times
+                      // needs no money from this side beyond the half
+                      // already owed, so this stays a plain accept.
+                      <Button
+                        label="Accept this time"
+                        variant="primary"
+                        size="sm"
+                        loading={busy}
+                        onPress={() => {
+                          trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
+                          void act(() => acceptChallenge(c.id, w.id));
+                        }}
+                      />
+                    ) : (
+                      // Taking a stranger's challenge IS paying for it. The
+                      // button says so rather than leading with "Take this
+                      // match" and producing a payment sheet nobody asked
+                      // for — a price on the button is the difference
+                      // between a considered tap and an ambushed one.
+                      <Button
+                        label={
+                          quote?.shares.ACCEPTOR
+                            ? `Take it — pay ₹${quote.shares.ACCEPTOR}`
+                            : "Take this match"
+                        }
+                        variant="primary"
+                        size="sm"
+                        loading={paying}
+                        disabled={paying}
+                        onPress={() => {
+                          trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
+                          void pay(w.id);
+                        }}
+                      />
+                    ))}
                 </View>
               );
             })}
