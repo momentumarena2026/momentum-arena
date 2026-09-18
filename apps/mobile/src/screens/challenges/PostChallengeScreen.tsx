@@ -20,6 +20,7 @@ import {
   postChallenge,
   hourLabel,
   type ProposedWindow,
+  challengeErrorMessage,
 } from "../../lib/challenges";
 
 /**
@@ -91,7 +92,7 @@ export function PostChallengeScreen() {
       playerCount: parseInt(players.replace(/[^\d]/g, ""), 10) || 0,
       notes: notes.trim() || null,
       windows,
-    }).catch(() => ({ error: "Couldn't reach the arena." }));
+    }).catch((e) => ({ error: challengeErrorMessage(e) }));
     setBusy(false);
     if (res.error) {
       Alert.alert("Can't post that", res.error);

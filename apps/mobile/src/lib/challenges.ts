@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, ApiError } from "./api";
 
 /**
  * The challenge board, app side.
@@ -64,6 +64,26 @@ export type ChallengeBoard = {
 
 /** Taps worth seeing that change nothing on the server. Fire and forget —
  *  a dropped telemetry call must never cost the user their tap. */
+/**
+ * The sentence to show when a challenge action fails.
+ *
+ * Every refusal the server issues is a deliberate, readable reason — "Player
+ * count must be between 1 and 30", "The challenge board is currently switched
+ * off" — and `api.ts` already puts it on `ApiError.message`. A blanket
+ * `.catch(() => "Couldn't reach the arena.")` threw all of that away and told
+ * the user about a network failure that had not happened, while the admin
+ * event log recorded the real reason: the log would then be a record of a
+ * sentence nobody was ever shown. Reserve the reachability message for an
+ * actual reachability failure, which `api.ts` reports as status 0.
+ */
+export function challengeErrorMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 0) return "Couldn't reach the arena.";
+    if (e.message) return e.message;
+  }
+  return "Couldn't reach the arena.";
+}
+
 export function trackChallenge(
   type: "HOME_CARD_SHOWN" | "HOME_CARD_TAPPED" | "POST_OPENED" | "ACCEPT_TAPPED" | "COUNTER_OPENED",
   extra?: { challengeId?: string | null; detail?: string | null },

@@ -15,6 +15,7 @@ import {
   hourLabel,
   dayLabel,
   trackChallenge,
+  challengeErrorMessage,
 } from "../../lib/challenges";
 
 /**
@@ -86,7 +87,7 @@ export function ChallengeDetailScreen() {
 
   const act = async (fn: () => Promise<{ ok?: boolean; error?: string }>) => {
     setBusy(true);
-    const res = await fn().catch(() => ({ error: "Couldn't reach the arena." }));
+    const res = await fn().catch((e) => ({ error: challengeErrorMessage(e) }));
     setBusy(false);
     if (res.error) {
       Alert.alert("Can't do that", res.error);
