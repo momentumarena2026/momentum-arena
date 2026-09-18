@@ -4276,19 +4276,33 @@ model ChallengeOffer {
 
   kind ChallengeOfferKind
 
-  /// Only set for ADJACENT: the exact hour being held open, so the offer
-  /// can be priced and booked without re-deriving which hour was meant.
+  /// The exact hour this offer is for. Set at spin time for ADJACENT, and
+  /// PINNED at order time for FALLBACK — the hour the captain is charged
+  /// for has to be the hour he was quoted, and a `pick` passed separately
+  /// to the order and the verify let those differ.
   courtConfigId String?
   date          DateTime? @db.Date
   startHour     Int?
+
+  /// The gateway order this offer was priced into. Unique, so one paid
+  /// order can only ever produce one booking, and the verify can look the
+  /// offer up BY the order rather than trusting a client-supplied id.
+  /// Without it any (order, payment, signature) triple the user had ever
+  /// received satisfied the check, for any price.
+  razorpayOrderId String? @unique
+  /// What that order was minted for, in whole rupees. Banked as-is rather
+  /// than re-derived, so a rate change mid-payment cannot alter what the
+  /// ledger says was collected.
+  quotedPrice     Int?
 
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
   discountPct Int
-  /// Expiry is stamped at issue from ChallengeSettings.spinOfferMins, not
-  /// computed on read — retuning the setting must not silently extend or
-  /// kill offers already in somebody's hands.
+  /// Expiry is stamped at issue from the matching window setting
+  /// (spinAdjacentWindowMins or spinFallbackWindowMins), not computed on
+  /// read — retuning the setting must not silently extend or kill offers
+  /// already in somebody's hands.
   expiresAt   DateTime
 
   /// Which `minsLeft` markers have already fired, so a cron running every
@@ -4300,6 +4314,11 @@ model ChallengeOffer {
   bookingId String?  @unique
   booking   Booking? @relation(fields: [bookingId], references: [id])
   takenAt   DateTime?
+  /// Stamped once the lapse has been recorded. Without it the expiry sweep
+  /// re-selected the same dead offers every minute and wrote a fresh
+  /// OFFER_LAPSED each time — the admin's "lapses" figure became
+  /// minutes-since-expiry and the event table grew without bound.
+  lapsedAt  DateTime?
 
   createdAt DateTime @default(now())
 

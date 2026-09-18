@@ -107,3 +107,22 @@ test("malformed schedules are refused with something the admin can act on", () =
   );
   assert.equal(pushScheduleRefusal([], 30), null); // no nudges is a valid choice
 });
+
+test("a fractional nudge marker is refused, because Int[] would round it", () => {
+  // The bug this guards: remindedAt is an Int[], so 10.5 stores as 11 and
+  // `alreadySent.includes(10.5)` is false forever — a per-minute cron then
+  // sends the same push every minute for the life of the offer.
+  assert.match(
+    pushScheduleRefusal([{ minsLeft: 10.5, title: "t", body: "b" }], 30) ?? "",
+    /whole positive number/,
+  );
+  assert.equal(pushScheduleRefusal([{ minsLeft: 10, title: "t", body: "b" }], 30), null);
+});
+
+test("a nudge is deduped by its exact stored marker", () => {
+  // Integer markers round-trip through Int[] unchanged, so a sent marker
+  // always matches on the next tick.
+  const t = [{ minsLeft: 10, title: "t", body: "b" }];
+  assert.equal(pushesDue({ templates: t, minsLeft: 9, alreadySent: [10] }).length, 0);
+  assert.equal(pushesDue({ templates: t, minsLeft: 9, alreadySent: [] }).length, 1);
+});

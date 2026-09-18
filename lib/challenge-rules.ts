@@ -14,6 +14,9 @@
 
 export type ChallengeSide = "CHALLENGER" | "ACCEPTOR";
 
+/** Mirrors the Sport enum. Kept here so the pure rules stay database-free. */
+export const KNOWN_SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+
 export type ChallengeStatus =
   | "OPEN"
   | "COUNTERED"
@@ -27,6 +30,8 @@ export type ChallengeStatus =
 /** The settings the venue controls. Defaults match the schema. */
 export type ChallengeLimits = {
   enabled: boolean;
+  /** Notice the venue needs before a slot. 0 switches the gate off. */
+  minLeadMins?: number;
   minPlayers: number;
   maxPlayers: number;
   maxWindows: number;
@@ -37,6 +42,7 @@ export type ChallengeLimits = {
 
 export const DEFAULT_LIMITS: ChallengeLimits = {
   enabled: false,
+  minLeadMins: 240,
   minPlayers: 1,
   maxPlayers: 30,
   maxWindows: 3,
@@ -96,6 +102,12 @@ export function postRefusal(
   now: Date,
 ): string | null {
   if (!limits.enabled) return "The challenge board is currently switched off.";
+  // Checked against the arena's real sports even when the venue has not
+  // narrowed the list: an unknown string used to reach Prisma's enum cast
+  // and 500 the whole board for everyone.
+  if (!KNOWN_SPORTS.includes(input.sport)) {
+    return "That isn't a sport the arena runs.";
+  }
   if (limits.sports?.length && !limits.sports.includes(input.sport)) {
     return "Challenges aren't open for that sport yet.";
   }
@@ -106,6 +118,21 @@ export function postRefusal(
   if (input.windows.length === 0) return "Offer at least one time you can play.";
   if (input.windows.length > limits.maxWindows) {
     return `Offer at most ${limits.maxWindows} times.`;
+  }
+  // Posting is gated by the same notice the venue needs to staff an hour.
+  // The app's day picker starts at tomorrow so this was unreachable there,
+  // but the API is the API.
+  if (limits.minLeadMins && limits.minLeadMins > 0) {
+    for (const w of input.windows) {
+      const bad = leadTimeRefusal(
+        new Date(`${w.date}T00:00:00.000Z`).getTime() + (w.startHour - 5.5) * 3600000 > 0
+          ? new Date(new Date(`${w.date}T00:00:00.000Z`).getTime() + (w.startHour - 5.5) * 3600000)
+          : now,
+        now,
+        limits.minLeadMins,
+      );
+      if (bad) return bad;
+    }
   }
   for (const w of input.windows) {
     const bad = windowRefusal(w, now);
@@ -161,7 +188,17 @@ export function acceptRefusal(
   c: ChallengeView,
   userId: string,
   now: Date,
+  /**
+   * Optional only so older callers keep compiling; pass it. A board that is
+   * switched off must stop new commitments, not merely hide its own screen
+   * — a notification deep-link drops the user straight onto the detail
+   * view, where Accept was still live.
+   */
+  limits?: ChallengeLimits,
+  /** The window being settled on, so its start can be checked. */
+  win?: { date: Date; startHour: number } | null,
 ): string | null {
+  if (limits && !limits.enabled) return "The challenge board is currently switched off.";
   if (!isLive(c.status)) return "That challenge is no longer open.";
   if (c.status === "AGREED" || c.status === "PART_PAID") {
     return "That challenge has already been matched.";
@@ -176,6 +213,23 @@ export function acceptRefusal(
   // A countered challenge belongs to the two already in it.
   if (c.status === "COUNTERED" && sideOf(c, userId) === null) {
     return "Someone else is already negotiating this one.";
+  }
+  // THE FREE-ACCEPT HOLE. Accepting is paying, so this path exists only for
+  // somebody ALREADY in the match settling on a time — the poster taking a
+  // counter, or an acceptor taking a counter back. A stranger reaching it
+  // took a challenge off the board for nothing, and because a matched
+  // challenge cannot be withdrawn, posted again, or expired, one free API
+  // call removed a captain from the board permanently.
+  if (sideOf(c, userId) === null) {
+    return "Take this one by paying your half — that's what settles it.";
+  }
+  // The window being settled on must still be far enough out. Without this
+  // the poster could free-accept a counter 3.5 hours away and both sides
+  // then paid straight through the gate.
+  if (win && limits?.minLeadMins) {
+    const start = new Date(win.date.getTime() + (win.startHour - 5.5) * 3600000);
+    const late = leadTimeRefusal(start, now, limits.minLeadMins);
+    if (late) return late;
   }
   if (c.expiresAt.getTime() <= now.getTime()) return "That challenge has expired.";
   return null;
@@ -194,6 +248,7 @@ export function counterRefusal(
   limits: ChallengeLimits,
   now: Date,
 ): string | null {
+  if (!limits.enabled) return "The challenge board is currently switched off.";
   if (!isLive(c.status)) return "That challenge is no longer open.";
   if (c.status === "AGREED" || c.status === "PART_PAID") {
     return "That challenge has already been matched.";
@@ -224,11 +279,20 @@ export function counterRefusal(
 }
 
 /** Why this user cannot withdraw — or null. Admins bypass this entirely. */
-export function withdrawRefusal(c: ChallengeView, userId: string): string | null {
+export function withdrawRefusal(
+  c: ChallengeView,
+  userId: string,
+  /** Whether either side has actually paid. Defaults to the cautious answer. */
+  anyPaid = true,
+): string | null {
   if (!isLive(c.status)) return "That challenge is already closed.";
   if (c.createdByUserId !== userId) return "Only whoever posted it can withdraw it.";
-  if (c.status === "AGREED" || c.status === "PART_PAID") {
-    return "It's already matched — the venue has to unwind this one.";
+  // Only money makes a match the venue's problem. An AGREED challenge that
+  // nobody has paid for is still just an arrangement, and refusing to let
+  // the poster withdraw it left them unable to withdraw, unable to post
+  // again, and waiting on an expiry sweep that skipped AGREED entirely.
+  if (c.status === "PART_PAID" || (c.status === "AGREED" && anyPaid)) {
+    return "It's already matched and paid — the venue has to unwind this one.";
   }
   return null;
 }
@@ -366,8 +430,16 @@ export function wheelRefusal(
   avgMaxPct: number,
 ): string | null {
   if (!Array.isArray(segs) || segs.length === 0) return "Add at least one segment.";
-  if (segs.some((x) => !Number.isFinite(x.pct) || x.pct < 0 || x.pct > 100)) {
-    return "Every segment must be between 0% and 100%.";
+  // Whole percents only. `ChallengeSpin.wonPct` and
+  // `ChallengeOffer.discountPct` are Int columns, so 17.5 is truncated to
+  // 17 on write — and the poster is then shown a price derived from 17.5
+  // at the moment of winning and charged one derived from 17. The number
+  // on the screen has to be the number in the database.
+  if (segs.some((x) => !Number.isInteger(x.pct) || x.pct < 0 || x.pct > 100)) {
+    return "Every segment must be a whole number between 0% and 100%.";
+  }
+  if (segs.some((x) => x.weight === undefined || x.weight === null)) {
+    return "Every segment needs a weight.";
   }
   if (segs.some((x) => !Number.isFinite(x.weight) || x.weight < 0)) {
     return "Weights cannot be negative.";

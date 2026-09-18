@@ -151,8 +151,20 @@ test("expiry follows the LAST window offered, not the first", () => {
 });
 
 // ── Accepting ──────────────────────────────────────────────────────
-test("a stranger can accept an open challenge", () => {
-  assert.equal(acceptRefusal(challenge(), "other", NOW), null);
+test("a stranger CANNOT accept for free — paying is what settles it", () => {
+  // The free-accept hole. A stranger reaching this path took a challenge
+  // off the board for nothing, and a matched challenge could not then be
+  // withdrawn, re-posted or expired — one call locked a captain out
+  // permanently. Strangers go through pay-order with a windowId instead.
+  assert.match(acceptRefusal(challenge(), "other", NOW) ?? "", /paying your half/);
+});
+
+test("somebody already in the match may settle on a time for free", () => {
+  // The poster taking a counter owes their half either way, so no money is
+  // skipped by letting them agree a time.
+  const countered = challenge({ status: "COUNTERED", acceptedByUserId: "other" });
+  assert.equal(acceptRefusal(countered, "poster", NOW), null);
+  assert.equal(acceptRefusal(countered, "other", NOW), null);
 });
 
 test("you cannot accept your own challenge", () => {
@@ -160,7 +172,11 @@ test("you cannot accept your own challenge", () => {
 });
 
 test("an expired challenge cannot be accepted", () => {
-  const past = challenge({ expiresAt: new Date("2026-09-17T05:00:00+05:30") });
+  const past = challenge({
+    status: "COUNTERED",
+    acceptedByUserId: "other",
+    expiresAt: new Date("2026-09-17T05:00:00+05:30"),
+  });
   assert.match(acceptRefusal(past, "other", NOW) ?? "", /expired/i);
 });
 
@@ -388,4 +404,42 @@ test("the lead-time gate closes the board near the slot", () => {
   assert.equal(leadTimeRefusal(slot, late, 0), null);
   // Past slots are refused, not silently allowed.
   assert.match(leadTimeRefusal(slot, new Date("2026-09-21T09:00:00+05:30"), 240) ?? "", /before the slot/);
+});
+
+test("fractional discounts are refused, because wonPct is an Int column", () => {
+  // 17.5 would be shown to the winner and stored as 17, so the number on
+  // the screen at the moment of winning is not the number charged.
+  assert.match(
+    wheelRefusal([{ pct: 17.5, weight: 1 }], 0, 100) ?? "",
+    /whole number between 0% and 100%/,
+  );
+  assert.equal(wheelRefusal([{ pct: 17, weight: 1 }], 0, 100), null);
+});
+
+test("a segment with no weight says so, rather than blaming a negative", () => {
+  assert.match(
+    wheelRefusal([{ pct: 20 } as never], 0, 100) ?? "",
+    /needs a weight/,
+  );
+});
+
+test("a switched-off board refuses accepting and countering, not just posting", () => {
+  // The board hiding its own screen is not a gate: a notification
+  // deep-link drops the user straight onto the detail view.
+  const off = { ...DEFAULT_LIMITS, enabled: false };
+  const on = { ...DEFAULT_LIMITS, enabled: true };
+  const c: ChallengeView = {
+    status: "OPEN",
+    createdByUserId: "poster",
+    acceptedByUserId: null,
+    expiresAt: new Date("2026-12-01T00:00:00Z"),
+    counterCountChallenger: 0,
+    counterCountAcceptor: 0,
+  };
+  const now = new Date("2026-09-20T10:00:00Z");
+  const inMatch: ChallengeView = { ...c, status: "COUNTERED", acceptedByUserId: "taker" };
+  assert.match(acceptRefusal(inMatch, "taker", now, off) ?? "", /switched off/);
+  assert.equal(acceptRefusal(inMatch, "taker", now, on), null);
+  assert.match(counterRefusal(c, "taker", off, now) ?? "", /switched off/);
+  assert.equal(counterRefusal(c, "taker", on, now), null);
 });

@@ -220,8 +220,13 @@ function ChallengeCard({
           </Text>
           <Text variant="tiny" color={colors.zinc500}>
             {c.sport[0] + c.sport.slice(1).toLowerCase()} · {c.playerCount} players
+            {/* Every live state is named. PART_PAID used to render
+                identically to an unanswered post, so a captain with money
+                already in and a half outstanding saw nothing about it. */}
             {c.status === "COUNTERED" ? " · counter-offered" : ""}
-            {c.status === "AGREED" ? " · matched" : ""}
+            {c.status === "AGREED" ? " · matched, both halves due" : ""}
+            {c.status === "PART_PAID" ? " · half paid, court held" : ""}
+            {c.status === "CONFIRMED" ? " · paid, court booked" : ""}
           </Text>
         </View>
         <ChevronRight size={18} color={colors.zinc600} />
@@ -255,7 +260,7 @@ function ChallengeCard({
         ))}
       </View>
 
-      {mine && onWithdraw && c.status !== "AGREED" ? (
+      {mine && onWithdraw && !["AGREED", "PART_PAID", "CONFIRMED"].includes(c.status) ? (
         <Pressable onPress={onWithdraw} hitSlop={8}>
           <Text variant="tiny" color={colors.zinc500}>
             Withdraw

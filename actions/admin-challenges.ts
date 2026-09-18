@@ -146,8 +146,20 @@ async function promoStats(since: Date) {
   const taken = offers.filter((o) => o.takenAt);
   const discounted = taken.reduce((sum, o) => sum + (o.booking?.discountAmount ?? 0), 0);
   const collected = taken.reduce((sum, o) => sum + (o.booking?.totalAmount ?? 0), 0);
-  const realisedAvg =
+  // TWO different averages, because they answer two different questions and
+  // conflating them is a promo-killing error. The wheel's mean is what it
+  // LANDS on across every spin, including spins nobody redeemed; the
+  // realised cost is what the venue actually BORE, which is only ever
+  // discount over rack price on offers that were taken. Reporting the first
+  // as the second overstated a 15% promo as 36% — enough to cancel
+  // something that was working.
+  const wheelMeanPct =
     spins.length > 0 ? spins.reduce((s, x) => s + x.wonPct, 0) / spins.length : 0;
+  const rackTotal = taken.reduce(
+    (sum, o) => sum + (o.booking?.originalAmount ?? o.booking?.totalAmount ?? 0),
+    0,
+  );
+  const realisedCostPct = rackTotal > 0 ? (discounted / rackTotal) * 100 : 0;
 
   return {
     spins: spins.length,
@@ -162,7 +174,8 @@ async function promoStats(since: Date) {
     /// have sat empty. The second is the number that justifies the first.
     discounted,
     collected,
-    realisedAvgPct: Math.round(realisedAvg * 10) / 10,
+    wheelMeanPct: Math.round(wheelMeanPct * 10) / 10,
+    realisedCostPct: Math.round(realisedCostPct * 10) / 10,
     byPct: Object.entries(
       spins.reduce<Record<number, number>>((acc, x) => {
         acc[x.wonPct] = (acc[x.wonPct] ?? 0) + 1;
@@ -230,7 +243,7 @@ export async function saveChallengeSettings(
   try {
     const data = {
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-      ...(input.sports ? { sports: input.sports as never } : {}),
+      ...(input.sports ? { sports: [...new Set(input.sports)] as never } : {}),
       ...(num(input.minPlayers, 1, 50, "Minimum players") !== undefined
         ? { minPlayers: input.minPlayers }
         : {}),
@@ -256,19 +269,19 @@ export async function saveChallengeSettings(
       ...(num(input.pushDailyCap, 0, 50, "Push cap") !== undefined
         ? { pushDailyCap: input.pushDailyCap }
         : {}),
-      ...(input.boardTitle !== undefined ? { boardTitle: input.boardTitle || null } : {}),
+      ...(input.boardTitle !== undefined ? { boardTitle: input.boardTitle?.trim().slice(0, 200) || null } : {}),
       ...(input.boardSubtitle !== undefined
-        ? { boardSubtitle: input.boardSubtitle || null }
+        ? { boardSubtitle: input.boardSubtitle?.trim().slice(0, 200) || null }
         : {}),
-      ...(input.emptyText !== undefined ? { emptyText: input.emptyText || null } : {}),
+      ...(input.emptyText !== undefined ? { emptyText: input.emptyText?.trim().slice(0, 200) || null } : {}),
       ...(input.homeCardEnabled !== undefined
         ? { homeCardEnabled: input.homeCardEnabled }
         : {}),
       ...(input.homeCardTitle !== undefined
-        ? { homeCardTitle: input.homeCardTitle || null }
+        ? { homeCardTitle: input.homeCardTitle?.trim().slice(0, 200) || null }
         : {}),
       ...(input.homeCardSubtitle !== undefined
-        ? { homeCardSubtitle: input.homeCardSubtitle || null }
+        ? { homeCardSubtitle: input.homeCardSubtitle?.trim().slice(0, 200) || null }
         : {}),
       ...(input.homeCardBadge ? { homeCardBadge: input.homeCardBadge } : {}),
       ...(num(input.minLeadMins, 0, 2880, "Notice before the slot") !== undefined
@@ -302,48 +315,84 @@ export async function saveChallengeSettings(
       ...(input.spinWonPush ? { spinWonPush: input.spinWonPush as never } : {}),
     };
 
-    // The wheel is checked against the band BEFORE it is stored. A venue
-    // hand-tuning weights will drift, and a wheel paying 40% on average
-    // looks exactly like one paying 18% until the month's numbers arrive.
-    if (input.spinSegments) {
-      const current = await db.challengeSettings.findFirst({
-        select: { spinAvgMinPct: true, spinAvgMaxPct: true },
-      });
-      const lo = input.spinAvgMinPct ?? current?.spinAvgMinPct ?? 15;
-      const hi = input.spinAvgMaxPct ?? current?.spinAvgMaxPct ?? 25;
-      const bad = wheelRefusal(input.spinSegments, lo, hi);
-      if (bad) return { ok: false, error: bad };
-      Object.assign(data, { spinSegments: input.spinSegments as never });
+    if (input.spinSegments) Object.assign(data, { spinSegments: input.spinSegments as never });
+    if (input.spinAdjacentPushes) {
+      Object.assign(data, { spinAdjacentPushes: input.spinAdjacentPushes as never });
+    }
+    if (input.spinFallbackPushes) {
+      Object.assign(data, { spinFallbackPushes: input.spinFallbackPushes as never });
     }
 
-    // A nudge configured outside its own window never fires, and nothing
-    // else in the system would ever say so.
-    for (const [key, list, winKey, fallbackWin] of [
-      ["spinAdjacentPushes", input.spinAdjacentPushes, input.spinAdjacentWindowMins, 30],
-      ["spinFallbackPushes", input.spinFallbackPushes, input.spinFallbackWindowMins, 120],
-    ] as const) {
-      if (!list) continue;
-      const current = await db.challengeSettings.findFirst({
-        select: { spinAdjacentWindowMins: true, spinFallbackWindowMins: true },
-      });
-      const win =
-        winKey ??
-        (key === "spinAdjacentPushes"
-          ? current?.spinAdjacentWindowMins
-          : current?.spinFallbackWindowMins) ??
-        fallbackWin;
-      const bad = pushScheduleRefusal(list, win);
-      if (bad) return { ok: false, error: bad };
-      Object.assign(data, { [key]: list as never });
-    }
+    // ── Validate the RESULT, not the patch ──────────────────────────
+    //
+    // Every cross-field rule here was previously checked only when both
+    // halves of the pair arrived together — and this screen saves one
+    // field per blur, so none of them could ever fire from the UI they
+    // were written for. Worse, each could be walked out of validity by
+    // saving the other half afterwards: set a legal wheel, then move the
+    // band, and an out-of-band wheel pays out live with nothing refusing.
+    //
+    // So: merge the patch over what is stored, and judge the settings the
+    // venue would actually end up with.
+    const stored = await db.challengeSettings.findFirst();
+    const next = { ...(stored ?? {}), ...data } as Record<string, unknown>;
+    const n = (k: string, d: number) => (typeof next[k] === "number" ? (next[k] as number) : d);
 
-    if (
-      data.minPlayers !== undefined &&
-      data.maxPlayers !== undefined &&
-      data.minPlayers > data.maxPlayers
-    ) {
+    if (n("minPlayers", 1) > n("maxPlayers", 30)) {
       return { ok: false, error: "Minimum players can't exceed the maximum." };
     }
+    if (n("spinAvgMinPct", 15) > n("spinAvgMaxPct", 25)) {
+      return {
+        ok: false,
+        error: "The average floor can't be above the ceiling — no wheel could satisfy both.",
+      };
+    }
+
+    const segs = Array.isArray(next.spinSegments)
+      ? (next.spinSegments as { pct: number; weight: number }[])
+      : null;
+    if (segs) {
+      const bad = wheelRefusal(segs, n("spinAvgMinPct", 15), n("spinAvgMaxPct", 25));
+      if (bad) return { ok: false, error: bad };
+    }
+
+    for (const [key, winKey, winDefault] of [
+      ["spinAdjacentPushes", "spinAdjacentWindowMins", 30],
+      ["spinFallbackPushes", "spinFallbackWindowMins", 120],
+    ] as const) {
+      const list = next[key];
+      if (!Array.isArray(list) || list.length === 0) continue;
+      const bad = pushScheduleRefusal(
+        list as { minsLeft: number; title: string; body: string }[],
+        n(winKey, winDefault),
+      );
+      if (bad) return { ok: false, error: bad };
+    }
+
+    // The won-it push had no validation at all, and a malformed one throws
+    // inside renderPush AFTER the spin row is written — burning the
+    // poster's single spin on a 500 they can never retry.
+    if (input.spinWonPush !== undefined) {
+      const w = input.spinWonPush as { title?: unknown; body?: unknown } | null;
+      if (
+        !w ||
+        typeof w !== "object" ||
+        typeof w.title !== "string" ||
+        typeof w.body !== "string" ||
+        !w.title.trim() ||
+        !w.body.trim()
+      ) {
+        return { ok: false, error: "The win message needs a title and a body." };
+      }
+    }
+
+    if (input.pushAudience && !["ALL", "SPORT", "RECENT"].includes(input.pushAudience)) {
+      return { ok: false, error: "Audience must be ALL, SPORT or RECENT." };
+    }
+    if (input.homeCardBadge && !["NEW", "BETA", "NONE"].includes(input.homeCardBadge)) {
+      return { ok: false, error: "Badge must be NEW, BETA or NONE." };
+    }
+
 
     await db.challengeSettings.upsert({
       where: { id: "singleton" },
@@ -353,7 +402,12 @@ export async function saveChallengeSettings(
     revalidatePath("/admin/challenges");
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Couldn't save." };
+    // Only OUR messages reach the venue. A Prisma validation dump carries
+    // absolute source paths, a code excerpt and the argument tree straight
+    // into the admin UI.
+    const msg = e instanceof Error ? e.message : "";
+    const ours = msg && !msg.includes("Invalid `prisma.") && msg.length < 200;
+    return { ok: false, error: ours ? msg : "That value isn't one this setting accepts." };
   }
 }
 

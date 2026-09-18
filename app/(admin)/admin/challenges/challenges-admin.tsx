@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Swords, Settings2 } from "lucide-react";
 import {
@@ -65,7 +65,8 @@ type PromoStats = {
   fallbackTaken: number;
   discounted: number;
   collected: number;
-  realisedAvgPct: number;
+  wheelMeanPct: number;
+  realisedCostPct: number;
   byPct: { pct: number; count: number }[];
 };
 
@@ -726,6 +727,10 @@ function Num({
   hint?: string;
 }) {
   const [v, setV] = useState(String(value));
+  // Re-sync when the server value changes — including when a save is
+  // REFUSED and the prop comes back unchanged. Without this the field kept
+  // displaying a number the database never accepted.
+  useEffect(() => setV(String(value)), [value]);
   return (
     <div>
       <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">{label}</label>
@@ -734,7 +739,11 @@ function Num({
         value={v}
         onChange={(e) => setV(e.target.value)}
         onBlur={() => {
-          const n = parseInt(v.replace(/[^\d]/g, ""), 10);
+          // Parse what was actually typed rather than stripping it to
+          // digits: "-5" used to save as 5 and "2.5" as 25, so the value
+          // that reached the database was not the one on screen and the
+          // server's bounds check judged an already-mangled number.
+          const n = Number(v.trim());
           if (Number.isInteger(n) && n !== value) onSave(n);
           else setV(String(value));
         }}
@@ -977,6 +986,26 @@ function PromoTab({
             hint="No posting or accepting inside this. The next-hour prize is exempt — same session, staff already there."
           />
         </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Num
+            label="Spins per poster (0 = no cap)"
+            value={s.spinsPerPosterCap}
+            onSave={(v) => {
+              setS({ ...s, spinsPerPosterCap: v });
+              save({ spinsPerPosterCap: v });
+            }}
+            hint="The only defence against two friends posting at each other to farm the wheel. Needs a window below to take effect."
+          />
+          <Num
+            label="…in how many days (0 = no cap)"
+            value={s.spinsPerPosterPerDays}
+            onSave={(v) => {
+              setS({ ...s, spinsPerPosterPerDays: v });
+              save({ spinsPerPosterPerDays: v });
+            }}
+            hint="Both must be above zero for the cap to apply."
+          />
+        </div>
         <div className="mt-3">
           <Toggle
             label="Next hour only — never offer another day"
@@ -1043,13 +1072,14 @@ function PromoTab({
 
       <Panel
         title="What it has actually cost"
-        desc="Spins, what came back, and the realised average — which is the only one that matches the month's numbers."
+        desc="Two averages, deliberately. What the wheel LANDS on across all spins, and what it actually COST you — discount over rack price, on the offers people took. Only the second matches the books."
       >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Spins" value={p.spins} />
           <Stat label="Offers taken" value={`${p.offersTaken}/${p.offersMade}`} />
           <Stat label="Lapsed" value={p.offersLapsed} />
-          <Stat label="Realised average" value={`${p.realisedAvgPct}%`} />
+          <Stat label="Wheel landed on (avg)" value={`${p.wheelMeanPct}%`} />
+          <Stat label="Cost you (of rack)" value={`${p.realisedCostPct}%`} />
           <Stat label="Given away" value={`₹${p.discounted.toLocaleString("en-IN")}`} />
           <Stat label="Collected" value={`₹${p.collected.toLocaleString("en-IN")}`} />
           <Stat label="Next hour" value={`${p.adjacentTaken}/${p.adjacentMade}`} />

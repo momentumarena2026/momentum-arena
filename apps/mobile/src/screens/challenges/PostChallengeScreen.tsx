@@ -323,7 +323,7 @@ export function PostChallengeScreen() {
           color={missing ? colors.zinc500 : colors.zinc600}
           style={{ textAlign: "center" }}
         >
-          {missing ?? "Nothing is booked or charged yet. The court is only held once both sides pay."}
+          {missing ?? "Nothing is charged yet. Whoever pays their half first blocks the court."}
         </Text>
         </ScrollView>
       </KeyboardAvoidingView>

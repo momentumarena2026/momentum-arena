@@ -24,6 +24,7 @@ import {
   spinFor,
   offerQuote,
   offerSlots,
+  liveOfferFor,
   createOfferOrder,
   confirmOfferPayment,
 } from "@/lib/challenge-spin";
@@ -69,8 +70,32 @@ export async function GET(request: NextRequest) {
     // agreement: the number the captain sees has to be the number they are
     // about to be charged, and the court that backs it can be taken by a
     // walk-in right up until the first half is paid.
-    const quote = await challengeQuote(id, user.id).catch(() => null);
-    return NextResponse.json({ challenge: one, viewerId: user.id, counterBlock, quote });
+    // Price the FIRST takeable window for a prospective acceptor, so the
+    // take button can show the number before the payment sheet does.
+    // Without the window argument every stranger got shares of zero and the
+    // Razorpay sheet was the first place they saw a price.
+    const takeable = one.windows.find(
+      (w) => w.status === "OFFERED" && w.proposedBy === "CHALLENGER",
+    );
+    const isParticipant =
+      one.createdByUserId === user.id || one.acceptedByUserId === user.id;
+    const quote = await challengeQuote(
+      id,
+      user.id,
+      isParticipant ? undefined : takeable?.id,
+    ).catch(() => null);
+    const offer = await liveOfferFor(id, user.id).catch(() => null);
+    const liveSettings = await challengeSettings();
+    return NextResponse.json({
+      challenge: one,
+      viewerId: user.id,
+      counterBlock,
+      quote,
+      // So the screen can hide an affordance the server would only refuse.
+      spinEnabled: liveSettings.spinEnabled,
+      boardEnabled: liveSettings.enabled,
+      offer,
+    });
   }
 
   const settings = await challengeSettings();
@@ -90,6 +115,7 @@ export async function GET(request: NextRequest) {
   ]);
   return NextResponse.json({
     enabled: settings.enabled,
+    spinEnabled: settings.spinEnabled,
     viewerId: user.id,
     board,
     mine,
@@ -225,8 +251,12 @@ export async function POST(request: NextRequest) {
     ])
     .safeParse(json);
   if (!parsed.success) {
+    // Zod's own wording ("Too big: expected number to be <=25") is shown
+    // verbatim in an Alert on the phone. Name the field instead.
+    const issue = parsed.error.issues[0];
+    const field = issue?.path?.filter((p) => typeof p === "string").join(" ") || "request";
     return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid request" },
+      { error: `That ${field} isn't something the arena accepts.` },
       { status: 400 },
     );
   }

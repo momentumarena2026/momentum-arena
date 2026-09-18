@@ -94,6 +94,24 @@ export function ChallengeDetailScreen() {
 
   const counterBlock = q.data?.counterBlock ?? null;
   const quote = q.data?.quote ?? null;
+  const spinEnabled = q.data?.spinEnabled ?? false;
+  // The prize comes from the SERVER, not from state left over in this
+  // component. Spin, background the app, come back — it is still here, and
+  // every nudge deep-links to exactly this screen.
+  const serverOffer = q.data?.offer ?? null;
+  const prize: SpinResult | null =
+    spun ??
+    (serverOffer
+      ? {
+          pct: serverOffer.pct,
+          kind: serverOffer.kind,
+          offerId: serverOffer.offerId,
+          expiresAt: serverOffer.expiresAt,
+          hour: serverOffer.hour,
+          price: serverOffer.price,
+          saving: serverOffer.saving,
+        }
+      : null);
   const mine = c.createdByUserId === me;
   const iAmIn = mine || c.acceptedByUserId === me;
   const live = ["OPEN", "COUNTERED"].includes(c.status);
@@ -180,10 +198,11 @@ export function ChallengeDetailScreen() {
   };
 
   const loadSlots = async () => {
-    if (!spun) return;
+    const id2 = spun?.offerId ?? q.data?.offer?.offerId;
+    if (!id2) return;
     setLoadingSlots(true);
     try {
-      setSlots(await fetchOfferSlots(spun.offerId));
+      setSlots(await fetchOfferSlots(id2));
     } catch (e) {
       Alert.alert("Couldn't load hours", challengeErrorMessage(e));
     } finally {
@@ -193,10 +212,11 @@ export function ChallengeDetailScreen() {
 
   /** Pay for the whole discounted hour. No split — the captain fronts it. */
   const takeOffer = async (pick?: OfferPick) => {
-    if (!spun) return;
+    const prize = spun ?? (q.data?.offer ? { ...q.data.offer } : null);
+    if (!prize) return;
     setPaying(true);
     try {
-      const order = await createOfferPayOrder(spun.offerId, pick);
+      const order = await createOfferPayOrder(prize.offerId, pick);
       let paid: {
         razorpay_order_id?: string;
         razorpay_payment_id?: string;
@@ -208,7 +228,7 @@ export function ChallengeDetailScreen() {
           amount: Math.round(order.amount * 100),
           currency: "INR",
           name: "Momentum Arena",
-          description: `${spun.pct}% off ${spun.hour ?? "an extra hour"}`,
+          description: `${prize.pct}% off ${prize.hour ?? "an extra hour"}`,
           order_id: order.orderId,
           prefill: {
             name: authState.user?.name ?? "",
@@ -221,7 +241,7 @@ export function ChallengeDetailScreen() {
         return; // sheet dismissed — the offer is still live
       }
       await verifyOfferPayment({
-        offerId: spun.offerId,
+        offerId: prize.offerId,
         razorpayOrderId: paid.razorpay_order_id ?? "",
         razorpayPaymentId: paid.razorpay_payment_id ?? "",
         razorpaySignature: paid.razorpay_signature ?? "",
@@ -230,7 +250,7 @@ export function ChallengeDetailScreen() {
       setSpun(null);
       setSlots(null);
       await refresh();
-      Alert.alert("Booked", `That hour is yours at ${spun.pct}% off. See you there.`);
+      Alert.alert("Booked", `That hour is yours at ${prize.pct}% off. See you there.`);
     } catch (e) {
       Alert.alert("Couldn't book it", challengeErrorMessage(e));
     } finally {
@@ -307,7 +327,7 @@ export function ChallengeDetailScreen() {
                 <Text variant="small" color={colors.zinc300}>
                   Both halves are in and the court is booked. See you there.
                 </Text>
-                {mine && !spun && (
+                {mine && !prize && spinEnabled && (
                   <Button
                     label="Spin for a discount on the next hour"
                     variant="primary"
@@ -316,7 +336,7 @@ export function ChallengeDetailScreen() {
                     onPress={spin}
                   />
                 )}
-                {spun && (
+                {prize && (
                   <View
                     style={{
                       borderWidth: 1,
@@ -327,22 +347,22 @@ export function ChallengeDetailScreen() {
                     }}
                   >
                     <Text variant="bodyStrong" color={colors.emerald400}>
-                      {spun.pct}% off the next hour
+                      {prize.pct}% off the next hour
                     </Text>
                     <Text variant="small" color={colors.zinc300}>
-                      {spun.kind === "ADJACENT" && spun.hour
-                        ? `${spun.hour} is free — ₹${spun.price} instead of ₹${(spun.price ?? 0) + (spun.saving ?? 0)}. Ask your side, then take it.`
-                        : `The hour after your match is taken, so this is good on any hour in the next day.`}
+                      {prize.kind === "ADJACENT" && prize.hour
+                        ? `${prize.hour} is free — ₹${prize.price} instead of ₹${(prize.price ?? 0) + (prize.saving ?? 0)}. Ask your side, then take it.`
+                        : `The hour after your match is taken, so this is good on another hour — pick one below.`}
                     </Text>
                     <Text variant="tiny" color={colors.zinc500}>
-                      Expires {new Date(spun.expiresAt).toLocaleTimeString("en-IN", {
+                      Expires {new Date(prize.expiresAt).toLocaleTimeString("en-IN", {
                         hour: "numeric",
                         minute: "2-digit",
                       })}
                     </Text>
-                    {spun.kind === "ADJACENT" ? (
+                    {prize.kind === "ADJACENT" ? (
                       <Button
-                        label={`Book it — ₹${spun.price}`}
+                        label={`Book it — ₹${prize.price}`}
                         variant="primary"
                         loading={paying}
                         disabled={paying}

@@ -80,6 +80,7 @@ export async function challengeLimits(): Promise<ChallengeLimits> {
     maxWindows: s.maxWindows,
     maxCountersPerSide: s.maxCountersPerSide,
     ttlDays: s.ttlDays,
+    minLeadMins: s.minLeadMins,
     sports: s.sports as string[],
   };
 }
@@ -241,6 +242,7 @@ export async function acceptChallengeWindow(
   userId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const now = new Date();
+  const limits = await challengeLimits();
   const c = await db.challenge.findUnique({
     where: { id: challengeId },
     select: {
@@ -250,11 +252,12 @@ export async function acceptChallengeWindow(
       expiresAt: true,
       counterCountChallenger: true,
       counterCountAcceptor: true,
-      windows: { select: { id: true, status: true, proposedBy: true } },
+      windows: { select: { id: true, status: true, proposedBy: true, date: true, startHour: true } },
     },
   });
   if (!c) return { ok: false, error: "That challenge is gone." };
-  const refusal = acceptRefusal(c, userId, now);
+  const win = c.windows.find((w) => w.id === windowId);
+  const refusal = acceptRefusal(c, userId, now, limits, win ?? null);
   if (refusal) {
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
     return { ok: false, error: refusal };
@@ -315,7 +318,7 @@ export async function acceptChallengeWindow(
     await notifyUser(who.id, {
       type: "CHALLENGE_AGREED",
       title: "Match on — your half is due",
-      body: `${other?.name ?? "The other captain"} is in. Whoever pays first blocks the court; the match is confirmed once both halves are in.`,
+      body: `${other?.name ?? "The other captain"} is in. Whoever pays their half first blocks the court; the match is confirmed once both halves are in.`,
       link: `/challenges/${challengeId}`,
     });
   }
@@ -407,10 +410,11 @@ export async function withdrawChallenge(
       expiresAt: true,
       counterCountChallenger: true,
       counterCountAcceptor: true,
+      payments: { where: { paidAt: { not: null } }, select: { id: true } },
     },
   });
   if (!c) return { ok: false, error: "That challenge is gone." };
-  const refusal = withdrawRefusal(c, userId);
+  const refusal = withdrawRefusal(c, userId, c.payments.length > 0);
   if (refusal) {
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
     return { ok: false, error: refusal };
@@ -449,7 +453,15 @@ export async function expireStaleChallenges(): Promise<number> {
   // which is this feature's whole failure mode.
   const stale = await db.challenge.findMany({
     where: {
-      status: { in: ["OPEN", "COUNTERED"] },
+      // AGREED is included — but only when nobody has paid. An arrangement
+      // nobody funded must not outlive its own deadline: it blocked the
+      // poster from withdrawing, from posting again, and from ever being
+      // swept, which is a permanent lockout from one unpaid handshake.
+      // AGREED WITH money in it is the venue's to unwind, never a sweep's.
+      OR: [
+        { status: { in: ["OPEN", "COUNTERED"] } },
+        { status: "AGREED", payments: { none: { paidAt: { not: null } } } },
+      ],
       expiresAt: { lte: new Date() },
     },
     select: { id: true, createdByUserId: true, sport: true, status: true },

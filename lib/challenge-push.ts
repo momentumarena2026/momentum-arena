@@ -78,19 +78,19 @@ export const PUSH_VARIABLES: { name: keyof PushVars; example: string; note: stri
  */
 export const DEFAULT_WON_PUSH: PushTemplate = {
   title: "You won {pct}% off the next hour",
-  body: "Ask your side — {hour} is yours for ₹{price} if you take it in the next {minsLeft} minutes.",
+  body: "Ask your side — {date} {hour} is yours for ₹{price} if you take it in the next {minsLeft} minutes.",
 };
 
 export const DEFAULT_ADJACENT_PUSHES: PushTemplate[] = [
   {
     minsLeft: 15,
     title: "{minsLeft} minutes left on your {pct}% off",
-    body: "{hour} is still free. ₹{price} for the hour — decide before it goes.",
+    body: "{date} {hour} is still free. ₹{price} for the hour — decide before it goes.",
   },
   {
     minsLeft: 5,
     title: "Last call — {minsLeft} minutes",
-    body: "Your {pct}% off {hour} expires shortly. ₹{price}, saving ₹{saving}.",
+    body: "Your {pct}% off {date} {hour} expires shortly. ₹{price}, saving ₹{saving}.",
   },
 ];
 
@@ -152,8 +152,12 @@ export function pushScheduleRefusal(
 ): string | null {
   if (!Array.isArray(templates)) return "That schedule isn't a list.";
   for (const t of templates) {
-    if (typeof t.minsLeft !== "number" || !Number.isFinite(t.minsLeft) || t.minsLeft <= 0) {
-      return "Every nudge needs a positive number of minutes left.";
+    // INTEGER, not merely finite. `ChallengeOffer.remindedAt` is an Int[],
+    // so Postgres rounds 10.5 to 11 on write — and the dedupe test then
+    // asks whether [11] includes 10.5, which is false forever. A per-minute
+    // cron turns that into one push every minute for the life of the offer.
+    if (typeof t.minsLeft !== "number" || !Number.isInteger(t.minsLeft) || t.minsLeft <= 0) {
+      return "Every nudge needs a whole positive number of minutes left.";
     }
     if (t.minsLeft >= windowMins) {
       return `A nudge at ${t.minsLeft} minutes left can never fire inside a ${windowMins}-minute offer.`;

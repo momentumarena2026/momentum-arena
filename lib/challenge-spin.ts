@@ -71,8 +71,31 @@ export type SpinConfig = {
   perPosterDays: number;
 };
 
+/**
+ * An EMPTY list means the venue turned nudges off; only an absent one falls
+ * back to the shipped copy. Treating `[]` as "unset" made "no nudges" an
+ * unreachable configuration and handed the wording back to constants in the
+ * code — which is the one thing this module was asked not to do.
+ */
 function asTemplates(v: unknown, fallback: PushTemplate[]): PushTemplate[] {
-  return Array.isArray(v) && v.length > 0 ? (v as PushTemplate[]) : fallback;
+  if (Array.isArray(v)) return v as PushTemplate[];
+  return fallback;
+}
+
+/**
+ * A push template that will not throw.
+ *
+ * `renderPush` is called AFTER the spin row is written, so a malformed
+ * stored template took the poster's one spin and returned a 500 they could
+ * never retry — the prize became permanently unreachable. Validation at
+ * save time is the real fix; this is the belt to that pair of braces.
+ */
+function safeTemplate(v: unknown, fallback: PushTemplate): PushTemplate {
+  const t = v as PushTemplate | null;
+  if (t && typeof t === "object" && typeof t.title === "string" && typeof t.body === "string") {
+    return t;
+  }
+  return fallback;
 }
 
 /** The venue's wheel, with the shipped defaults standing in for anything unset. */
@@ -86,7 +109,7 @@ export async function spinConfig(): Promise<SpinConfig> {
     fallbackWindowMins: s?.spinFallbackWindowMins ?? 120,
     fallbackDays: s?.spinFallbackDays ?? 1,
     adjacentOnly: !!s?.spinAdjacentOnly,
-    wonPush: (s?.spinWonPush as PushTemplate) ?? DEFAULT_WON_PUSH,
+    wonPush: safeTemplate(s?.spinWonPush, DEFAULT_WON_PUSH),
     adjacentPushes: asTemplates(s?.spinAdjacentPushes, DEFAULT_ADJACENT_PUSHES),
     fallbackPushes: asTemplates(s?.spinFallbackPushes, DEFAULT_FALLBACK_PUSHES),
     perPosterCap: s?.spinsPerPosterCap ?? 0,
@@ -123,6 +146,23 @@ export async function adjacentHour(
   const prices = await getSlotPricesForDate(courtConfigId, date);
   const price = prices.find((p) => p.hour === startHour)?.price ?? 0;
   return price > 0 ? { startHour, price } : null;
+}
+
+/** "Sun, 20 Sep" — the day a push should name, never a bare ISO string. */
+export function istDayLabel(d: Date): string {
+  return d.toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+/** Midnight of today, IST, as the UTC instant the @db.Date columns store. */
+function istToday(): Date {
+  const ist = new Date(Date.now() + 5.5 * 3600000);
+  ist.setUTCHours(0, 0, 0, 0);
+  return ist;
 }
 
 function discounted(price: number, pct: number): { price: number; saving: number } {
@@ -185,7 +225,9 @@ export async function spinFor(
     if (used >= cfg.perPosterCap) {
       return {
         ok: false,
-        error: `You've had ${cfg.perPosterCap} spins in the last ${cfg.perPosterDays} days. Another one soon.`,
+        error:
+          `You've had ${cfg.perPosterCap} spin${cfg.perPosterCap === 1 ? "" : "s"} in the last ` +
+          `${cfg.perPosterDays} day${cfg.perPosterDays === 1 ? "" : "s"}. Another one soon.`,
       };
     }
   }
@@ -223,33 +265,54 @@ export async function spinFor(
 
   const kind = useAdjacent ? "ADJACENT" : "FALLBACK";
   const windowMins = useAdjacent ? cfg.adjacentWindowMins : cfg.fallbackWindowMins;
-  const expiresAt = new Date(Date.now() + windowMins * 60000);
+  // Never sell past the hour itself. A challenge confirmed days early gave
+  // the captain a 30-minute clock on an hour two days away — and the push
+  // said "in the next 30 minutes" about a match that had not happened yet.
+  const hourStarts = free
+    ? new Date(booking.date.getTime() + (free.startHour - 5.5) * 3600000)
+    : null;
+  const expiresAt = new Date(
+    Math.min(
+      Date.now() + windowMins * 60000,
+      hourStarts ? hourStarts.getTime() : Number.MAX_SAFE_INTEGER,
+    ),
+  );
+  if (expiresAt.getTime() <= Date.now()) {
+    return { ok: false, error: "That hour has already started." };
+  }
   const money = free ? discounted(free.price, pct) : null;
 
-  const spin = await db.challengeSpin.create({
-    data: {
-      challengeId,
-      userId,
-      wonPct: pct,
-      segmentsUsed: cfg.segments as never,
-      offer: {
-        create: {
-          kind,
-          userId,
-          discountPct: pct,
-          expiresAt,
-          ...(free
-            ? {
-                courtConfigId: booking.courtConfigId,
-                date: booking.date,
-                startHour: free.startHour,
-              }
-            : {}),
+  let spin: { offer: { id: string } | null };
+  try {
+    spin = await db.challengeSpin.create({
+      data: {
+        challengeId,
+        userId,
+        wonPct: pct,
+        segmentsUsed: cfg.segments as never,
+        offer: {
+          create: {
+            kind,
+            userId,
+            discountPct: pct,
+            expiresAt,
+            ...(free
+              ? {
+                  courtConfigId: booking.courtConfigId,
+                  date: booking.date,
+                  startHour: free.startHour,
+                }
+              : {}),
+          },
         },
       },
-    },
-    select: { offer: { select: { id: true } } },
-  });
+      select: { offer: { select: { id: true } } },
+    });
+  } catch {
+    // ChallengeSpin.challengeId is unique, so a double tap is correctly
+    // PREVENTED — it just used to surface as a 500 rather than a sentence.
+    return { ok: false, error: "You've already spun for this match." };
+  }
 
   const vars: PushVars = {
     minsLeft: windowMins,
@@ -257,7 +320,7 @@ export async function spinFor(
     price: money?.price ?? 0,
     saving: money?.saving ?? 0,
     hour: free ? hourRangeLabel(free.startHour) : "",
-    date: free ? booking.date.toISOString().slice(0, 10) : "",
+    date: free ? istDayLabel(booking.date) : "",
     court: booking.courtConfig?.label ?? "",
   };
   await notifyUser(userId, {
@@ -342,13 +405,14 @@ export async function sendOfferReminders(now = new Date()): Promise<number> {
     // every overdue marker at once would arrive as a burst of three
     // notifications saying different numbers of minutes.
     const t = due[0];
+    if (typeof t.title !== "string" || typeof t.body !== "string") continue;
     const vars: PushVars = {
       minsLeft,
       pct: offer.discountPct,
       price,
       saving,
       hour: offer.startHour !== null ? hourRangeLabel(offer.startHour) : "",
-      date: offer.date ? offer.date.toISOString().slice(0, 10) : "",
+      date: offer.date ? istDayLabel(offer.date) : "",
       court,
     };
     await notifyUser(offer.userId, {
@@ -375,8 +439,15 @@ export async function sendOfferReminders(now = new Date()): Promise<number> {
  * generosity one.
  */
 export async function expireOffers(now = new Date()): Promise<number> {
+  // Gated exactly as the reminders are. Switching the wheel off while an
+  // offer is live used to stop the nudges and keep the clock running, so
+  // the holder lost it in silence — worse than either choice made cleanly.
+  // Outstanding offers are honoured to the end of their window.
+  const cfg = await spinConfig();
+  if (!cfg.enabled) return 0;
+
   const dead = await db.challengeOffer.findMany({
-    where: { takenAt: null, expiresAt: { lte: now } },
+    where: { takenAt: null, lapsedAt: null, expiresAt: { lte: now } },
     select: {
       id: true,
       userId: true,
@@ -396,7 +467,7 @@ export async function expireOffers(now = new Date()): Promise<number> {
   if (dead.length > 0) {
     await db.challengeOffer.updateMany({
       where: { id: { in: dead.map((d) => d.id) } },
-      data: { remindedAt: [] },
+      data: { lapsedAt: now },
     });
   }
   return dead.length;
@@ -447,13 +518,20 @@ export async function offerQuote(
       courtConfigId: true,
       date: true,
       startHour: true,
+      spin: { select: { challenge: { select: { sport: true } } } },
     },
   });
   if (!o) return { ok: false, error: "That offer is gone." };
   if (o.userId !== userId) return { ok: false, error: "That offer isn't yours." };
   if (o.takenAt) return { ok: false, error: "You've already used this one." };
   const minsLeft = Math.ceil((o.expiresAt.getTime() - Date.now()) / 60000);
-  if (minsLeft <= 0 && !allowExpired) return { ok: false, error: "That offer has expired." };
+  // `allowExpired` honours a sheet that was already open when the clock ran
+  // out. It is NOT a licence to redeem something that died days ago, so the
+  // grace is bounded to a few minutes.
+  const EXPIRY_GRACE_MINS = 10;
+  if (minsLeft <= 0 && !(allowExpired && minsLeft > -EXPIRY_GRACE_MINS)) {
+    return { ok: false, error: "That offer has expired." };
+  }
 
   let courtConfigId: string;
   let date: Date;
@@ -466,21 +544,50 @@ export async function offerQuote(
     date = o.date;
     startHour = o.startHour;
   } else {
-    if (!pick) return { ok: false, error: "Pick an hour first." };
+    // A pinned pick wins over anything the client sends: once an order has
+    // been minted against an hour, that is the hour being bought.
+    const pinned =
+      o.courtConfigId && o.date && o.startHour !== null
+        ? { courtConfigId: o.courtConfigId, date: o.date, startHour: o.startHour }
+        : null;
+    if (!pinned && !pick) return { ok: false, error: "Pick an hour first." };
     const cfg = await spinConfig();
-    const chosen = new Date(`${pick.date}T00:00:00.000Z`);
-    const maxDay = new Date();
-    maxDay.setUTCHours(0, 0, 0, 0);
-    maxDay.setUTCDate(maxDay.getUTCDate() + cfg.fallbackDays);
-    if (chosen.getTime() > maxDay.getTime()) {
-      return {
-        ok: false,
-        error: `This one's good for the next ${cfg.fallbackDays} day${cfg.fallbackDays === 1 ? "" : "s"} only.`,
-      };
+
+    if (pinned) {
+      courtConfigId = pinned.courtConfigId;
+      date = pinned.date;
+      startHour = pinned.startHour;
+    } else {
+      // IST, not UTC. Between midnight and 05:30 IST — exactly when a match
+      // ending at midnight produces a spin — UTC "today" is yesterday here,
+      // and the winner silently got half the advertised window.
+      const chosen = new Date(`${pick!.date}T00:00:00.000Z`);
+      const todayIst = istToday();
+      const maxDay = new Date(todayIst.getTime() + cfg.fallbackDays * 86400000);
+      if (chosen.getTime() > maxDay.getTime() || chosen.getTime() < todayIst.getTime()) {
+        return {
+          ok: false,
+          error: `This one's good for the next ${cfg.fallbackDays} day${cfg.fallbackDays === 1 ? "" : "s"} only.`,
+        };
+      }
+      courtConfigId = pick!.courtConfigId;
+      date = chosen;
+      startHour = pick!.startHour;
     }
-    courtConfigId = pick.courtConfigId;
-    date = chosen;
-    startHour = pick.startHour;
+  }
+
+  // The court must belong to this challenge's sport and be live. Without
+  // this, a 50% won on a ₹200 pitch could be spent on the ₹2,000 ground —
+  // the picker restricted it, the write path did not.
+  const court = await db.courtConfig.findUnique({
+    where: { id: courtConfigId },
+    select: { id: true, label: true, sport: true, isActive: true },
+  });
+  if (!court || !court.isActive || court.sport !== o.spin.challenge.sport) {
+    return { ok: false, error: "That court isn't available for this match." };
+  }
+  if (!Number.isInteger(startHour) || startHour < 0 || startHour > 25) {
+    return { ok: false, error: "That isn't an hour the arena runs." };
   }
 
   const avail = await getSlotAvailability(courtConfigId, date);
@@ -497,9 +604,7 @@ export async function offerQuote(
   const fullPrice = prices.find((p) => p.hour === startHour)?.price ?? 0;
   if (fullPrice <= 0) return { ok: false, error: "That hour has no price set." };
   const money = discounted(fullPrice, o.discountPct);
-  const label =
-    (await db.courtConfig.findUnique({ where: { id: courtConfigId }, select: { label: true } }))
-      ?.label ?? "";
+  const label = court.label;
 
   return {
     ok: true,
@@ -529,16 +634,26 @@ export async function offerQuote(
 export async function bookOfferHour(args: {
   offerId: string;
   userId: string;
-  amountPaid?: number;
   razorpayOrderId: string;
   razorpayPaymentId: string;
   platform?: string;
-  pick?: { courtConfigId: string; date: string; startHour: number };
   /** Honour an offer that lapsed while the payment sheet was open. */
   allowExpired?: boolean;
 }): Promise<{ ok: true; bookingId: string } | { ok: false; error: string }> {
-  const q = await offerQuote(args.offerId, args.userId, args.pick, args.allowExpired);
+  // No client `pick` here by design — the hour was pinned onto the offer
+  // when the order was minted, and that is what is being paid for.
+  const q = await offerQuote(args.offerId, args.userId, undefined, args.allowExpired);
   if (!q.ok) return q;
+  const pinnedPrice = (
+    await db.challengeOffer.findUnique({
+      where: { id: args.offerId },
+      select: { quotedPrice: true },
+    })
+  )?.quotedPrice;
+  // Bank what the order was minted for. Re-deriving it here would let a
+  // rate-card change between the sheet opening and the capture rewrite what
+  // the ledger says was collected.
+  const charged = pinnedPrice && pinnedPrice > 0 ? pinnedPrice : q.price;
 
   const booking = await db.booking.create({
     data: {
@@ -546,16 +661,16 @@ export async function bookOfferHour(args: {
       courtConfigId: q.courtConfigId,
       date: q.date,
       status: "CONFIRMED",
-      totalAmount: q.price,
+      totalAmount: charged,
       originalAmount: q.fullPrice,
-      discountAmount: q.saving,
+      discountAmount: Math.max(0, q.fullPrice - charged),
       platform: args.platform ?? "ios",
       slots: { create: [{ startHour: q.startHour, price: q.price }] },
       payment: {
         create: {
           method: "RAZORPAY",
           status: "COMPLETED",
-          amount: args.amountPaid && args.amountPaid > 0 ? args.amountPaid : q.price,
+          amount: charged,
           razorpayOrderId: args.razorpayOrderId,
           razorpayPaymentId: args.razorpayPaymentId,
           confirmedAt: new Date(),
@@ -579,6 +694,65 @@ export async function bookOfferHour(args: {
   });
 
   return { ok: true, bookingId: booking.id };
+}
+
+/**
+ * The offer this poster currently holds for a challenge, if any.
+ *
+ * Without this the prize lived only in React state: spin, background the
+ * app, come back, and the offer was gone — the screen offered a spin the
+ * server then refused as already used, so the prize was unreachable for the
+ * rest of its life. Every nudge deep-links to that same screen, which made
+ * the whole reminder ladder point at a dead end.
+ */
+export async function liveOfferFor(
+  challengeId: string,
+  userId: string,
+): Promise<{
+  offerId: string;
+  pct: number;
+  kind: "ADJACENT" | "FALLBACK";
+  expiresAt: Date;
+  minsLeft: number;
+  hour: string | null;
+  price: number | null;
+  saving: number | null;
+  date: string | null;
+} | null> {
+  const o = await db.challengeOffer.findFirst({
+    where: { userId, takenAt: null, spin: { challengeId } },
+    select: {
+      id: true,
+      kind: true,
+      discountPct: true,
+      expiresAt: true,
+      courtConfigId: true,
+      date: true,
+      startHour: true,
+    },
+  });
+  if (!o) return null;
+  const minsLeft = Math.ceil((o.expiresAt.getTime() - Date.now()) / 60000);
+  if (minsLeft <= 0) return null;
+
+  let price: number | null = null;
+  let saving: number | null = null;
+  if (o.courtConfigId && o.date && o.startHour !== null) {
+    const prices = await getSlotPricesForDate(o.courtConfigId, o.date);
+    const full = prices.find((p) => p.hour === o.startHour)?.price ?? 0;
+    if (full > 0) ({ price, saving } = discounted(full, o.discountPct));
+  }
+  return {
+    offerId: o.id,
+    pct: o.discountPct,
+    kind: o.kind as "ADJACENT" | "FALLBACK",
+    expiresAt: o.expiresAt,
+    minsLeft,
+    hour: o.startHour !== null ? hourRangeLabel(o.startHour) : null,
+    price,
+    saving,
+    date: o.date ? o.date.toISOString().slice(0, 10) : null,
+  };
 }
 
 // ── Paying for the discounted hour ─────────────────────────────────
@@ -610,6 +784,22 @@ export async function createOfferOrder(
   } catch {
     return { ok: false, error: "Couldn't reach the payment gateway. Try again in a moment." };
   }
+
+  // Pin the hour AND the price onto the offer. The verify then works from
+  // these rather than from whatever the client sends back: `pick` used to
+  // be passed independently to the order and the verify, so a captain could
+  // be quoted a ₹100 hour and book a ₹1,000 one on the same payment.
+  await db.challengeOffer.update({
+    where: { id: offerId },
+    data: {
+      razorpayOrderId: order.id,
+      quotedPrice: q.price,
+      courtConfigId: q.courtConfigId,
+      date: q.date,
+      startHour: q.startHour,
+    },
+  });
+
   return {
     ok: true,
     orderId: order.id,
@@ -643,28 +833,62 @@ export async function confirmOfferPayment(args: {
   ) {
     return { ok: false, error: "That payment could not be verified." };
   }
+  // Look the offer up BY THE ORDER, never by a client-supplied offer id.
+  // The signature is HMAC(order|payment) and carries no amount and no
+  // receipt, so without this binding any triple the user had ever received
+  // would satisfy the check, for any offer and any price.
   const existing = await db.challengeOffer.findUnique({
-    where: { id: args.offerId },
-    select: { takenAt: true, bookingId: true, expiresAt: true },
+    where: { razorpayOrderId: args.razorpayOrderId },
+    select: { id: true, userId: true, takenAt: true, bookingId: true, expiresAt: true },
   });
-  if (!existing) return { ok: false, error: "That offer is gone." };
+  if (!existing) return { ok: false, error: "That payment doesn't match an offer." };
+  if (existing.id !== args.offerId) {
+    return { ok: false, error: "That payment doesn't match this offer." };
+  }
+  if (existing.userId !== args.userId) {
+    return { ok: false, error: "That payment belongs to somebody else." };
+  }
   // Idempotent: a retried verify must not book the hour twice.
   if (existing.takenAt && existing.bookingId) {
     return { ok: true, bookingId: existing.bookingId };
   }
 
+  // CLAIM the offer before doing any work. Two concurrent verifies used to
+  // pass the takenAt check together and produce two bookings from one spin
+  // — and with a per-call `pick`, N calls produced N discounted hours. This
+  // conditional update is the serialisation point: exactly one caller can
+  // move takenAt from null.
+  const claimed = await db.challengeOffer.updateMany({
+    where: { id: existing.id, takenAt: null },
+    data: { takenAt: new Date() },
+  });
+  if (claimed.count === 0) {
+    const now = await db.challengeOffer.findUnique({
+      where: { id: existing.id },
+      select: { bookingId: true },
+    });
+    if (now?.bookingId) return { ok: true, bookingId: now.bookingId };
+    return { ok: false, error: "That offer is already being used." };
+  }
+
   const lapsedDuringPayment = existing.expiresAt.getTime() <= Date.now();
   const r = await bookOfferHour({
-    offerId: args.offerId,
+    offerId: existing.id,
     userId: args.userId,
-    amountPaid: 0, // replaced below from the quote
     razorpayOrderId: args.razorpayOrderId,
     razorpayPaymentId: args.razorpayPaymentId,
     platform: args.platform,
-    pick: args.pick,
     allowExpired: true,
   });
-  if (!r.ok) return r;
+  if (!r.ok) {
+    // Release the claim so a genuine retry can still succeed. The money is
+    // captured either way, so a stuck claim would strand it.
+    await db.challengeOffer.updateMany({
+      where: { id: existing.id, bookingId: null },
+      data: { takenAt: null },
+    });
+    return r;
+  }
   if (lapsedDuringPayment) {
     await logChallengeEvent({
       type: "OFFER_TAKEN",

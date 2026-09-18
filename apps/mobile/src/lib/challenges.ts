@@ -127,6 +127,20 @@ export async function fetchChallenge(id: string): Promise<{
   viewerId: string;
   counterBlock: string | null;
   quote: ChallengeQuote | null;
+  spinEnabled: boolean;
+  boardEnabled: boolean;
+  /** A prize already won and not yet spent — survives an app restart. */
+  offer: {
+    offerId: string;
+    pct: number;
+    kind: "ADJACENT" | "FALLBACK";
+    expiresAt: string;
+    minsLeft: number;
+    hour: string | null;
+    price: number | null;
+    saving: number | null;
+    date: string | null;
+  } | null;
 }> {
   return api.get(`/api/mobile/challenges?id=${encodeURIComponent(id)}`);
 }
