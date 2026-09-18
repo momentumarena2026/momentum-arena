@@ -22,7 +22,8 @@ async function gate() {
 
 export async function getChallengeAdmin() {
   await gate();
-  const [settings, challenges, counts] = await Promise.all([
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [settings, challenges, counts, events, eventCounts, refusals] = await Promise.all([
     challengeSettings(),
     db.challenge.findMany({
       select: {
@@ -56,11 +57,56 @@ export async function getChallengeAdmin() {
       take: 200,
     }),
     db.challenge.groupBy({ by: ["status"], _count: true }),
+    // The trail. 300 is enough to see a day's worth at launch volume and
+    // small enough that the page stays a page rather than a report.
+    db.challengeEvent.findMany({
+      select: {
+        id: true,
+        type: true,
+        detail: true,
+        createdAt: true,
+        challengeId: true,
+        user: { select: { name: true, phone: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+    }),
+    db.challengeEvent.groupBy({
+      by: ["type"],
+      where: { createdAt: { gte: since } },
+      _count: true,
+    }),
+    // Why people were turned away, most common first. This is the answer
+    // to "the board is empty and I do not know why" — it separates nobody
+    // looked from everybody was refused, which nothing else can.
+    db.challengeEvent.groupBy({
+      by: ["detail"],
+      where: { type: "REFUSED", createdAt: { gte: since } },
+      _count: true,
+      orderBy: { _count: { detail: "desc" } },
+      take: 12,
+    }),
   ]);
+
+  // Funnel: what proportion of the people who saw the card ever posted.
+  const n = (t: string) => eventCounts.find((e) => e.type === t)?._count ?? 0;
   return {
     settings,
     challenges,
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count])),
+    events,
+    eventCounts: Object.fromEntries(eventCounts.map((e) => [e.type, e._count])),
+    refusals: refusals.map((r) => ({ reason: r.detail ?? "(no reason)", count: r._count })),
+    funnel: {
+      cardTapped: n("HOME_CARD_TAPPED"),
+      boardViewed: n("BOARD_VIEWED"),
+      postOpened: n("POST_OPENED"),
+      posted: n("POSTED"),
+      detailViewed: n("DETAIL_VIEWED"),
+      accepted: n("ACCEPTED"),
+      countered: n("COUNTERED"),
+      refused: n("REFUSED"),
+    },
   };
 }
 
@@ -80,6 +126,10 @@ export type ChallengeSettingsInput = {
   boardTitle?: string | null;
   boardSubtitle?: string | null;
   emptyText?: string | null;
+  homeCardEnabled?: boolean;
+  homeCardTitle?: string | null;
+  homeCardSubtitle?: string | null;
+  homeCardBadge?: string;
 };
 
 export async function saveChallengeSettings(
@@ -136,6 +186,16 @@ export async function saveChallengeSettings(
         ? { boardSubtitle: input.boardSubtitle || null }
         : {}),
       ...(input.emptyText !== undefined ? { emptyText: input.emptyText || null } : {}),
+      ...(input.homeCardEnabled !== undefined
+        ? { homeCardEnabled: input.homeCardEnabled }
+        : {}),
+      ...(input.homeCardTitle !== undefined
+        ? { homeCardTitle: input.homeCardTitle || null }
+        : {}),
+      ...(input.homeCardSubtitle !== undefined
+        ? { homeCardSubtitle: input.homeCardSubtitle || null }
+        : {}),
+      ...(input.homeCardBadge ? { homeCardBadge: input.homeCardBadge } : {}),
     };
 
     if (
@@ -184,6 +244,12 @@ export async function adminWithdrawChallenge(
       withdrawnBy: admin.id,
       withdrawReason: reason.trim().slice(0, 200),
     },
+  });
+  const { logChallengeEvent } = await import("@/lib/challenges");
+  await logChallengeEvent({
+    type: "ADMIN_TOOK_DOWN",
+    challengeId: id,
+    detail: reason.trim().slice(0, 200),
   });
   revalidatePath("/admin/challenges");
   return { ok: true };

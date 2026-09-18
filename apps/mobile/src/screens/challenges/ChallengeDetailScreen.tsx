@@ -14,6 +14,7 @@ import {
   withdrawChallenge,
   hourLabel,
   dayLabel,
+  trackChallenge,
 } from "../../lib/challenges";
 
 /**
@@ -175,7 +176,10 @@ export function ChallengeDetailScreen() {
                       variant="primary"
                       size="sm"
                       loading={busy}
-                      onPress={() => act(() => acceptChallenge(c.id, w.id))}
+                      onPress={() => {
+                        trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
+                        void act(() => acceptChallenge(c.id, w.id));
+                      }}
                     />
                   )}
                 </View>
@@ -198,7 +202,10 @@ export function ChallengeDetailScreen() {
                   label="Suggest a different time"
                   variant="secondary"
                   disabled={busy}
-                  onPress={() => setShowCounter(true)}
+                  onPress={() => {
+                    trackChallenge("COUNTER_OPENED", { challengeId: c.id });
+                    setShowCounter(true);
+                  }}
                 />
               </>
             ) : (

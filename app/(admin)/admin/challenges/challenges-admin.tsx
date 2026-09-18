@@ -35,6 +35,19 @@ type Settings = {
   boardTitle: string | null;
   boardSubtitle: string | null;
   emptyText: string | null;
+  homeCardEnabled: boolean;
+  homeCardTitle: string | null;
+  homeCardSubtitle: string | null;
+  homeCardBadge: string;
+};
+
+type EventRow = {
+  id: string;
+  type: string;
+  detail: string | null;
+  createdAt: string;
+  challengeId: string | null;
+  user: { name: string | null; phone: string | null } | null;
 };
 
 type Row = {
@@ -81,10 +94,18 @@ const hr = (h: number) => {
 export function ChallengesAdmin({
   initial,
 }: {
-  initial: { settings: Settings; challenges: Row[]; counts: Record<string, number> };
+  initial: {
+    settings: Settings;
+    challenges: Row[];
+    counts: Record<string, number>;
+    events: EventRow[];
+    eventCounts: Record<string, number>;
+    refusals: { reason: string; count: number }[];
+    funnel: Record<string, number>;
+  };
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"board" | "settings">("board");
+  const [tab, setTab] = useState<"board" | "activity" | "settings">("board");
   const [s, setS] = useState<Settings>(initial.settings);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -131,7 +152,7 @@ export function ChallengesAdmin({
       </p>
 
       <div className="mt-4 flex gap-2">
-        {(["board", "settings"] as const).map((t) => (
+        {(["board", "activity", "settings"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -141,7 +162,11 @@ export function ChallengesAdmin({
                 : "border-zinc-800 text-zinc-400 hover:bg-zinc-900"
             }`}
           >
-            {t === "board" ? `Challenges (${initial.challenges.length})` : "Settings"}
+            {t === "board"
+              ? `Challenges (${initial.challenges.length})`
+              : t === "activity"
+                ? `Activity (${initial.events.length})`
+                : "Settings"}
           </button>
         ))}
       </div>
@@ -149,7 +174,131 @@ export function ChallengesAdmin({
       {err && <p className="mt-3 text-sm text-red-400">{err}</p>}
       {msg && <p className="mt-3 text-sm text-emerald-400">{msg}</p>}
 
-      {tab === "settings" ? (
+      {tab === "activity" ? (
+        <div className="mt-5 space-y-5">
+          {/* The funnel answers the question an empty board cannot: did
+              nobody find it, did they find it and leave, or did they try
+              and get turned away. Each step is a count of people-actions
+              over the last 30 days. */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+            <h2 className="text-sm font-semibold text-white">Last 30 days</h2>
+            <p className="mb-3 text-xs text-zinc-500">
+              Where people stop. A board with no posts looks the same whether
+              nobody looked or everybody was refused — this is what tells them apart.
+            </p>
+            <div className="space-y-1.5">
+              {[
+                ["Tapped the home card", "cardTapped"],
+                ["Opened the board", "boardViewed"],
+                ["Opened a challenge", "detailViewed"],
+                ["Opened the post form", "postOpened"],
+                ["Posted a challenge", "posted"],
+                ["Counter-offered", "countered"],
+                ["Agreed a match", "accepted"],
+              ].map(([label, key]) => {
+                const v = initial.funnel[key] ?? 0;
+                const top = Math.max(initial.funnel.cardTapped ?? 0, initial.funnel.boardViewed ?? 0, 1);
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="w-44 shrink-0 text-xs text-zinc-400">{label}</span>
+                    <div className="h-4 flex-1 overflow-hidden rounded bg-zinc-950">
+                      <div
+                        className="h-full bg-emerald-600/40"
+                        style={{ width: `${Math.min(100, (v / top) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-zinc-300">
+                      {v}
+                    </span>
+                  </div>
+                );
+              })}
+              <div className="flex items-center gap-3 border-t border-zinc-800 pt-2">
+                <span className="w-44 shrink-0 text-xs text-amber-400">Turned away</span>
+                <div className="h-4 flex-1 overflow-hidden rounded bg-zinc-950">
+                  <div
+                    className="h-full bg-amber-500/40"
+                    style={{
+                      width: `${Math.min(100, ((initial.funnel.refused ?? 0) / Math.max(initial.funnel.boardViewed ?? 0, 1)) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <span className="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-amber-400">
+                  {initial.funnel.refused ?? 0}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {initial.refusals.length > 0 && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
+              <h2 className="text-sm font-semibold text-amber-200">Why people were refused</h2>
+              <p className="mb-3 text-xs text-amber-200/60">
+                The exact words they saw. If one of these dominates, it is usually a
+                setting on the Settings tab rather than a bug.
+              </p>
+              <div className="space-y-1.5">
+                {initial.refusals.map((r) => (
+                  <div key={r.reason} className="flex justify-between gap-4 text-sm">
+                    <span className="min-w-0 text-zinc-300">{r.reason}</span>
+                    <span className="shrink-0 font-mono tabular-nums text-amber-300">
+                      {r.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900">
+            <div className="border-b border-zinc-800 px-5 py-4">
+              <h2 className="text-sm font-semibold text-white">Everything that happened</h2>
+              <p className="text-xs text-zinc-500">
+                Newest first, last 300. Every tap that reaches the server.
+              </p>
+            </div>
+            {initial.events.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-zinc-500">
+                Nothing yet. Switch the board on and the trail starts here.
+              </p>
+            ) : (
+              <div className="max-h-[32rem] overflow-y-auto">
+                {initial.events.map((e) => (
+                  <div
+                    key={e.id}
+                    className="flex items-start gap-3 border-b border-zinc-800/60 px-5 py-2.5 text-sm last:border-b-0"
+                  >
+                    <span className="w-32 shrink-0 font-mono text-[11px] text-zinc-600">
+                      {new Date(e.createdAt).toLocaleString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        hour: "numeric",
+                        minute: "2-digit",
+                        timeZone: "Asia/Kolkata",
+                      })}
+                    </span>
+                    <span
+                      className={`w-36 shrink-0 font-mono text-[11px] ${
+                        e.type === "REFUSED"
+                          ? "text-amber-400"
+                          : e.type === "POSTED" || e.type === "ACCEPTED"
+                            ? "text-emerald-400"
+                            : "text-zinc-500"
+                      }`}
+                    >
+                      {e.type.toLowerCase().replace(/_/g, " ")}
+                    </span>
+                    <span className="w-40 shrink-0 truncate text-xs text-zinc-400">
+                      {e.user?.name || e.user?.phone || "—"}
+                    </span>
+                    <span className="min-w-0 flex-1 text-xs text-zinc-500">{e.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : tab === "settings" ? (
         <div className="mt-5 space-y-5">
           <Panel
             title="Master switch"
@@ -242,6 +391,52 @@ export function ChallengesAdmin({
                 </p>
               </div>
               <Num label="Broadcasts per day" value={s.pushDailyCap} onSave={(v) => { setS({ ...s, pushDailyCap: v }); save({ pushDailyCap: v }); }} hint="Past this, challenges still post — they just go up quietly. Messages to the two people in a challenge never count against it." />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Home screen card"
+            desc="How people find this at all. Switchable separately from the board, so you can run challenges quietly and promote them once there is something to arrive to."
+          >
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setS({ ...s, homeCardEnabled: !s.homeCardEnabled });
+                  save({ homeCardEnabled: !s.homeCardEnabled });
+                }}
+                disabled={pending}
+                className={`rounded-lg border px-4 py-2.5 text-sm font-medium ${
+                  s.homeCardEnabled
+                    ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-300"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-400"
+                }`}
+              >
+                {s.homeCardEnabled
+                  ? "Showing on the home screen — tap to hide"
+                  : "Hidden from the home screen — tap to show"}
+              </button>
+              <div>
+                <label className={label}>Badge</label>
+                <select
+                  className={field}
+                  value={s.homeCardBadge}
+                  disabled={pending}
+                  onChange={(e) => {
+                    setS({ ...s, homeCardBadge: e.target.value });
+                    save({ homeCardBadge: e.target.value });
+                  }}
+                >
+                  <option value="NEW">NEW</option>
+                  <option value="BETA">BETA</option>
+                  <option value="NONE">No badge</option>
+                </select>
+                <p className={hint}>
+                  NEW invites a tap. BETA warns. Drop the badge once it stops being
+                  news, or it becomes wallpaper.
+                </p>
+              </div>
+              <Txt label="Card title" value={s.homeCardTitle} onSave={(v) => { setS({ ...s, homeCardTitle: v }); save({ homeCardTitle: v }); }} />
+              <Txt label="Card subtitle" value={s.homeCardSubtitle} onSave={(v) => { setS({ ...s, homeCardSubtitle: v }); save({ homeCardSubtitle: v }); }} />
             </div>
           </Panel>
 

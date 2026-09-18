@@ -54,7 +54,24 @@ export type ChallengeBoard = {
     maxCountersPerSide: number;
   };
   copy: { title: string | null; subtitle: string | null; empty: string | null };
+  homeCard: {
+    enabled: boolean;
+    title: string | null;
+    subtitle: string | null;
+    badge: string;
+  };
 };
+
+/** Taps worth seeing that change nothing on the server. Fire and forget —
+ *  a dropped telemetry call must never cost the user their tap. */
+export function trackChallenge(
+  type: "HOME_CARD_SHOWN" | "HOME_CARD_TAPPED" | "POST_OPENED" | "ACCEPT_TAPPED" | "COUNTER_OPENED",
+  extra?: { challengeId?: string | null; detail?: string | null },
+): void {
+  void api
+    .post("/api/mobile/challenges", { op: "track", type, ...extra })
+    .catch(() => undefined);
+}
 
 export async function fetchChallengeBoard(sport?: string): Promise<ChallengeBoard> {
   const q = sport ? `?sport=${encodeURIComponent(sport)}` : "";

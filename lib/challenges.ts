@@ -24,6 +24,52 @@ import {
 
 const SINGLETON = "singleton";
 
+
+/**
+ * Record what happened.
+ *
+ * Best-effort and never awaited into a failure: a board that stops working
+ * because its telemetry did would be a worse feature than one nobody can
+ * measure. Every write path logs, and so does every REFUSAL — the refusal
+ * sentences are the most useful rows in the table, because a board with no
+ * posts looks the same whether nobody found it or everybody was turned
+ * away, and only the reasons tell those apart.
+ */
+export async function logChallengeEvent(args: {
+  type:
+    | "HOME_CARD_SHOWN"
+    | "HOME_CARD_TAPPED"
+    | "BOARD_VIEWED"
+    | "POST_OPENED"
+    | "POSTED"
+    | "DETAIL_VIEWED"
+    | "ACCEPT_TAPPED"
+    | "ACCEPTED"
+    | "COUNTER_OPENED"
+    | "COUNTERED"
+    | "WITHDRAWN"
+    | "REFUSED"
+    | "ADMIN_TOOK_DOWN";
+  userId?: string | null;
+  challengeId?: string | null;
+  detail?: string | null;
+  meta?: Record<string, unknown> | null;
+}): Promise<void> {
+  try {
+    await db.challengeEvent.create({
+      data: {
+        type: args.type,
+        userId: args.userId ?? null,
+        challengeId: args.challengeId ?? null,
+        detail: args.detail?.slice(0, 300) ?? null,
+        meta: (args.meta as never) ?? undefined,
+      },
+    });
+  } catch {
+    /* telemetry must never break the thing it is measuring */
+  }
+}
+
 /** The venue's settings, creating the row on first read. */
 export async function challengeSettings() {
   const row = await db.challengeSettings.upsert({
@@ -128,7 +174,10 @@ export async function postChallenge(input: {
     limits,
     now,
   );
-  if (refusal) return { ok: false, error: refusal };
+  if (refusal) {
+    await logChallengeEvent({ type: "REFUSED", userId: input.userId, detail: refusal });
+    return { ok: false, error: refusal };
+  }
 
   // One live challenge at a time per person. Without it the board fills
   // with one captain's five posts and nobody else is visible.
@@ -139,7 +188,9 @@ export async function postChallenge(input: {
     },
   });
   if (existing > 0) {
-    return { ok: false, error: "You already have a challenge up. Withdraw it first." };
+    const why = "You already have a challenge up. Withdraw it first.";
+    await logChallengeEvent({ type: "REFUSED", userId: input.userId, detail: why });
+    return { ok: false, error: why };
   }
 
   const created = await db.challenge.create({
@@ -162,6 +213,13 @@ export async function postChallenge(input: {
       },
     },
     select: { id: true },
+  });
+  await logChallengeEvent({
+    type: "POSTED",
+    userId: input.userId,
+    challengeId: created.id,
+    detail: `${input.sport} · ${input.playerCount} players · ${input.windows.length} time(s)`,
+    meta: { sport: input.sport, playerCount: input.playerCount, windows: input.windows },
   });
   return { ok: true, id: created.id };
 }
@@ -187,16 +245,23 @@ export async function acceptChallengeWindow(
   });
   if (!c) return { ok: false, error: "That challenge is gone." };
   const refusal = acceptRefusal(c, userId, now);
-  if (refusal) return { ok: false, error: refusal };
+  if (refusal) {
+    await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
+    return { ok: false, error: refusal };
+  }
 
   const w = c.windows.find((x) => x.id === windowId);
   if (!w || w.status === "SUPERSEDED" || w.status === "DECLINED") {
-    return { ok: false, error: "That time is no longer on the table." };
+    const why = "That time is no longer on the table.";
+    await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: why });
+    return { ok: false, error: why };
   }
   // You may only accept a time the OTHER side put up.
   const mySide = sideOf(c, userId) ?? "ACCEPTOR";
   if (w.proposedBy === mySide) {
-    return { ok: false, error: "That's your own suggestion — wait for their answer." };
+    const why = "That's your own suggestion — wait for their answer.";
+    await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: why });
+    return { ok: false, error: why };
   }
 
   await db.$transaction([
@@ -216,6 +281,13 @@ export async function acceptChallengeWindow(
       },
     }),
   ]);
+  await logChallengeEvent({
+    type: "ACCEPTED",
+    userId,
+    challengeId,
+    detail: "match agreed",
+    meta: { windowId },
+  });
   return { ok: true };
 }
 
@@ -240,9 +312,15 @@ export async function counterChallenge(
   });
   if (!c) return { ok: false, error: "That challenge is gone." };
   const refusal = counterRefusal(c, userId, limits, now);
-  if (refusal) return { ok: false, error: refusal };
+  if (refusal) {
+    await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
+    return { ok: false, error: refusal };
+  }
   const bad = windowRefusal(window, now);
-  if (bad) return { ok: false, error: bad };
+  if (bad) {
+    await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: bad });
+    return { ok: false, error: bad };
+  }
 
   const side = sideOf(c, userId) ?? "ACCEPTOR";
   await db.$transaction([
@@ -274,6 +352,13 @@ export async function counterChallenge(
       },
     }),
   ]);
+  await logChallengeEvent({
+    type: "COUNTERED",
+    userId,
+    challengeId,
+    detail: `${window.date} ${window.startHour}:00–${window.endHour}:00`,
+    meta: { window, side },
+  });
   return { ok: true };
 }
 
@@ -295,7 +380,10 @@ export async function withdrawChallenge(
   });
   if (!c) return { ok: false, error: "That challenge is gone." };
   const refusal = withdrawRefusal(c, userId);
-  if (refusal) return { ok: false, error: refusal };
+  if (refusal) {
+    await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
+    return { ok: false, error: refusal };
+  }
   await db.challenge.update({
     where: { id: challengeId },
     data: {
@@ -304,6 +392,12 @@ export async function withdrawChallenge(
       withdrawnBy: userId,
       withdrawReason: reason?.slice(0, 200) || null,
     },
+  });
+  await logChallengeEvent({
+    type: "WITHDRAWN",
+    userId,
+    challengeId,
+    detail: reason || "no reason given",
   });
   return { ok: true };
 }

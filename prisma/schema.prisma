@@ -291,6 +291,7 @@ model User {
   challengesPosted    Challenge[]        @relation("challengeCreator")
   challengesAccepted  Challenge[]        @relation("challengeAcceptor")
   challengePayments   ChallengePayment[]
+  challengeEvents     ChallengeEvent[]
   couponEligibilities CouponEligibleUser[]
 
   // FCM push tokens for the mobile app — one row per device the user
@@ -4150,6 +4151,7 @@ model Challenge {
 
   windows  ChallengeWindow[]
   payments ChallengePayment[]
+  events   ChallengeEvent[]
 
   @@index([status, expiresAt])
   @@index([sport, status])
@@ -4250,5 +4252,67 @@ model ChallengeSettings {
   boardSubtitle String?
   emptyText     String?
 
+  // ── The home-screen card. Nobody discovers a feature they have never
+  // heard of from a menu row inside Account — the same reasoning that put
+  // Quick book above the tile grid. Separately switchable from the board
+  // itself, so the venue can run challenges quietly for a while and then
+  // promote them when there is something on the board worth arriving to.
+  homeCardEnabled  Boolean @default(true)
+  homeCardTitle    String?
+  homeCardSubtitle String?
+  /// NEW | BETA | NONE — same vocabulary as Quick book's badges.
+  homeCardBadge    String  @default("NEW")
+
   updatedAt DateTime @updatedAt
+}
+
+/// What happened on the challenge board, and who did it.
+///
+/// The venue asked to see everything before this goes out, and that is the
+/// right instinct for a feature whose whole risk is nobody using it: a
+/// board with no posts looks identical whether people never found it,
+/// found it and bounced, or tried to post and were refused. Only an event
+/// trail tells those three apart.
+///
+/// REFUSED rows are the valuable ones. They carry the sentence the server
+/// answered with, so "twelve people tried to post and were told they
+/// already had a challenge up" is a finding rather than a guess.
+enum ChallengeEventType {
+  HOME_CARD_SHOWN
+  HOME_CARD_TAPPED
+  BOARD_VIEWED
+  POST_OPENED
+  POSTED
+  DETAIL_VIEWED
+  ACCEPT_TAPPED
+  ACCEPTED
+  COUNTER_OPENED
+  COUNTERED
+  WITHDRAWN
+  REFUSED
+  ADMIN_TOOK_DOWN
+}
+
+model ChallengeEvent {
+  id   String             @id @default(cuid())
+  type ChallengeEventType
+
+  /// Null for an anonymous or admin-side event.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  challengeId String?
+  challenge   Challenge? @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+
+  /// For REFUSED, the exact sentence the user was shown. For the rest, a
+  /// short human note — the sport filtered to, the window tapped.
+  detail String?
+  /// Anything structured worth keeping: the windows offered, the counts.
+  meta   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([challengeId])
 }

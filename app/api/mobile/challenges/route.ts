@@ -11,6 +11,7 @@ import {
   withdrawChallenge,
   challengeSettings,
   expireStaleChallenges,
+  logChallengeEvent,
 } from "@/lib/challenges";
 
 /**
@@ -43,10 +44,16 @@ export async function GET(request: NextRequest) {
   if (id) {
     const one = await getChallenge(id);
     if (!one) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    void logChallengeEvent({ type: "DETAIL_VIEWED", userId: user.id, challengeId: id });
     return NextResponse.json({ challenge: one, viewerId: user.id });
   }
 
   const settings = await challengeSettings();
+  void logChallengeEvent({
+    type: "BOARD_VIEWED",
+    userId: user.id,
+    detail: url.searchParams.get("sport") || "all sports",
+  });
   const [board, mine] = await Promise.all([
     listOpenChallenges({ sport: url.searchParams.get("sport") || undefined }),
     listMyChallenges(user.id),
@@ -67,6 +74,12 @@ export async function GET(request: NextRequest) {
       title: settings.boardTitle,
       subtitle: settings.boardSubtitle,
       empty: settings.emptyText,
+    },
+    homeCard: {
+      enabled: settings.homeCardEnabled,
+      title: settings.homeCardTitle,
+      subtitle: settings.homeCardSubtitle,
+      badge: settings.homeCardBadge,
     },
   });
 }
@@ -89,6 +102,21 @@ const counterSchema = z.object({
   challengeId: z.string().min(1),
   window: windowSchema,
 });
+/** Taps that change nothing but are worth seeing: the home card, opening
+ *  the post form, opening the counter picker. Without these the trail says
+ *  who posted and nothing about who looked and walked away. */
+const trackSchema = z.object({
+  op: z.literal("track"),
+  type: z.enum([
+    "HOME_CARD_SHOWN",
+    "HOME_CARD_TAPPED",
+    "POST_OPENED",
+    "ACCEPT_TAPPED",
+    "COUNTER_OPENED",
+  ]),
+  challengeId: z.string().nullish(),
+  detail: z.string().max(200).nullish(),
+});
 const withdrawSchema = z.object({
   op: z.literal("withdraw"),
   challengeId: z.string().min(1),
@@ -101,7 +129,13 @@ export async function POST(request: NextRequest) {
 
   const json = await request.json().catch(() => null);
   const parsed = z
-    .discriminatedUnion("op", [postSchema, acceptSchema, counterSchema, withdrawSchema])
+    .discriminatedUnion("op", [
+      postSchema,
+      acceptSchema,
+      counterSchema,
+      withdrawSchema,
+      trackSchema,
+    ])
     .safeParse(json);
   if (!parsed.success) {
     return NextResponse.json(
@@ -110,6 +144,16 @@ export async function POST(request: NextRequest) {
     );
   }
   const body = parsed.data;
+
+  if (body.op === "track") {
+    await logChallengeEvent({
+      type: body.type,
+      userId: user.id,
+      challengeId: body.challengeId ?? null,
+      detail: body.detail ?? null,
+    });
+    return NextResponse.json({ ok: true });
+  }
 
   let result: { ok: boolean; error?: string; id?: string };
   if (body.op === "post") {

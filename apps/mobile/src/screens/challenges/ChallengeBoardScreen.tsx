@@ -14,6 +14,7 @@ import {
   withdrawChallenge,
   hourLabel,
   dayLabel,
+  trackChallenge,
   type Challenge,
 } from "../../lib/challenges";
 
@@ -87,7 +88,10 @@ export function ChallengeBoardScreen() {
           label="Post a challenge"
           variant="primary"
           leadingIcon={<Plus size={16} color="#000" />}
-          onPress={() => nav.navigate("PostChallenge")}
+          onPress={() => {
+            trackChallenge("POST_OPENED");
+            nav.navigate("PostChallenge");
+          }}
         />
 
         {/* Sport filter. Only shown when the venue runs more than one. */}
