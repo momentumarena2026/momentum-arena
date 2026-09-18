@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
+import { wheelRefusal } from "@/lib/challenge-rules";
+import { pushScheduleRefusal } from "@/lib/challenge-push";
 import { challengeSettings } from "@/lib/challenges";
 
 /**
@@ -109,6 +111,66 @@ export async function getChallengeAdmin() {
       countered: n("COUNTERED"),
       refused: n("REFUSED"),
     },
+    promo: await promoStats(since),
+  };
+}
+
+/**
+ * What the wheel has actually cost and returned.
+ *
+ * The three numbers that matter are spins, offers taken, and rupees
+ * discounted — in that order, because a wheel that spins a lot and converts
+ * nothing is a copy or timing problem, and a wheel that converts everything
+ * at 40% is a pricing problem. The realised average is shown next to the
+ * configured one: they drift when the admin retunes mid-period, and only
+ * the realised number is what the month actually cost.
+ */
+async function promoStats(since: Date) {
+  const [spins, offers] = await Promise.all([
+    db.challengeSpin.findMany({
+      where: { createdAt: { gte: since } },
+      select: { wonPct: true },
+    }),
+    db.challengeOffer.findMany({
+      where: { createdAt: { gte: since } },
+      select: {
+        discountPct: true,
+        kind: true,
+        takenAt: true,
+        expiresAt: true,
+        booking: { select: { totalAmount: true, originalAmount: true, discountAmount: true } },
+      },
+    }),
+  ]);
+
+  const taken = offers.filter((o) => o.takenAt);
+  const discounted = taken.reduce((sum, o) => sum + (o.booking?.discountAmount ?? 0), 0);
+  const collected = taken.reduce((sum, o) => sum + (o.booking?.totalAmount ?? 0), 0);
+  const realisedAvg =
+    spins.length > 0 ? spins.reduce((s, x) => s + x.wonPct, 0) / spins.length : 0;
+
+  return {
+    spins: spins.length,
+    offersMade: offers.length,
+    offersTaken: taken.length,
+    offersLapsed: offers.filter((o) => !o.takenAt && o.expiresAt <= new Date()).length,
+    adjacentMade: offers.filter((o) => o.kind === "ADJACENT").length,
+    adjacentTaken: taken.filter((o) => o.kind === "ADJACENT").length,
+    fallbackMade: offers.filter((o) => o.kind === "FALLBACK").length,
+    fallbackTaken: taken.filter((o) => o.kind === "FALLBACK").length,
+    /// Rupees given away, and rupees taken on hours that would otherwise
+    /// have sat empty. The second is the number that justifies the first.
+    discounted,
+    collected,
+    realisedAvgPct: Math.round(realisedAvg * 10) / 10,
+    byPct: Object.entries(
+      spins.reduce<Record<number, number>>((acc, x) => {
+        acc[x.wonPct] = (acc[x.wonPct] ?? 0) + 1;
+        return acc;
+      }, {}),
+    )
+      .map(([pct, count]) => ({ pct: Number(pct), count }))
+      .sort((a, b) => a.pct - b.pct),
   };
 }
 
@@ -131,6 +193,21 @@ export type ChallengeSettingsInput = {
   homeCardTitle?: string | null;
   homeCardSubtitle?: string | null;
   homeCardBadge?: string;
+  minLeadMins?: number;
+  // ── The wheel ───────────────────────────────────────────────────
+  spinEnabled?: boolean;
+  spinSegments?: { pct: number; weight: number }[];
+  spinAvgMinPct?: number;
+  spinAvgMaxPct?: number;
+  spinAdjacentWindowMins?: number;
+  spinFallbackWindowMins?: number;
+  spinFallbackDays?: number;
+  spinAdjacentOnly?: boolean;
+  spinsPerPosterCap?: number;
+  spinsPerPosterPerDays?: number;
+  spinWonPush?: { title: string; body: string };
+  spinAdjacentPushes?: { minsLeft: number; title: string; body: string }[];
+  spinFallbackPushes?: { minsLeft: number; title: string; body: string }[];
 };
 
 export async function saveChallengeSettings(
@@ -194,7 +271,71 @@ export async function saveChallengeSettings(
         ? { homeCardSubtitle: input.homeCardSubtitle || null }
         : {}),
       ...(input.homeCardBadge ? { homeCardBadge: input.homeCardBadge } : {}),
+      ...(num(input.minLeadMins, 0, 2880, "Notice before the slot") !== undefined
+        ? { minLeadMins: input.minLeadMins }
+        : {}),
+      ...(input.spinEnabled !== undefined ? { spinEnabled: input.spinEnabled } : {}),
+      ...(num(input.spinAvgMinPct, 0, 100, "Average floor") !== undefined
+        ? { spinAvgMinPct: input.spinAvgMinPct }
+        : {}),
+      ...(num(input.spinAvgMaxPct, 0, 100, "Average ceiling") !== undefined
+        ? { spinAvgMaxPct: input.spinAvgMaxPct }
+        : {}),
+      ...(num(input.spinAdjacentWindowMins, 1, 1440, "Next-hour offer window") !== undefined
+        ? { spinAdjacentWindowMins: input.spinAdjacentWindowMins }
+        : {}),
+      ...(num(input.spinFallbackWindowMins, 1, 10080, "Another-day offer window") !== undefined
+        ? { spinFallbackWindowMins: input.spinFallbackWindowMins }
+        : {}),
+      ...(num(input.spinFallbackDays, 1, 30, "Days ahead for the fallback") !== undefined
+        ? { spinFallbackDays: input.spinFallbackDays }
+        : {}),
+      ...(input.spinAdjacentOnly !== undefined
+        ? { spinAdjacentOnly: input.spinAdjacentOnly }
+        : {}),
+      ...(num(input.spinsPerPosterCap, 0, 100, "Spins per poster") !== undefined
+        ? { spinsPerPosterCap: input.spinsPerPosterCap }
+        : {}),
+      ...(num(input.spinsPerPosterPerDays, 0, 365, "Spin cap window") !== undefined
+        ? { spinsPerPosterPerDays: input.spinsPerPosterPerDays }
+        : {}),
+      ...(input.spinWonPush ? { spinWonPush: input.spinWonPush as never } : {}),
     };
+
+    // The wheel is checked against the band BEFORE it is stored. A venue
+    // hand-tuning weights will drift, and a wheel paying 40% on average
+    // looks exactly like one paying 18% until the month's numbers arrive.
+    if (input.spinSegments) {
+      const current = await db.challengeSettings.findFirst({
+        select: { spinAvgMinPct: true, spinAvgMaxPct: true },
+      });
+      const lo = input.spinAvgMinPct ?? current?.spinAvgMinPct ?? 15;
+      const hi = input.spinAvgMaxPct ?? current?.spinAvgMaxPct ?? 25;
+      const bad = wheelRefusal(input.spinSegments, lo, hi);
+      if (bad) return { ok: false, error: bad };
+      Object.assign(data, { spinSegments: input.spinSegments as never });
+    }
+
+    // A nudge configured outside its own window never fires, and nothing
+    // else in the system would ever say so.
+    for (const [key, list, winKey, fallbackWin] of [
+      ["spinAdjacentPushes", input.spinAdjacentPushes, input.spinAdjacentWindowMins, 30],
+      ["spinFallbackPushes", input.spinFallbackPushes, input.spinFallbackWindowMins, 120],
+    ] as const) {
+      if (!list) continue;
+      const current = await db.challengeSettings.findFirst({
+        select: { spinAdjacentWindowMins: true, spinFallbackWindowMins: true },
+      });
+      const win =
+        winKey ??
+        (key === "spinAdjacentPushes"
+          ? current?.spinAdjacentWindowMins
+          : current?.spinFallbackWindowMins) ??
+        fallbackWin;
+      const bad = pushScheduleRefusal(list, win);
+      if (bad) return { ok: false, error: bad };
+      Object.assign(data, { [key]: list as never });
+    }
 
     if (
       data.minPlayers !== undefined &&

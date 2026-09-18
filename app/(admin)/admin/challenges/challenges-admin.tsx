@@ -38,6 +38,35 @@ type Settings = {
   homeCardTitle: string | null;
   homeCardSubtitle: string | null;
   homeCardBadge: string;
+  minLeadMins: number;
+  spinEnabled: boolean;
+  spinSegments: unknown;
+  spinAvgMinPct: number;
+  spinAvgMaxPct: number;
+  spinAdjacentWindowMins: number;
+  spinFallbackWindowMins: number;
+  spinFallbackDays: number;
+  spinAdjacentOnly: boolean;
+  spinsPerPosterCap: number;
+  spinsPerPosterPerDays: number;
+  spinWonPush: unknown;
+  spinAdjacentPushes: unknown;
+  spinFallbackPushes: unknown;
+};
+
+type PromoStats = {
+  spins: number;
+  offersMade: number;
+  offersTaken: number;
+  offersLapsed: number;
+  adjacentMade: number;
+  adjacentTaken: number;
+  fallbackMade: number;
+  fallbackTaken: number;
+  discounted: number;
+  collected: number;
+  realisedAvgPct: number;
+  byPct: { pct: number; count: number }[];
 };
 
 type EventRow = {
@@ -102,10 +131,11 @@ export function ChallengesAdmin({
     eventCounts: Record<string, number>;
     refusals: { reason: string; count: number }[];
     funnel: Record<string, number>;
+    promo: PromoStats;
   };
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"board" | "activity" | "settings">("board");
+  const [tab, setTab] = useState<"board" | "activity" | "promo" | "settings">("board");
   const [s, setS] = useState<Settings>(initial.settings);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -152,7 +182,7 @@ export function ChallengesAdmin({
       </p>
 
       <div className="mt-4 flex gap-2">
-        {(["board", "activity", "settings"] as const).map((t) => (
+        {(["board", "activity", "promo", "settings"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -166,7 +196,9 @@ export function ChallengesAdmin({
               ? `Challenges (${initial.challenges.length})`
               : t === "activity"
                 ? `Activity (${initial.events.length})`
-                : "Settings"}
+                : t === "promo"
+                  ? `Prize wheel (${initial.promo.spins})`
+                  : "Settings"}
           </button>
         ))}
       </div>
@@ -309,6 +341,8 @@ export function ChallengesAdmin({
             )}
           </div>
         </div>
+      ) : tab === "promo" ? (
+        <PromoTab initial={initial} s={s} setS={setS} save={save} pending={pending} />
       ) : tab === "settings" ? (
         <div className="mt-5 space-y-5">
           <Panel
@@ -733,5 +767,304 @@ function Txt({
         className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
       />
     </div>
+  );
+}
+
+/**
+ * The prize wheel, and what it has actually cost.
+ *
+ * The editor deliberately does NOT take an average as an input. Average,
+ * floor and ceiling are not independent — set floor 15, ceiling 50 and
+ * average 25 and there may be no distribution that satisfies it. So the
+ * venue edits segments and weights, and this screen shows the arithmetic
+ * that follows: the average, each segment's odds, and what 100 spins costs
+ * on a typical hour. Saving is refused when the derived average leaves the
+ * band, because a wheel paying 40% looks exactly like one paying 18% until
+ * the month's numbers arrive.
+ */
+function PromoTab({
+  initial,
+  s,
+  setS,
+  save,
+  pending,
+}: {
+  initial: { promo: PromoStats };
+  s: Settings;
+  setS: (v: Settings) => void;
+  save: (patch: Record<string, unknown>) => void;
+  pending: boolean;
+}) {
+  const segs: { pct: number; weight: number }[] = Array.isArray(s.spinSegments)
+    ? (s.spinSegments as { pct: number; weight: number }[])
+    : DEFAULT_SEGMENTS;
+  const total = segs.reduce((t, x) => t + Math.max(0, x.weight), 0);
+  const avg = total > 0 ? segs.reduce((t, x) => t + x.pct * Math.max(0, x.weight), 0) / total : 0;
+  const inBand = avg >= s.spinAvgMinPct && avg <= s.spinAvgMaxPct;
+  const p = initial.promo;
+  // A representative hour, so "what does this cost" is a rupee figure the
+  // venue can argue with rather than a percentage they have to translate.
+  const SAMPLE_HOUR = 2000;
+
+  const setSegs = (next: { pct: number; weight: number }[]) => {
+    setS({ ...s, spinSegments: next });
+  };
+
+  return (
+    <div className="mt-5 space-y-5">
+      <Panel
+        title="The wheel"
+        desc="Switched separately from the board, so the promo can be paused without taking challenges down."
+      >
+        <Toggle
+          label="Prize wheel running"
+          value={s.spinEnabled}
+          onChange={(v) => {
+            setS({ ...s, spinEnabled: v });
+            save({ spinEnabled: v });
+          }}
+        />
+      </Panel>
+
+      <Panel
+        title="Segments and weights"
+        desc="Edit these; the average is what follows from them. A higher weight means that slice wins more often."
+      >
+        <div className="space-y-2">
+          {segs.map((seg, i) => {
+            const chance = total > 0 ? (Math.max(0, seg.weight) / total) * 100 : 0;
+            return (
+              <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
+                <input
+                  type="number"
+                  value={seg.pct}
+                  min={0}
+                  max={100}
+                  onChange={(e) => {
+                    const next = [...segs];
+                    next[i] = { ...seg, pct: Number(e.target.value) };
+                    setSegs(next);
+                  }}
+                  className="w-20 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-zinc-100"
+                />
+                <span className="text-zinc-500">% off, weight</span>
+                <input
+                  type="number"
+                  value={seg.weight}
+                  min={0}
+                  onChange={(e) => {
+                    const next = [...segs];
+                    next[i] = { ...seg, weight: Number(e.target.value) };
+                    setSegs(next);
+                  }}
+                  className="w-20 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-zinc-100"
+                />
+                <span className="w-32 tabular-nums text-zinc-400">
+                  {chance.toFixed(1)}% of spins
+                </span>
+                <span className="w-28 tabular-nums text-zinc-500">
+                  1 in {chance > 0 ? Math.round(100 / chance) : "∞"}
+                </span>
+                <button
+                  onClick={() => setSegs(segs.filter((_, j) => j !== i))}
+                  className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
+                >
+                  remove
+                </button>
+              </div>
+            );
+          })}
+          <button
+            onClick={() => setSegs([...segs, { pct: 10, weight: 10 }])}
+            className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+          >
+            + add a segment
+          </button>
+        </div>
+
+        <div
+          className={`mt-4 rounded-lg border p-3 text-sm ${
+            inBand
+              ? "border-emerald-500/40 bg-emerald-500/5"
+              : "border-red-500/40 bg-red-500/5"
+          }`}
+        >
+          <p className={inBand ? "text-emerald-300" : "text-red-300"}>
+            This wheel averages <strong>{avg.toFixed(1)}%</strong>
+            {inBand
+              ? ` — inside your ${s.spinAvgMinPct}–${s.spinAvgMaxPct}% band.`
+              : ` — OUTSIDE your ${s.spinAvgMinPct}–${s.spinAvgMaxPct}% band. It won't save.`}
+          </p>
+          <p className="mt-1 text-xs text-zinc-400">
+            On a ₹{SAMPLE_HOUR.toLocaleString("en-IN")} hour, 100 spins all taken up would
+            give away about{" "}
+            <strong className="text-zinc-200">
+              ₹{Math.round((SAMPLE_HOUR * avg) / 100 * 100).toLocaleString("en-IN")}
+            </strong>{" "}
+            and collect{" "}
+            <strong className="text-zinc-200">
+              ₹{Math.round(SAMPLE_HOUR * 100 - (SAMPLE_HOUR * avg) / 100 * 100).toLocaleString("en-IN")}
+            </strong>{" "}
+            on hours that would otherwise have sat empty.
+          </p>
+        </div>
+
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            disabled={pending || !inBand}
+            onClick={() => save({ spinSegments: segs })}
+            className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          >
+            Save the wheel
+          </button>
+          <Num
+            label="Average floor %"
+            value={s.spinAvgMinPct}
+            onSave={(v) => {
+              setS({ ...s, spinAvgMinPct: v });
+              save({ spinAvgMinPct: v });
+            }}
+          />
+          <Num
+            label="Average ceiling %"
+            value={s.spinAvgMaxPct}
+            onSave={(v) => {
+              setS({ ...s, spinAvgMaxPct: v });
+              save({ spinAvgMaxPct: v });
+            }}
+          />
+        </div>
+      </Panel>
+
+      <Panel
+        title="The two offers"
+        desc="The hour after the match is held unsold while the captain asks his side, so give it minutes. The any-day fallback holds nothing, so it can have longer."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Num
+            label="Next-hour offer lasts (minutes)"
+            value={s.spinAdjacentWindowMins}
+            onSave={(v) => {
+              setS({ ...s, spinAdjacentWindowMins: v });
+              save({ spinAdjacentWindowMins: v });
+            }}
+            hint="How long the captain has to ask his players before the hour goes back on sale."
+          />
+          <Num
+            label="Another-day offer lasts (minutes)"
+            value={s.spinFallbackWindowMins}
+            onSave={(v) => {
+              setS({ ...s, spinFallbackWindowMins: v });
+              save({ spinFallbackWindowMins: v });
+            }}
+            hint="Used when the hour after the match was already booked."
+          />
+          <Num
+            label="Fallback valid for (days ahead)"
+            value={s.spinFallbackDays}
+            onSave={(v) => {
+              setS({ ...s, spinFallbackDays: v });
+              save({ spinFallbackDays: v });
+            }}
+          />
+          <Num
+            label="Notice needed before a slot (minutes)"
+            value={s.minLeadMins}
+            onSave={(v) => {
+              setS({ ...s, minLeadMins: v });
+              save({ minLeadMins: v });
+            }}
+            hint="No posting or accepting inside this. The next-hour prize is exempt — same session, staff already there."
+          />
+        </div>
+        <div className="mt-3">
+          <Toggle
+            label="Next hour only — never offer another day"
+            value={s.spinAdjacentOnly}
+            onChange={(v) => {
+              setS({ ...s, spinAdjacentOnly: v });
+              save({ spinAdjacentOnly: v });
+            }}
+          />
+        </div>
+      </Panel>
+
+      <Panel
+        title="What it has actually cost"
+        desc="Spins, what came back, and the realised average — which is the only one that matches the month's numbers."
+      >
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="Spins" value={p.spins} />
+          <Stat label="Offers taken" value={`${p.offersTaken}/${p.offersMade}`} />
+          <Stat label="Lapsed" value={p.offersLapsed} />
+          <Stat label="Realised average" value={`${p.realisedAvgPct}%`} />
+          <Stat label="Given away" value={`₹${p.discounted.toLocaleString("en-IN")}`} />
+          <Stat label="Collected" value={`₹${p.collected.toLocaleString("en-IN")}`} />
+          <Stat label="Next hour" value={`${p.adjacentTaken}/${p.adjacentMade}`} />
+          <Stat label="Another day" value={`${p.fallbackTaken}/${p.fallbackMade}`} />
+        </div>
+        {p.byPct.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs text-zinc-500">WHAT THE WHEEL ACTUALLY LANDED ON</p>
+            <div className="mt-2 space-y-1">
+              {p.byPct.map((row) => (
+                <div key={row.pct} className="flex items-center gap-2 text-xs">
+                  <span className="w-12 tabular-nums text-zinc-300">{row.pct}%</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded bg-zinc-800">
+                    <div
+                      className="h-full bg-emerald-500/60"
+                      style={{ width: `${(row.count / Math.max(1, p.spins)) * 100}%` }}
+                    />
+                  </div>
+                  <span className="w-10 tabular-nums text-zinc-500">{row.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+const DEFAULT_SEGMENTS = [
+  { pct: 5, weight: 10 },
+  { pct: 10, weight: 30 },
+  { pct: 15, weight: 25 },
+  { pct: 20, weight: 15 },
+  { pct: 25, weight: 10 },
+  { pct: 50, weight: 10 },
+];
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+      <p className="text-[11px] uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className="mt-0.5 text-lg font-medium tabular-nums text-zinc-100">{value}</p>
+    </div>
+  );
+}
+
+/** The same on/off affordance the board switch uses, so nothing new to learn. */
+function Toggle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      onClick={() => onChange(!value)}
+      className={`flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm font-medium ${
+        value
+          ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-300"
+          : "border-zinc-700 bg-zinc-900 text-zinc-400"
+      }`}
+    >
+      {value ? `${label} — ON` : `${label} — OFF`}
+    </button>
   );
 }
