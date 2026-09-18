@@ -22,6 +22,9 @@ import {
   createOfferPayOrder,
   verifyOfferPayment,
   type SpinResult,
+  type OfferPick,
+  type OfferSlots,
+  fetchOfferSlots,
 } from "../../lib/challenges";
 import RazorpayCheckout from "react-native-razorpay";
 import { useAuth } from "../../providers/AuthProvider";
@@ -44,6 +47,8 @@ export function ChallengeDetailScreen() {
   const [paying, setPaying] = useState(false);
   const [spinning, setSpinning] = useState(false);
   const [spun, setSpun] = useState<SpinResult | null>(null);
+  const [slots, setSlots] = useState<OfferSlots | null>(null);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const { state: authState } = useAuth();
 
   // The next seven days — as far ahead as anyone arranges a pickup game.
@@ -174,12 +179,24 @@ export function ChallengeDetailScreen() {
     }
   };
 
+  const loadSlots = async () => {
+    if (!spun) return;
+    setLoadingSlots(true);
+    try {
+      setSlots(await fetchOfferSlots(spun.offerId));
+    } catch (e) {
+      Alert.alert("Couldn't load hours", challengeErrorMessage(e));
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
   /** Pay for the whole discounted hour. No split — the captain fronts it. */
-  const takeOffer = async () => {
+  const takeOffer = async (pick?: OfferPick) => {
     if (!spun) return;
     setPaying(true);
     try {
-      const order = await createOfferPayOrder(spun.offerId);
+      const order = await createOfferPayOrder(spun.offerId, pick);
       let paid: {
         razorpay_order_id?: string;
         razorpay_payment_id?: string;
@@ -208,8 +225,10 @@ export function ChallengeDetailScreen() {
         razorpayOrderId: paid.razorpay_order_id ?? "",
         razorpayPaymentId: paid.razorpay_payment_id ?? "",
         razorpaySignature: paid.razorpay_signature ?? "",
+        pick,
       });
       setSpun(null);
+      setSlots(null);
       await refresh();
       Alert.alert("Booked", `That hour is yours at ${spun.pct}% off. See you there.`);
     } catch (e) {
@@ -321,13 +340,60 @@ export function ChallengeDetailScreen() {
                         minute: "2-digit",
                       })}
                     </Text>
-                    {spun.kind === "ADJACENT" && (
+                    {spun.kind === "ADJACENT" ? (
                       <Button
                         label={`Book it — ₹${spun.price}`}
                         variant="primary"
                         loading={paying}
                         disabled={paying}
-                        onPress={takeOffer}
+                        onPress={() => takeOffer()}
+                      />
+                    ) : slots ? (
+                      // Shown as evenings rather than a flat list: "any hour
+                      // in the next day" is a choice made by looking at a
+                      // night, not by scrolling a hundred rows.
+                      <View style={{ gap: 10 }}>
+                        {slots.days.map((d) => (
+                          <View key={`${d.date}-${d.courtConfigId}`} style={{ gap: 6 }}>
+                            <Text variant="tiny" color={colors.zinc500}>
+                              {dayLabel(d.date)} · {d.courtLabel}
+                            </Text>
+                            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                              {d.hours.map((h) => (
+                                <Pressable
+                                  key={h.startHour}
+                                  disabled={paying}
+                                  onPress={() =>
+                                    takeOffer({
+                                      courtConfigId: d.courtConfigId,
+                                      date: d.date,
+                                      startHour: h.startHour,
+                                    })
+                                  }
+                                  style={{
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 6,
+                                    borderRadius: radius.md,
+                                    borderWidth: 1,
+                                    borderColor: colors.emerald400,
+                                  }}
+                                >
+                                  <Text variant="tiny" color={colors.emerald400}>
+                                    {h.label} · ₹{h.price}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <Button
+                        label="Pick an hour"
+                        variant="primary"
+                        loading={loadingSlots}
+                        disabled={loadingSlots}
+                        onPress={loadSlots}
                       />
                     )}
                   </View>

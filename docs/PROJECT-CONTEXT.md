@@ -686,6 +686,49 @@ retired `holdMinsAfterFirstPayment` knob described the old temporary hold; it
 was removed rather than left lying because a settings field that promises
 behaviour the system no longer has is worse than no field.
 
+**The prize wheel** (`lib/challenge-spin.ts`, `lib/challenge-push.ts`).
+A confirmed challenge earns its POSTER one spin for a discount on an extra
+hour, headlined "up to 50%" and weighted so the average lands in the
+venue's band. Four things about it are load-bearing:
+
+- **Average, floor and ceiling cannot all be inputs.** They are not
+  independent — floor 15 / ceiling 50 / average 25 may have no distribution
+  that satisfies it. The admin edits SEGMENTS AND WEIGHTS; the average is
+  derived, shown live, and a save outside the band is refused. Do not
+  "simplify" this into three number boxes.
+- **The draw is honestly weighted and written before the device hears it.**
+  50% rarely stops because it rarely WINS, not because an animation is
+  steered off a result it already landed on — and the row exists before the
+  spin animates, so killing the app mid-spin cannot re-roll.
+- **Two offers on two clocks.** ADJACENT is the hour after the match, held
+  unsold while the captain asks his side, so its window is minutes.
+  FALLBACK is any hour in the next few days when that hour was taken;
+  nothing is held, so it can be longer. Both windows, both nudge schedules
+  and every word of every push are admin-set — `{minsLeft}`, `{pct}`,
+  `{price}`, `{saving}`, `{hour}`, `{date}`, `{court}` are substituted at
+  send time. A nudge configured at or above its own window never fires, so
+  both the admin UI and `pushScheduleRefusal` reject it.
+- **Nudges are "marker reached", not "marker equals".** A cron that skips a
+  minute must still send the last call, which is the one that converts;
+  each marker is recorded on the offer so an overlapping run cannot
+  double-send. `/api/cron/challenge-offers` runs every minute.
+
+**ACCEPTING IS PAYING** (2026-09-19). There is no free AGREED state any
+more: a stranger buys into a challenge by paying their half, and that
+payment settles the window. This creates a race the old flow could not —
+two strangers reaching for one unique ACCEPTOR slot — so an unpaid payment
+row locks it for `paymentWindowMins` before going stale. Without that lock
+the second caller's upsert steals the first's row and the first's capture
+lands on a row that is no longer theirs: money taken for nothing.
+
+`minLeadMins` (default 240) blocks posting and accepting close to the slot.
+It is deliberately NOT applied to the poster's own half — that is chasing
+money for an hour already blocked — nor to the adjacent-hour prize, which
+is the same session with staff already there. `slotStart()` converts a
+`@db.Date` plus an IST wall-clock hour into a real instant without
+host-local getters; doing it the obvious way is gotcha 18 and puts the gate
+5½ hours out on production only.
+
 Still not built: push beyond the in-app notification rows, and any automated
 refund.
 

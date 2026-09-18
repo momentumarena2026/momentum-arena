@@ -155,6 +155,21 @@ export async function spinChallengeWheel(challengeId: string): Promise<SpinResul
 
 export type OfferPick = { courtConfigId: string; date: string; startHour: number };
 
+export type OfferSlots = {
+  pct: number;
+  minsLeft: number;
+  days: {
+    date: string;
+    courtConfigId: string;
+    courtLabel: string;
+    hours: { startHour: number; label: string; fullPrice: number; price: number }[];
+  }[];
+};
+
+export async function fetchOfferSlots(offerId: string): Promise<OfferSlots> {
+  return api.post("/api/mobile/challenges", { op: "offer-slots", offerId });
+}
+
 export async function createOfferPayOrder(
   offerId: string,
   pick?: OfferPick,

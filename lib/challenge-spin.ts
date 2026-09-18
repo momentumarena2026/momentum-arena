@@ -675,3 +675,96 @@ export async function confirmOfferPayment(args: {
   }
   return r;
 }
+
+/**
+ * The hours a FALLBACK offer could be spent on.
+ *
+ * Returned as whole days rather than a flat list, because "any hour in the
+ * next day" is a choice the captain makes by looking at an evening, not by
+ * scrolling a hundred rows. Prices are the DISCOUNTED ones — showing the
+ * rack rate next to an offer the player has already won reads as a bait.
+ */
+export async function offerSlots(
+  offerId: string,
+  userId: string,
+): Promise<
+  | {
+      ok: true;
+      pct: number;
+      minsLeft: number;
+      days: {
+        date: string;
+        courtConfigId: string;
+        courtLabel: string;
+        hours: { startHour: number; label: string; fullPrice: number; price: number }[];
+      }[];
+    }
+  | { ok: false; error: string }
+> {
+  const o = await db.challengeOffer.findUnique({
+    where: { id: offerId },
+    select: {
+      userId: true,
+      kind: true,
+      discountPct: true,
+      expiresAt: true,
+      takenAt: true,
+      spin: { select: { challenge: { select: { sport: true, bookingId: true } } } },
+    },
+  });
+  if (!o) return { ok: false, error: "That offer is gone." };
+  if (o.userId !== userId) return { ok: false, error: "That offer isn't yours." };
+  if (o.takenAt) return { ok: false, error: "You've already used this one." };
+  const minsLeft = Math.ceil((o.expiresAt.getTime() - Date.now()) / 60000);
+  if (minsLeft <= 0) return { ok: false, error: "That offer has expired." };
+
+  const cfg = await spinConfig();
+  const courts = await db.courtConfig.findMany({
+    where: { sport: o.spin.challenge.sport, isActive: true },
+    select: { id: true, label: true, size: true },
+    orderBy: { label: "asc" },
+  });
+  if (courts.length === 0) return { ok: false, error: "No courts are set up for that sport." };
+
+  const days: {
+    date: string;
+    courtConfigId: string;
+    courtLabel: string;
+    hours: { startHour: number; label: string; fullPrice: number; price: number }[];
+  }[] = [];
+
+  for (let d = 0; d <= cfg.fallbackDays; d++) {
+    const day = new Date();
+    day.setUTCHours(0, 0, 0, 0);
+    day.setUTCDate(day.getUTCDate() + d);
+    for (const court of courts) {
+      const [avail, prices] = await Promise.all([
+        getSlotAvailability(court.id, day),
+        getSlotPricesForDate(court.id, day),
+      ]);
+      const hours = avail
+        .filter((slot) => slot.status === "available")
+        .map((slot) => {
+          const full = prices.find((p) => p.hour === slot.hour)?.price ?? 0;
+          const { price } = discounted(full, o.discountPct);
+          return {
+            startHour: slot.hour,
+            label: hourRangeLabel(slot.hour),
+            fullPrice: full,
+            price,
+          };
+        })
+        .filter((h) => h.fullPrice > 0);
+      if (hours.length > 0) {
+        days.push({
+          date: day.toISOString().slice(0, 10),
+          courtConfigId: court.id,
+          courtLabel: court.label,
+          hours,
+        });
+      }
+    }
+  }
+
+  return { ok: true, pct: o.discountPct, minsLeft, days };
+}

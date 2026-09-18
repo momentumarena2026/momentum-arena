@@ -23,6 +23,7 @@ import {
 import {
   spinFor,
   offerQuote,
+  offerSlots,
   createOfferOrder,
   confirmOfferPayment,
 } from "@/lib/challenge-spin";
@@ -172,6 +173,10 @@ const offerQuoteSchema = z.object({
     })
     .nullish(),
 });
+const offerSlotsSchema = z.object({
+  op: z.literal("offer-slots"),
+  offerId: z.string().min(1),
+});
 const offerOrderSchema = z.object({
   op: z.literal("offer-order"),
   offerId: z.string().min(1),
@@ -214,6 +219,7 @@ export async function POST(request: NextRequest) {
       payVerifySchema,
       spinSchema,
       offerQuoteSchema,
+      offerSlotsSchema,
       offerOrderSchema,
       offerVerifySchema,
     ])
@@ -244,6 +250,12 @@ export async function POST(request: NextRequest) {
 
   if (body.op === "offer-quote") {
     const r = await offerQuote(body.offerId, user.id, body.pick ?? undefined);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
+  if (body.op === "offer-slots") {
+    const r = await offerSlots(body.offerId, user.id);
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
     return NextResponse.json(r);
   }
