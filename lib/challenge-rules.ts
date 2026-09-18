@@ -242,3 +242,64 @@ export function statusAfterCounter(): ChallengeStatus {
 export function hasExpired(c: ChallengeView, now: Date): boolean {
   return isLive(c.status) && c.expiresAt.getTime() <= now.getTime();
 }
+
+// ── Paying ─────────────────────────────────────────────────────────
+
+/**
+ * How a court's price divides between the two sides.
+ *
+ * Half each, and when the total is an odd number of rupees the CHALLENGER
+ * pays the extra one. Somebody has to, the difference is a rupee, and the
+ * poster is the side that chose to start this — but the real reason to fix
+ * it in one tested function is that the two halves must always add back to
+ * the total exactly. A `Math.round` on each side independently can produce
+ * two halves that sum to a rupee more than the court costs, and that rupee
+ * then has to come from somewhere at reconciliation time.
+ */
+export function splitShare(total: number): { CHALLENGER: number; ACCEPTOR: number } {
+  const acceptor = Math.floor(total / 2);
+  return { CHALLENGER: total - acceptor, ACCEPTOR: acceptor };
+}
+
+/**
+ * Why this person cannot pay their half right now — or null.
+ *
+ * `paidSides` is which halves are already in. The court-availability
+ * question is deliberately NOT asked here: it needs the database, it can
+ * change between this check and the charge, and it is the caller's job to
+ * re-ask it inside the transaction that takes the money.
+ */
+export function payRefusal(
+  c: ChallengeView,
+  userId: string,
+  now: Date,
+  paidSides: ChallengeSide[],
+): string | null {
+  if (c.status === "WITHDRAWN") return "That challenge was called off.";
+  if (c.status === "EXPIRED") return "That challenge expired.";
+  if (c.status === "SLOT_LOST") {
+    return "The court went to somebody else before both halves were in.";
+  }
+  if (c.status === "OPEN" || c.status === "COUNTERED") {
+    return "Nobody has agreed a time yet — settle the time first.";
+  }
+  const side = sideOf(c, userId);
+  if (!side) return "You're not part of this match.";
+  if (paidSides.includes(side)) return "You've already paid your half.";
+  if (c.status === "CONFIRMED") return "This match is already paid for.";
+  return null;
+}
+
+/**
+ * What a payment does to the challenge.
+ *
+ * The venue's decision (2026-09-18) is that the FIRST half blocks the
+ * court. So the first payment is the one that creates a real booking and
+ * takes the hour off the board; the second only settles the balance. That
+ * ordering is what makes SLOT_LOST nearly unreachable — the old design
+ * held no inventory until both had paid, which meant the second captain
+ * could pay for an hour that had just gone.
+ */
+export function statusAfterPayment(paidSidesIncludingThis: ChallengeSide[]): ChallengeStatus {
+  return paidSidesIncludingThis.length >= 2 ? "CONFIRMED" : "PART_PAID";
+}

@@ -28,6 +28,7 @@ export async function getChallengeAdmin() {
     db.challenge.findMany({
       select: {
         id: true,
+        bookingId: true,
         sport: true,
         teamName: true,
         playerCount: true,
@@ -121,7 +122,6 @@ export type ChallengeSettingsInput = {
   ttlDays?: number;
   advancePct?: number;
   paymentWindowMins?: number;
-  holdMinsAfterFirstPayment?: number;
   pushAudience?: string;
   pushDailyCap?: number;
   boardTitle?: string | null;
@@ -174,9 +174,6 @@ export async function saveChallengeSettings(
         : {}),
       ...(num(input.paymentWindowMins, 5, 1440, "Payment window") !== undefined
         ? { paymentWindowMins: input.paymentWindowMins }
-        : {}),
-      ...(num(input.holdMinsAfterFirstPayment, 0, 120, "Hold after first payment") !== undefined
-        ? { holdMinsAfterFirstPayment: input.holdMinsAfterFirstPayment }
         : {}),
       ...(input.pushAudience ? { pushAudience: input.pushAudience } : {}),
       ...(num(input.pushDailyCap, 0, 50, "Push cap") !== undefined

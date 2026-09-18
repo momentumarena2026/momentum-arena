@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { notifyUser } from "@/lib/user-notifications";
 import { Prisma, type ChallengeEventType } from "@prisma/client";
 import {
   DEFAULT_LIMITS,
@@ -297,6 +298,27 @@ export async function acceptChallengeWindow(
     detail: "match agreed",
     meta: { windowId },
   });
+
+  // Both captains are told, because at this instant BOTH owe a half and
+  // whoever moves first takes the hour off the board. Telling only the
+  // poster would make the race silently unfair to the person who just
+  // accepted, and telling nobody is how an agreed match quietly expires.
+  const [poster, taker] = await Promise.all([
+    db.user.findUnique({ where: { id: c.createdByUserId }, select: { id: true, name: true } }),
+    db.user.findUnique({ where: { id: c.acceptedByUserId ?? userId }, select: { id: true, name: true } }),
+  ]);
+  for (const [who, other] of [
+    [poster, taker],
+    [taker, poster],
+  ] as const) {
+    if (!who) continue;
+    await notifyUser(who.id, {
+      type: "CHALLENGE_AGREED",
+      title: "Match on — your half is due",
+      body: `${other?.name ?? "The other captain"} is in. Whoever pays first blocks the court; the match is confirmed once both halves are in.`,
+      link: `/challenges/${challengeId}`,
+    });
+  }
   return { ok: true };
 }
 

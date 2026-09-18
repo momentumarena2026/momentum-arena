@@ -4239,7 +4239,6 @@ model ChallengeSettings {
   advancePct        Int @default(50)
   paymentWindowMins Int @default(120)
   /// The court is held only once SOMEBODY has paid — never on agreement.
-  holdMinsAfterFirstPayment Int @default(15)
 
   // ── Push. Stored now, used in phase 4.
   /// ALL | SPORT | RECENT — who hears about a new challenge.
@@ -4292,6 +4291,12 @@ enum ChallengeEventType {
   REFUSED
   ADMIN_TOOK_DOWN
   EXPIRED
+  /// A captain opened the payment sheet for their half.
+  PAY_STARTED
+  /// A half landed. The first one blocks the court.
+  PAID
+  /// The hour went before the first half could hold it; a refund is owed.
+  SLOT_LOST
 }
 
 model ChallengeEvent {

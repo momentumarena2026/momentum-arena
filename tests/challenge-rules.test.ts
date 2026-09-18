@@ -21,6 +21,9 @@ import {
   DEFAULT_LIMITS,
   type ChallengeView,
   type ProposedWindow,
+  splitShare,
+  payRefusal,
+  statusAfterPayment,
 } from "../lib/challenge-rules";
 
 const NOW = new Date("2026-09-17T06:00:00+05:30");
@@ -244,4 +247,69 @@ test("only a live challenge can expire", () => {
   const past = new Date("2026-09-17T05:00:00+05:30");
   assert.equal(hasExpired(challenge({ expiresAt: past }), NOW), true);
   assert.equal(hasExpired(challenge({ status: "CONFIRMED", expiresAt: past }), NOW), false);
+});
+
+// ── Paying ─────────────────────────────────────────────────────────
+
+test("the two halves always add back to exactly the court price", () => {
+  // The property that matters. Rounding each side independently is the
+  // bug this guards: Math.round(1201/2) twice is 1202.
+  for (let total = 0; total <= 4000; total++) {
+    const s = splitShare(total);
+    assert.equal(s.CHALLENGER + s.ACCEPTOR, total, `split of ${total} did not reconcile`);
+    assert.ok(s.CHALLENGER >= s.ACCEPTOR, `challenger should never underpay at ${total}`);
+    assert.ok(s.CHALLENGER - s.ACCEPTOR <= 1, `halves differ by more than a rupee at ${total}`);
+  }
+});
+
+test("an odd total puts the extra rupee on the poster", () => {
+  assert.deepEqual(splitShare(1201), { CHALLENGER: 601, ACCEPTOR: 600 });
+  assert.deepEqual(splitShare(1200), { CHALLENGER: 600, ACCEPTOR: 600 });
+});
+
+const agreed = (over: Partial<ChallengeView> = {}): ChallengeView => ({
+  status: "AGREED",
+  createdByUserId: "poster",
+  acceptedByUserId: "taker",
+  expiresAt: new Date("2026-10-01T00:00:00Z"),
+  counterCountChallenger: 0,
+  counterCountAcceptor: 0,
+  ...over,
+});
+const PAY_NOW = new Date("2026-09-20T10:00:00Z");
+
+test("only the two captains can pay, and only once each", () => {
+  assert.equal(payRefusal(agreed(), "poster", PAY_NOW, []), null);
+  assert.equal(payRefusal(agreed(), "taker", PAY_NOW, []), null);
+  assert.match(payRefusal(agreed(), "stranger", PAY_NOW, []) ?? "", /not part of this match/);
+  assert.match(
+    payRefusal(agreed(), "poster", PAY_NOW, ["CHALLENGER"]) ?? "",
+    /already paid your half/,
+  );
+  // The other side having paid does not block you.
+  assert.equal(payRefusal(agreed({ status: "PART_PAID" }), "poster", PAY_NOW, ["ACCEPTOR"]), null);
+});
+
+test("nobody pays for a match that has no agreed time, or is over", () => {
+  assert.match(payRefusal(agreed({ status: "OPEN" }), "poster", PAY_NOW, []) ?? "", /settle the time/);
+  assert.match(
+    payRefusal(agreed({ status: "COUNTERED" }), "poster", PAY_NOW, []) ?? "",
+    /settle the time/,
+  );
+  assert.match(payRefusal(agreed({ status: "WITHDRAWN" }), "poster", PAY_NOW, []) ?? "", /called off/);
+  assert.match(payRefusal(agreed({ status: "EXPIRED" }), "poster", PAY_NOW, []) ?? "", /expired/);
+  assert.match(
+    payRefusal(agreed({ status: "SLOT_LOST" }), "poster", PAY_NOW, []) ?? "",
+    /went to somebody else/,
+  );
+  assert.match(
+    payRefusal(agreed({ status: "CONFIRMED" }), "poster", PAY_NOW, ["ACCEPTOR"]) ?? "",
+    /already paid for/,
+  );
+});
+
+test("the first half part-pays, the second confirms", () => {
+  assert.equal(statusAfterPayment(["CHALLENGER"]), "PART_PAID");
+  assert.equal(statusAfterPayment(["ACCEPTOR"]), "PART_PAID");
+  assert.equal(statusAfterPayment(["CHALLENGER", "ACCEPTOR"]), "CONFIRMED");
 });

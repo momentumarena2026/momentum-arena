@@ -16,7 +16,11 @@ import {
   dayLabel,
   trackChallenge,
   challengeErrorMessage,
+  createChallengePayOrder,
+  verifyChallengePayment,
 } from "../../lib/challenges";
+import RazorpayCheckout from "react-native-razorpay";
+import { useAuth } from "../../providers/AuthProvider";
 
 /**
  * One challenge, and what you can do about it.
@@ -33,6 +37,8 @@ export function ChallengeDetailScreen() {
   const id = route.params.id;
   const [busy, setBusy] = useState(false);
   const [showCounter, setShowCounter] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const { state: authState } = useAuth();
 
   // The next seven days — as far ahead as anyone arranges a pickup game.
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -76,6 +82,7 @@ export function ChallengeDetailScreen() {
   }
 
   const counterBlock = q.data?.counterBlock ?? null;
+  const quote = q.data?.quote ?? null;
   const mine = c.createdByUserId === me;
   const iAmIn = mine || c.acceptedByUserId === me;
   const live = ["OPEN", "COUNTERED"].includes(c.status);
@@ -85,6 +92,63 @@ export function ChallengeDetailScreen() {
   const takeable = c.windows.filter(
     (w) => w.status === "OFFERED" && (!iAmIn || w.proposedBy !== mySide),
   );
+
+  /**
+   * Pay this side's half.
+   *
+   * Three steps, and the middle one leaves the app: open an order for
+   * exactly this side's share, run Razorpay's sheet, hand the signature
+   * back. A cancelled sheet is not an error — people back out of payment
+   * screens constantly and telling them off for it is wrong — so it just
+   * returns quietly and leaves the challenge as it was.
+   */
+  const pay = async () => {
+    setPaying(true);
+    try {
+      const order = await createChallengePayOrder(id);
+      let paid: {
+        razorpay_order_id?: string;
+        razorpay_payment_id?: string;
+        razorpay_signature?: string;
+      };
+      try {
+        paid = (await RazorpayCheckout.open({
+          key: order.keyId,
+          amount: Math.round(order.amount * 100),
+          currency: "INR",
+          name: "Momentum Arena",
+          description: `Your half${order.courtLabel ? ` · ${order.courtLabel}` : ""}`,
+          order_id: order.orderId,
+          prefill: {
+            name: authState.user?.name ?? "",
+            email: authState.user?.email ?? "",
+            contact: authState.user?.phone ?? "",
+          },
+          theme: { color: colors.emerald500 },
+        })) as typeof paid;
+      } catch {
+        return; // sheet dismissed — nothing was charged, say nothing
+      }
+      const res = await verifyChallengePayment({
+        challengeId: id,
+        razorpayOrderId: paid.razorpay_order_id ?? "",
+        razorpayPaymentId: paid.razorpay_payment_id ?? "",
+        razorpaySignature: paid.razorpay_signature ?? "",
+      });
+      await refresh();
+      await qc.invalidateQueries({ queryKey: ["challenges"] });
+      Alert.alert(
+        res.status === "CONFIRMED" ? "Match confirmed" : "Court held",
+        res.status === "CONFIRMED"
+          ? "Both halves are in and the court is booked. See you there."
+          : "Your half is paid and the hour is now blocked. We've told the other captain theirs is due.",
+      );
+    } catch (e) {
+      Alert.alert("Payment problem", challengeErrorMessage(e));
+    } finally {
+      setPaying(false);
+    }
+  };
 
   const act = async (fn: () => Promise<{ ok?: boolean; error?: string }>) => {
     setBusy(true);
@@ -118,7 +182,8 @@ export function ChallengeDetailScreen() {
           ) : null}
         </View>
 
-        {c.status === "AGREED" && (
+        {(c.status === "AGREED" || c.status === "PART_PAID" || c.status === "CONFIRMED") &&
+        quote ? (
           <View
             style={{
               borderWidth: 1,
@@ -126,18 +191,60 @@ export function ChallengeDetailScreen() {
               backgroundColor: colors.emerald500_10,
               borderRadius: radius.md,
               padding: 14,
-              gap: 4,
+              gap: 10,
             }}
           >
             <Text variant="bodyStrong" color={colors.emerald400}>
-              Match agreed
+              {c.status === "CONFIRMED"
+                ? "Match confirmed"
+                : c.status === "PART_PAID"
+                  ? quote.youHavePaid
+                    ? "Your half is in"
+                    : "The court is held — your half is due"
+                  : "Match agreed"}
             </Text>
+
+            {/* Say the whole shape of the money, not just what is due now.
+                Somebody who pays ₹500 and then meets a ₹1,000 bill at the
+                gate was misled, however technically correct the first
+                number was. */}
             <Text variant="small" color={colors.zinc300}>
-              Both sides pay their half to lock the court. The arena will be in touch
-              — payment is coming to the app shortly.
+              {quote.courtLabel ? `${quote.courtLabel} · ` : ""}₹{quote.total} for the court.
+              ₹{quote.advance} online, split ₹{quote.shares.CHALLENGER}/₹{quote.shares.ACCEPTOR}
+              {quote.venueBalance > 0 ? ` — ₹${quote.venueBalance} at the venue on the day.` : "."}
             </Text>
+
+            {c.status === "CONFIRMED" ? (
+              <Text variant="small" color={colors.zinc300}>
+                Both halves are in and the court is booked. See you there.
+              </Text>
+            ) : quote.youHavePaid ? (
+              <Text variant="small" color={colors.zinc300}>
+                Waiting on the other captain's half. The hour is held either way —
+                if they never pay, the arena will sort it out with you.
+              </Text>
+            ) : quote.refusal ? (
+              <Text variant="small" color={colors.zinc300}>
+                {quote.refusal}
+              </Text>
+            ) : (
+              <>
+                <Text variant="small" color={colors.zinc300}>
+                  {quote.paidSides.length > 0
+                    ? "The other captain has paid and the hour is booked. Pay your half to confirm the match."
+                    : "Whoever pays first blocks the court. Nothing is held until then."}
+                </Text>
+                <Button
+                  label={`Pay my half — ₹${quote.yourShare ?? 0}`}
+                  variant="primary"
+                  loading={paying}
+                  disabled={paying}
+                  onPress={pay}
+                />
+              </>
+            )}
           </View>
-        )}
+        ) : null}
 
         <View style={{ gap: 8 }}>
           <Text variant="tiny" color={colors.zinc500}>

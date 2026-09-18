@@ -107,10 +107,43 @@ export async function fetchChallengeBoard(
   return api.get<ChallengeBoard>(`/api/mobile/challenges${q ? `?${q}` : ""}`);
 }
 
-export async function fetchChallenge(
-  id: string,
-): Promise<{ challenge: Challenge; viewerId: string; counterBlock: string | null }> {
+export type ChallengeQuote = {
+  courtConfigId: string | null;
+  courtLabel: string | null;
+  hours: number[];
+  total: number;
+  advance: number;
+  venueBalance: number;
+  shares: { CHALLENGER: number; ACCEPTOR: number };
+  paidSides: ChallengeSide[];
+  yourShare: number | null;
+  yourSide: ChallengeSide | null;
+  youHavePaid: boolean;
+  refusal: string | null;
+};
+
+export async function fetchChallenge(id: string): Promise<{
+  challenge: Challenge;
+  viewerId: string;
+  counterBlock: string | null;
+  quote: ChallengeQuote | null;
+}> {
   return api.get(`/api/mobile/challenges?id=${encodeURIComponent(id)}`);
+}
+
+export async function createChallengePayOrder(
+  challengeId: string,
+): Promise<{ orderId: string; keyId: string; amount: number; courtLabel: string | null }> {
+  return api.post("/api/mobile/challenges", { op: "pay-order", challengeId });
+}
+
+export async function verifyChallengePayment(input: {
+  challengeId: string;
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+}): Promise<{ ok: boolean; status: string; bookingId: string | null }> {
+  return api.post("/api/mobile/challenges", { op: "pay-verify", ...input });
 }
 
 export type ProposedWindow = {

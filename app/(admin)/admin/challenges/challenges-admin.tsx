@@ -29,7 +29,6 @@ type Settings = {
   ttlDays: number;
   advancePct: number;
   paymentWindowMins: number;
-  holdMinsAfterFirstPayment: number;
   pushAudience: string;
   pushDailyCap: number;
   boardTitle: string | null;
@@ -70,6 +69,7 @@ type Row = {
     proposedBy: string;
     status: string;
   }[];
+  bookingId: string | null;
   payments: { side: string; amount: number; paidAt: string | null; refundedAt: string | null }[];
 };
 
@@ -375,7 +375,6 @@ export function ChallengesAdmin({
             <div className="grid gap-4 sm:grid-cols-2">
               <Num label="Advance %" value={s.advancePct} onSave={(v) => { setS({ ...s, advancePct: v }); save({ advancePct: v }); }} hint="50 on a ₹2,000 slot = ₹500 from each side, ₹1,000 at the venue." />
               <Num label="Payment window (minutes)" value={s.paymentWindowMins} onSave={(v) => { setS({ ...s, paymentWindowMins: v }); save({ paymentWindowMins: v }); }} hint="How long they have to pay after agreeing, before it lapses." />
-              <Num label="Hold after FIRST payment (minutes)" value={s.holdMinsAfterFirstPayment} onSave={(v) => { setS({ ...s, holdMinsAfterFirstPayment: v }); save({ holdMinsAfterFirstPayment: v }); }} hint="The court is never held on a promise — only once somebody has actually paid. Zero means no hold at all, and a walk-in can take the slot between the two payments." />
             </div>
           </Panel>
 
@@ -477,6 +476,73 @@ export function ChallengesAdmin({
             )}
           </div>
 
+          {/* The consequence of "block the court on the first payment". One
+              captain's money is in, the hour is off the board, and the other
+              half may never arrive — so the venue has a real decision to
+              make on each of these: chase it, take the balance at the gate,
+              or cancel the booking and refund. Nothing here resolves itself,
+              deliberately: auto-cancelling would release a court the venue
+              may already have promised on the phone. */}
+          {(() => {
+            const stranded = initial.challenges.filter(
+              (c) => c.status === "PART_PAID" && c.payments.some((p) => p.paidAt && !p.refundedAt),
+            );
+            if (stranded.length === 0) return null;
+            return (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
+                <p className="text-sm font-medium text-amber-300">
+                  Half paid — the court is blocked and someone still owes
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-400">
+                  One side has paid and the hour is held. Chase the other half, take it at
+                  the gate, or cancel the booking and refund what was paid.
+                </p>
+                <div className="mt-3 space-y-2">
+                  {stranded.map((c) => {
+                    const held = c.payments
+                      .filter((p) => p.paidAt && !p.refundedAt)
+                      .reduce((sum, p) => sum + p.amount, 0);
+                    const owing = c.payments.find((p) => !p.paidAt);
+                    const win = c.windows.find((w) => w.status === "ACCEPTED");
+                    const owes =
+                      owing?.side === "CHALLENGER" ? c.createdBy : c.acceptedBy;
+                    return (
+                      <div
+                        key={c.id}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300"
+                      >
+                        <span className="font-medium text-zinc-100">
+                          {c.teamName || c.createdBy?.name || "A team"}
+                        </span>
+                        {win && (
+                          <span className="text-zinc-400">
+                            {new Date(win.date).toISOString().slice(0, 10)} {hr(win.startHour)}–
+                            {hr(win.endHour)}
+                          </span>
+                        )}
+                        <span className="text-emerald-300">₹{held} held</span>
+                        {owes && (
+                          <span className="text-amber-300">
+                            {owes.name ?? "the other captain"} owes
+                            {owes.phone ? ` · ${owes.phone}` : ""}
+                          </span>
+                        )}
+                        {c.bookingId && (
+                          <a
+                            href={`/admin/bookings/${c.bookingId}`}
+                            className="rounded border border-sky-500/40 px-2 py-0.5 text-sky-300 hover:bg-sky-500/10"
+                          >
+                            open booking
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {initial.challenges.map((c) => (
             <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -518,6 +584,43 @@ export function ChallengesAdmin({
                       </span>
                     ))}
                   </div>
+                  {c.payments.length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                      {(["CHALLENGER", "ACCEPTOR"] as const).map((sideKey) => {
+                        const pay = c.payments.find((x) => x.side === sideKey);
+                        const who = sideKey === "CHALLENGER" ? "poster" : "taker";
+                        if (!pay) {
+                          return (
+                            <span key={sideKey} className="rounded border border-zinc-800 px-2 py-0.5 text-zinc-600">
+                              {who}: nothing yet
+                            </span>
+                          );
+                        }
+                        return (
+                          <span
+                            key={sideKey}
+                            className={`rounded border px-2 py-0.5 ${
+                              pay.refundedAt
+                                ? "border-zinc-700 text-zinc-500 line-through"
+                                : pay.paidAt
+                                  ? "border-emerald-500/40 text-emerald-300"
+                                  : "border-amber-500/40 text-amber-300"
+                            }`}
+                          >
+                            {who}: ₹{pay.amount} {pay.refundedAt ? "refunded" : pay.paidAt ? "paid" : "started, unpaid"}
+                          </span>
+                        );
+                      })}
+                      {c.bookingId && (
+                        <a
+                          href={`/admin/bookings/${c.bookingId}`}
+                          className="rounded border border-sky-500/40 px-2 py-0.5 text-sky-300 hover:bg-sky-500/10"
+                        >
+                          court blocked → booking
+                        </a>
+                      )}
+                    </div>
+                  )}
                   {c.withdrawReason && (
                     <p className="mt-2 text-xs text-amber-400">Taken down: {c.withdrawReason}</p>
                   )}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMobileUser } from "@/lib/mobile-auth";
+import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
 import {
   listOpenChallenges,
   listMyChallenges,
@@ -15,6 +15,11 @@ import {
   challengeLimits,
 } from "@/lib/challenges";
 import { counterRefusal } from "@/lib/challenge-rules";
+import {
+  createChallengePaymentOrder,
+  confirmChallengePayment,
+  challengeQuote,
+} from "@/lib/challenge-payments";
 
 /**
  * The challenge board, for the app.
@@ -53,7 +58,12 @@ export async function GET(request: NextRequest) {
     // copy of the rule, free to drift; letting the screen offer the button
     // and find out on tap walks the user into a dead end.
     const counterBlock = counterRefusal(one, user.id, await challengeLimits(), new Date());
-    return NextResponse.json({ challenge: one, viewerId: user.id, counterBlock });
+    // The quote is priced live on every read rather than snapshotted at
+    // agreement: the number the captain sees has to be the number they are
+    // about to be charged, and the court that backs it can be taken by a
+    // walk-in right up until the first half is paid.
+    const quote = await challengeQuote(id, user.id).catch(() => null);
+    return NextResponse.json({ challenge: one, viewerId: user.id, counterBlock, quote });
   }
 
   const settings = await challengeSettings();
@@ -130,6 +140,22 @@ const trackSchema = z.object({
   challengeId: z.string().nullish(),
   detail: z.string().max(200).nullish(),
 });
+/* Paying is two ops rather than one because a gateway sits in the middle:
+ * `pay-order` opens a Razorpay order for this side's half, the sheet runs
+ * on the device, and `pay-verify` brings the signature back. Splitting them
+ * is what makes the verify idempotent — a captain who double-taps returns
+ * the same order, and confirmChallengePayment refuses to bank it twice. */
+const payOrderSchema = z.object({
+  op: z.literal("pay-order"),
+  challengeId: z.string().min(1),
+});
+const payVerifySchema = z.object({
+  op: z.literal("pay-verify"),
+  challengeId: z.string().min(1),
+  razorpayOrderId: z.string().min(1),
+  razorpayPaymentId: z.string().min(1),
+  razorpaySignature: z.string().min(1),
+});
 const withdrawSchema = z.object({
   op: z.literal("withdraw"),
   challengeId: z.string().min(1),
@@ -148,6 +174,8 @@ export async function POST(request: NextRequest) {
       counterSchema,
       withdrawSchema,
       trackSchema,
+      payOrderSchema,
+      payVerifySchema,
     ])
     .safeParse(json);
   if (!parsed.success) {
@@ -166,6 +194,25 @@ export async function POST(request: NextRequest) {
       detail: body.detail ?? null,
     });
     return NextResponse.json({ ok: true });
+  }
+
+  if (body.op === "pay-order") {
+    const r = await createChallengePaymentOrder(body.challengeId, user.id);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
+  if (body.op === "pay-verify") {
+    const r = await confirmChallengePayment({
+      challengeId: body.challengeId,
+      userId: user.id,
+      razorpayOrderId: body.razorpayOrderId,
+      razorpayPaymentId: body.razorpayPaymentId,
+      razorpaySignature: body.razorpaySignature,
+      platform: getMobilePlatform(request),
+    });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
   }
 
   let result: { ok: boolean; error?: string; id?: string };
