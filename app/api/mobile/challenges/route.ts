@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
     });
   }
   const [board, mine] = await Promise.all([
-    listOpenChallenges({ sport: url.searchParams.get("sport") || undefined }),
+    listOpenChallenges({ sport: url.searchParams.get("sport") || undefined, viewerId: user.id }),
     listMyChallenges(user.id),
   ]);
   return NextResponse.json({

@@ -119,12 +119,31 @@ const listSelect = {
 export type ChallengeRow = Awaited<ReturnType<typeof listOpenChallenges>>[number];
 
 /** The board: live challenges anyone may still take up. */
+/**
+ * The challenges a viewer could actually take.
+ *
+ * Two exclusions, both of which are about not showing somebody a dead end:
+ *
+ * - Their own posts. Those belong under "Yours", with a Withdraw on them.
+ * - Anything that already has an acceptor. Countering claims the acceptor
+ *   slot, so a challenge with one is a live negotiation between two named
+ *   captains — `counterRefusal` turns a stranger away from it with "Someone
+ *   else is already negotiating this one", and the acceptor themselves has it
+ *   under "Yours". Leaving those on the open board listed the viewer's own
+ *   negotiation back to them a second time.
+ *
+ * `viewerId` is optional only because the admin board reads this with no
+ * viewer; every app caller passes it.
+ */
 export async function listOpenChallenges(args?: { sport?: string; viewerId?: string }) {
   const now = new Date();
   return db.challenge.findMany({
     where: {
       status: { in: ["OPEN", "COUNTERED"] },
       expiresAt: { gt: now },
+      ...(args?.viewerId
+        ? { createdByUserId: { not: args.viewerId }, acceptedByUserId: null }
+        : {}),
       ...(args?.sport ? { sport: args.sport as never } : {}),
     },
     select: listSelect,

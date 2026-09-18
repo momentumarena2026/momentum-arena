@@ -155,7 +155,7 @@ export function ChallengeBoardScreen() {
           <Text variant="tiny" color={colors.zinc500}>
             OPEN CHALLENGES
           </Text>
-          {(q.data?.board ?? []).filter((c) => c.createdByUserId !== q.data?.viewerId).length ===
+          {(q.data?.board ?? []).length ===
           0 ? (
             <View
               style={{
@@ -173,7 +173,6 @@ export function ChallengeBoardScreen() {
             </View>
           ) : (
             (q.data?.board ?? [])
-              .filter((c) => c.createdByUserId !== q.data?.viewerId)
               .map((c) => (
                 <ChallengeCard
                   key={c.id}
