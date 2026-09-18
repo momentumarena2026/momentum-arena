@@ -650,11 +650,44 @@ them, which is a worse first impression of a feature they have never heard of.
 Notifications precedent), so Back from the Home card returns to Home rather
 than stranding the user on a tab they never chose.
 
-Phases 2–4 (accept/counter polish, the two payments, push + admin room) are not
-started. The payment question — how you hold a court for two strangers who have
-not both paid — is unresolved; the research is that Razorpay auth/capture is
-card-only and UPI mandates exclude PhonePe and GPay, so no clean hold rail
-exists yet.
+**Paying: the first half blocks the court** (venue's decision, 2026-09-18;
+`lib/challenge-payments.ts`). No Indian rail can hold a UPI customer's money
+pending a stranger's decision — Razorpay auth/capture is card-only, UPI
+mandates exclude PhonePe and GPay — so somebody's money is exposed whatever
+you do, and the only question is against what. Blocking on the first payment
+means that captain's money buys the hour immediately.
+
+Three consequences worth knowing before touching this:
+
+- **A PENDING `Booking` IS the block.** `OCCUPYING_BOOKING_STATUSES` already
+  includes PENDING, so creating the booking takes the hour off the board with
+  no new hold concept. Do not add one.
+- **It is an ordinary booking, which is why analytics needed no changes.**
+  Money reaches revenue through the same `Booking`-joined queries as
+  everything else, so the module adds no new stream and escapes the
+  four-surface trap (gotcha 1) that has caught every previous one.
+- **`SLOT_LOST` is now nearly unreachable**, which was the point. The
+  alternative — hold nothing until both pay — had a case where both paid and a
+  walk-in had taken the hour in between: two refunds, no match. Now losing the
+  slot happens before any money moves, so it is a refusal rather than a refund.
+
+The mirror case is deliberately NOT automated: one side pays, the other never
+does, and the venue holds a blocked court against half the money. That is
+operationally identical to an advance booking whose customer never returned —
+chase it, take the balance at the gate, or cancel and refund by hand. The
+admin board has a "half paid" panel listing exactly these. **Do not add a
+timer that releases the court**: it would drop a slot the venue may already
+have sold on the phone, and it would take money for something it then
+un-booked.
+
+It charges `ChallengeSettings.advancePct` (default 50) of the court, not the
+whole court — the rest is collected at the gate like any advance booking. The
+retired `holdMinsAfterFirstPayment` knob described the old temporary hold; it
+was removed rather than left lying because a settings field that promises
+behaviour the system no longer has is worse than no field.
+
+Still not built: push beyond the in-app notification rows, and any automated
+refund.
 
 ---
 
