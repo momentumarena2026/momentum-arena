@@ -24,6 +24,12 @@ import {
   splitShare,
   payRefusal,
   statusAfterPayment,
+  wheelAveragePct,
+  wheelOdds,
+  wheelRefusal,
+  spinWheel,
+  leadTimeRefusal,
+  DEFAULT_WHEEL,
 } from "../lib/challenge-rules";
 
 const NOW = new Date("2026-09-17T06:00:00+05:30");
@@ -312,4 +318,74 @@ test("the first half part-pays, the second confirms", () => {
   assert.equal(statusAfterPayment(["CHALLENGER"]), "PART_PAID");
   assert.equal(statusAfterPayment(["ACCEPTOR"]), "PART_PAID");
   assert.equal(statusAfterPayment(["CHALLENGER", "ACCEPTOR"]), "CONFIRMED");
+});
+
+// ── The wheel ──────────────────────────────────────────────────────
+
+test("the shipped default wheel sits inside the venue's band", () => {
+  const avg = wheelAveragePct(DEFAULT_WHEEL);
+  assert.ok(avg >= 15 && avg <= 25, `default wheel averages ${avg}%, outside 15–25%`);
+  // The stated intent: roughly one spin in ten shows 50%.
+  const jackpot = wheelOdds(DEFAULT_WHEEL).find((o) => o.pct === 50);
+  assert.ok(jackpot && Math.abs(jackpot.chance - 0.1) < 0.02, "50% should land near 1 in 10");
+});
+
+test("the average is the weighted mean, not the midpoint", () => {
+  // Midpoint of 0 and 100 is 50; weighted 9:1 it is 10. Getting this wrong
+  // is the difference between a 10% promo and a 50% one.
+  assert.equal(wheelAveragePct([{ pct: 0, weight: 9 }, { pct: 100, weight: 1 }]), 10);
+  assert.equal(wheelAveragePct([]), 0);
+  assert.equal(wheelAveragePct([{ pct: 50, weight: 0 }]), 0);
+});
+
+test("a wheel outside the band is refused, and says which way", () => {
+  const generous = [{ pct: 50, weight: 1 }];
+  assert.match(wheelRefusal(generous, 15, 25) ?? "", /above your 25% ceiling/);
+  const stingy = [{ pct: 2, weight: 1 }];
+  assert.match(wheelRefusal(stingy, 15, 25) ?? "", /below your 15% floor/);
+  assert.equal(wheelRefusal(DEFAULT_WHEEL, 15, 25), null);
+  assert.match(wheelRefusal([], 15, 25) ?? "", /at least one segment/i);
+  assert.match(wheelRefusal([{ pct: 20, weight: 0 }], 15, 25) ?? "", /weight above zero/);
+  assert.match(wheelRefusal([{ pct: 120, weight: 1 }], 15, 25) ?? "", /between 0% and 100%/);
+  assert.match(wheelRefusal([{ pct: 20, weight: -1 }], 15, 25) ?? "", /negative/);
+});
+
+test("spinning honours the weights across the whole roll range", () => {
+  const w = [{ pct: 10, weight: 70 }, { pct: 20, weight: 20 }, { pct: 50, weight: 10 }];
+  assert.equal(spinWheel(w, 0), 10);
+  assert.equal(spinWheel(w, 0.699), 10);
+  assert.equal(spinWheel(w, 0.7), 20);
+  assert.equal(spinWheel(w, 0.899), 20);
+  assert.equal(spinWheel(w, 0.9), 50);
+  // Out-of-range rolls must still return a real segment rather than undefined.
+  assert.equal(spinWheel(w, 1), 50);
+  assert.equal(spinWheel(w, -1), 10);
+  assert.equal(spinWheel([], 0.5), 0);
+  // Zero-weight segments can never be drawn, at any roll.
+  const withDead = [{ pct: 99, weight: 0 }, { pct: 10, weight: 1 }];
+  for (const r of [0, 0.25, 0.5, 0.75, 0.999]) assert.equal(spinWheel(withDead, r), 10);
+});
+
+test("the long run converges on the stated average", () => {
+  // The promise to the venue is about the AVERAGE, so assert the average.
+  let sum = 0;
+  const n = 100000;
+  for (let i = 0; i < n; i++) sum += spinWheel(DEFAULT_WHEEL, (i + 0.5) / n);
+  const observed = sum / n;
+  const expected = wheelAveragePct(DEFAULT_WHEEL);
+  assert.ok(Math.abs(observed - expected) < 0.1, `${observed} drifted from ${expected}`);
+});
+
+test("the lead-time gate closes the board near the slot", () => {
+  const slot = new Date("2026-09-20T19:00:00+05:30");
+  const fine = new Date("2026-09-20T14:00:00+05:30"); // 5h before
+  const late = new Date("2026-09-20T17:00:00+05:30"); // 2h before
+  assert.equal(leadTimeRefusal(slot, fine, 240), null);
+  assert.match(leadTimeRefusal(slot, late, 240) ?? "", /at least 4h before/);
+  // Exactly on the boundary is still allowed.
+  assert.equal(leadTimeRefusal(slot, new Date("2026-09-20T15:00:00+05:30"), 240), null);
+  // Zero switches the gate off entirely.
+  assert.equal(leadTimeRefusal(slot, late, 0), null);
+  // Past slots are refused, not silently allowed.
+  assert.match(leadTimeRefusal(slot, new Date("2026-09-21T09:00:00+05:30"), 240) ?? "", /before the slot/);
 });

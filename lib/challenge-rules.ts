@@ -303,3 +303,126 @@ export function payRefusal(
 export function statusAfterPayment(paidSidesIncludingThis: ChallengeSide[]): ChallengeStatus {
   return paidSidesIncludingThis.length >= 2 ? "CONFIRMED" : "PART_PAID";
 }
+
+// ── The wheel ──────────────────────────────────────────────────────
+
+export type WheelSegment = { pct: number; weight: number };
+
+/**
+ * The wheel the venue runs if it has not configured one.
+ *
+ * Tuned to the stated intent: a poster who spins ten times sees 50% about
+ * once, and the average lands near 18% — inside the 15–25% band. The
+ * jackpot alone is five points of that average, which is why everything
+ * else sits low. Change it in the admin, not here.
+ */
+export const DEFAULT_WHEEL: WheelSegment[] = [
+  { pct: 5, weight: 10 },
+  { pct: 10, weight: 30 },
+  { pct: 15, weight: 25 },
+  { pct: 20, weight: 15 },
+  { pct: 25, weight: 10 },
+  { pct: 50, weight: 10 },
+];
+
+/** Total weight, or 0 for a wheel that cannot be spun. */
+function totalWeight(segs: WheelSegment[]): number {
+  return segs.reduce((s, x) => s + (x.weight > 0 ? x.weight : 0), 0);
+}
+
+/**
+ * What this wheel costs on average, in percent.
+ *
+ * This is the number the admin is tuning against, and it is DERIVED rather
+ * than configured — average, floor and ceiling are not independent, so
+ * three input boxes can be set to a combination no distribution satisfies.
+ * The screen shows this live as the weights are edited.
+ */
+export function wheelAveragePct(segs: WheelSegment[]): number {
+  const total = totalWeight(segs);
+  if (total <= 0) return 0;
+  return segs.reduce((s, x) => s + x.pct * Math.max(0, x.weight), 0) / total;
+}
+
+/** The odds of each segment, for the admin screen and the odds disclosure. */
+export function wheelOdds(segs: WheelSegment[]): { pct: number; chance: number }[] {
+  const total = totalWeight(segs);
+  if (total <= 0) return [];
+  return segs
+    .filter((x) => x.weight > 0)
+    .map((x) => ({ pct: x.pct, chance: x.weight / total }));
+}
+
+/**
+ * Why this wheel may not be saved — or null.
+ *
+ * The band check is the point: a venue tuning weights by hand will drift,
+ * and the wheel that pays out 40% on average looks exactly like the one
+ * that pays 18% until the month's numbers come in.
+ */
+export function wheelRefusal(
+  segs: WheelSegment[],
+  avgMinPct: number,
+  avgMaxPct: number,
+): string | null {
+  if (!Array.isArray(segs) || segs.length === 0) return "Add at least one segment.";
+  if (segs.some((x) => !Number.isFinite(x.pct) || x.pct < 0 || x.pct > 100)) {
+    return "Every segment must be between 0% and 100%.";
+  }
+  if (segs.some((x) => !Number.isFinite(x.weight) || x.weight < 0)) {
+    return "Weights cannot be negative.";
+  }
+  if (totalWeight(segs) <= 0) return "At least one segment needs a weight above zero.";
+  const avg = wheelAveragePct(segs);
+  if (avg < avgMinPct) {
+    return `This wheel averages ${avg.toFixed(1)}%, below your ${avgMinPct}% floor — players will feel it.`;
+  }
+  if (avg > avgMaxPct) {
+    return `This wheel averages ${avg.toFixed(1)}%, above your ${avgMaxPct}% ceiling — that is what it will cost you.`;
+  }
+  return null;
+}
+
+/**
+ * Draw a segment.
+ *
+ * `roll` is a number in [0, 1) supplied by the caller so this stays pure and
+ * the tests can pin every boundary. The selection is honestly weighted: the
+ * wheel rarely STOPS on 50% because 50% rarely WINS, not because the
+ * animation is steered away from a result it already landed on. Those are
+ * different things, and only the first one survives a player watching
+ * closely.
+ */
+export function spinWheel(segs: WheelSegment[], roll: number): number {
+  const live = segs.filter((x) => x.weight > 0);
+  const total = totalWeight(live);
+  if (total <= 0) return 0;
+  const target = Math.min(Math.max(roll, 0), 0.999999999) * total;
+  let seen = 0;
+  for (const seg of live) {
+    seen += seg.weight;
+    if (target < seen) return seg.pct;
+  }
+  return live[live.length - 1].pct;
+}
+
+/**
+ * Why a challenge cannot be posted, accepted or paid this close to the slot
+ * — or null.
+ *
+ * The venue needs notice to staff an hour, and a match agreed twenty
+ * minutes out is a court nobody turns up to.
+ */
+export function leadTimeRefusal(
+  slotStart: Date,
+  now: Date,
+  minLeadMins: number,
+): string | null {
+  if (minLeadMins <= 0) return null;
+  const mins = (slotStart.getTime() - now.getTime()) / 60000;
+  if (mins >= minLeadMins) return null;
+  const h = Math.floor(minLeadMins / 60);
+  const m = minLeadMins % 60;
+  const window = h > 0 ? `${h}h${m ? ` ${m}m` : ""}` : `${m}m`;
+  return `Challenges have to be settled at least ${window} before the slot.`;
+}

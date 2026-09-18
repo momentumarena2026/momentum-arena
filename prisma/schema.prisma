@@ -291,6 +291,8 @@ model User {
   challengesPosted    Challenge[]        @relation("challengeCreator")
   challengesAccepted  Challenge[]        @relation("challengeAcceptor")
   challengePayments   ChallengePayment[]
+  challengeSpins      ChallengeSpin[]
+  challengeOffers     ChallengeOffer[]
   challengeEvents     ChallengeEvent[]
   couponEligibilities CouponEligibleUser[]
 
@@ -595,6 +597,7 @@ model Booking {
 
   slots       BookingSlot[]
   payment     Payment?
+  challengeOffer ChallengeOffer?
   editHistory BookingEditHistory[]
 
   // QR check-in
@@ -4151,6 +4154,7 @@ model Challenge {
 
   windows  ChallengeWindow[]
   payments ChallengePayment[]
+  spin     ChallengeSpin?
   events   ChallengeEvent[]
 
   @@index([status, expiresAt])
@@ -4217,6 +4221,71 @@ model ChallengePayment {
 
 /// Everything about the board the venue can change without a deploy.
 /// Singleton, like ArenaSettings and CafeSettings.
+/// One spin of the wheel, and what it won.
+///
+/// Written the moment the wheel is spun, BEFORE the outcome reaches the
+/// device, so the result cannot be re-rolled by closing the app. A spin is
+/// earned by one confirmed challenge and is spent once — `offer` below is
+/// what the poster does with it.
+model ChallengeSpin {
+  id          String    @id @default(cuid())
+  challengeId String    @unique
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  /// The poster. Only they spin — it is the posting habit the wheel exists
+  /// to build.
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  /// What it landed on, and the wheel it was drawn from. The segments are
+  /// snapshotted because the admin can retune the wheel at any time, and a
+  /// dispute about a past spin has to be answerable.
+  wonPct       Int
+  segmentsUsed Json
+
+  createdAt DateTime @default(now())
+
+  offer ChallengeOffer?
+
+  @@index([userId, createdAt])
+}
+
+/// The discounted hour a spin won, and its short life.
+///
+/// Two ways to spend it, in the venue's priority order: the hour straight
+/// after the match if it is free, or any hour inside the fallback window.
+/// Either way the poster pays the whole discounted hour themselves — there
+/// is no second captain on this one, so no advance split.
+model ChallengeOffer {
+  id     String        @id @default(cuid())
+  spinId String        @unique
+  spin   ChallengeSpin @relation(fields: [spinId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  discountPct Int
+  /// Expiry is stamped at issue from ChallengeSettings.spinOfferMins, not
+  /// computed on read — retuning the setting must not silently extend or
+  /// kill offers already in somebody's hands.
+  expiresAt   DateTime
+
+  /// Which reminder minutes have already fired, so a cron that runs every
+  /// minute cannot send the same nudge twice.
+  remindedAt Int[] @default([])
+
+  /// Set when spent. The booking is an ordinary booking, as everywhere else
+  /// in this module.
+  bookingId String?  @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+  takenAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, takenAt])
+}
+
 model ChallengeSettings {
   id      String  @id @default("singleton")
   enabled Boolean @default(false)
@@ -4235,10 +4304,53 @@ model ChallengeSettings {
   /// A challenge dies at the earlier of its last window and this many days.
   ttlDays Int @default(7)
 
-  // ── Money. Stored now, used when payments land in phase 3.
+  // ── Money ─────────────────────────────────────────────────────────
+  /// Share of the court taken online; the rest is collected at the gate.
+  /// Split in half between the two captains, so 50 on a ₹2,000 hour is
+  /// ₹500 each.
   advancePct        Int @default(50)
   paymentWindowMins Int @default(120)
-  /// The court is held only once SOMEBODY has paid — never on agreement.
+
+  /// How long before the slot a challenge may still be posted, accepted or
+  /// paid. Past this the board goes quiet on it: the venue needs notice to
+  /// staff an hour, and a match agreed twenty minutes out is a court nobody
+  /// turns up to.
+  minLeadMins Int @default(240)
+
+  // ── The wheel ─────────────────────────────────────────────────────
+  /// Off by default. A discount engine nobody switched on is the only safe
+  /// state to ship.
+  spinEnabled Boolean @default(false)
+
+  /// The segments and their weights, as [{ pct, weight }]. The average is
+  /// DERIVED from these, never stored: average, floor and ceiling are not
+  /// independent, and three boxes can be set to a combination no
+  /// distribution satisfies. The admin edits segments and sees the
+  /// resulting average, odds and cost per 100 spins.
+  spinSegments Json?
+
+  /// Guard rails the admin sets, checked against the derived average when
+  /// segments are saved. Refuses a wheel whose average falls outside.
+  spinAvgMinPct Int @default(15)
+  spinAvgMaxPct Int @default(25)
+
+  /// How long a won discount survives once the wheel stops.
+  spinOfferMins Int @default(120)
+
+  /// Minutes BEFORE the offer expires to nudge. Empty = no nudges.
+  spinRemindAtMins Int[] @default([60, 30, 10])
+
+  /// The prize pays for a whole extra hour up front — no advance split, no
+  /// second captain to chase. `spinAdjacentOnly` refuses the next-day
+  /// fallback if the venue would rather the discount never leave the
+  /// session it was won in.
+  spinAdjacentOnly Boolean @default(false)
+  /// How many days ahead the fallback hour may be chosen from.
+  spinFallbackDays Int     @default(1)
+
+  /// Cap on spins per poster per rolling window. 0 = uncapped.
+  spinsPerPosterPerDays Int @default(0)
+  spinsPerPosterCap     Int @default(0)
 
   // ── Push. Stored now, used in phase 4.
   /// ALL | SPORT | RECENT — who hears about a new challenge.
