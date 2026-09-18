@@ -20,6 +20,12 @@ import {
   confirmChallengePayment,
   challengeQuote,
 } from "@/lib/challenge-payments";
+import {
+  spinFor,
+  offerQuote,
+  createOfferOrder,
+  confirmOfferPayment,
+} from "@/lib/challenge-spin";
 
 /**
  * The challenge board, for the app.
@@ -148,6 +154,36 @@ const trackSchema = z.object({
 const payOrderSchema = z.object({
   op: z.literal("pay-order"),
   challengeId: z.string().min(1),
+  /** Present when this payment IS the acceptance. */
+  windowId: z.string().min(1).nullish(),
+});
+const spinSchema = z.object({
+  op: z.literal("spin"),
+  challengeId: z.string().min(1),
+});
+const offerQuoteSchema = z.object({
+  op: z.literal("offer-quote"),
+  offerId: z.string().min(1),
+  pick: z
+    .object({
+      courtConfigId: z.string().min(1),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      startHour: z.number().int().min(0).max(25),
+    })
+    .nullish(),
+});
+const offerOrderSchema = z.object({
+  op: z.literal("offer-order"),
+  offerId: z.string().min(1),
+  pick: offerQuoteSchema.shape.pick,
+});
+const offerVerifySchema = z.object({
+  op: z.literal("offer-verify"),
+  offerId: z.string().min(1),
+  razorpayOrderId: z.string().min(1),
+  razorpayPaymentId: z.string().min(1),
+  razorpaySignature: z.string().min(1),
+  pick: offerQuoteSchema.shape.pick,
 });
 const payVerifySchema = z.object({
   op: z.literal("pay-verify"),
@@ -176,6 +212,10 @@ export async function POST(request: NextRequest) {
       trackSchema,
       payOrderSchema,
       payVerifySchema,
+      spinSchema,
+      offerQuoteSchema,
+      offerOrderSchema,
+      offerVerifySchema,
     ])
     .safeParse(json);
   if (!parsed.success) {
@@ -196,8 +236,44 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  if (body.op === "spin") {
+    const r = await spinFor(body.challengeId, user.id);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
+  if (body.op === "offer-quote") {
+    const r = await offerQuote(body.offerId, user.id, body.pick ?? undefined);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
+  if (body.op === "offer-order") {
+    const r = await createOfferOrder(body.offerId, user.id, body.pick ?? undefined);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
+  if (body.op === "offer-verify") {
+    const r = await confirmOfferPayment({
+      offerId: body.offerId,
+      userId: user.id,
+      razorpayOrderId: body.razorpayOrderId,
+      razorpayPaymentId: body.razorpayPaymentId,
+      razorpaySignature: body.razorpaySignature,
+      pick: body.pick ?? undefined,
+      platform: getMobilePlatform(request),
+    });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
   if (body.op === "pay-order") {
-    const r = await createChallengePaymentOrder(body.challengeId, user.id);
+    const r = await createChallengePaymentOrder(
+      body.challengeId,
+      user.id,
+      body.windowId ?? undefined,
+    );
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
     return NextResponse.json(r);
   }

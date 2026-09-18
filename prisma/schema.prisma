@@ -4200,6 +4200,12 @@ model ChallengePayment {
   side   ChallengeSide
   amount Int
 
+  /// The window this payment is buying into, when the payment IS the
+  /// acceptance. Persisted rather than passed through the gateway, because
+  /// the only thing Razorpay hands back is an order id — and the window has
+  /// to survive the round trip to be settled on.
+  acceptWindowId String?
+
   paidAt   DateTime?
   /// Gateway refs, whichever rail collected it.
   razorpayOrderId      String? @unique
@@ -4256,10 +4262,25 @@ model ChallengeSpin {
 /// after the match if it is free, or any hour inside the fallback window.
 /// Either way the poster pays the whole discounted hour themselves — there
 /// is no second captain on this one, so no advance split.
+enum ChallengeOfferKind {
+  /// The hour straight after the match, held open while he decides.
+  ADJACENT
+  /// Any hour in the next few days, because the adjacent one was taken.
+  FALLBACK
+}
+
 model ChallengeOffer {
   id     String        @id @default(cuid())
   spinId String        @unique
   spin   ChallengeSpin @relation(fields: [spinId], references: [id], onDelete: Cascade)
+
+  kind ChallengeOfferKind
+
+  /// Only set for ADJACENT: the exact hour being held open, so the offer
+  /// can be priced and booked without re-deriving which hour was meant.
+  courtConfigId String?
+  date          DateTime? @db.Date
+  startHour     Int?
 
   userId String
   user   User   @relation(fields: [userId], references: [id])
@@ -4270,7 +4291,7 @@ model ChallengeOffer {
   /// kill offers already in somebody's hands.
   expiresAt   DateTime
 
-  /// Which reminder minutes have already fired, so a cron that runs every
+  /// Which `minsLeft` markers have already fired, so a cron running every
   /// minute cannot send the same nudge twice.
   remindedAt Int[] @default([])
 
@@ -4334,19 +4355,36 @@ model ChallengeSettings {
   spinAvgMinPct Int @default(15)
   spinAvgMaxPct Int @default(25)
 
-  /// How long a won discount survives once the wheel stops.
-  spinOfferMins Int @default(120)
-
-  /// Minutes BEFORE the offer expires to nudge. Empty = no nudges.
-  spinRemindAtMins Int[] @default([60, 30, 10])
-
-  /// The prize pays for a whole extra hour up front — no advance split, no
-  /// second captain to chase. `spinAdjacentOnly` refuses the next-day
-  /// fallback if the venue would rather the discount never leave the
-  /// session it was won in.
-  spinAdjacentOnly Boolean @default(false)
+  // ── The two offers, on two different clocks ───────────────────────
+  //
+  // ADJACENT is the hour straight after the match. The captain needs long
+  // enough to turn round and ask his side "another hour at this price?",
+  // which is minutes, not hours — and the hour is sitting unsold the whole
+  // time he decides.
+  //
+  // FALLBACK is what he gets when that hour is already taken: any hour
+  // inside the next few days at the same percentage. Nothing is being held
+  // open for him, so he can have longer.
+  //
+  // Both windows and both push schedules are set here. Nothing about the
+  // timing of this promo is in the code.
+  spinAdjacentWindowMins Int @default(30)
+  spinFallbackWindowMins Int @default(120)
   /// How many days ahead the fallback hour may be chosen from.
-  spinFallbackDays Int     @default(1)
+  spinFallbackDays       Int @default(1)
+  /// Refuse the fallback entirely — the discount never leaves the session
+  /// it was won in.
+  spinAdjacentOnly       Boolean @default(false)
+
+  /// The push sent the moment the wheel stops, as { title, body }.
+  spinWonPush Json?
+
+  /// The nudges, as [{ minsLeft, title, body }] — one list per offer kind.
+  /// `minsLeft` is minutes REMAINING when it fires, because that is what
+  /// the copy is about ("only 5 minutes left") and what the {minsLeft}
+  /// variable resolves to.
+  spinAdjacentPushes Json?
+  spinFallbackPushes Json?
 
   /// Cap on spins per poster per rolling window. 0 = uncapped.
   spinsPerPosterPerDays Int @default(0)
@@ -4409,6 +4447,12 @@ enum ChallengeEventType {
   PAID
   /// The hour went before the first half could hold it; a refund is owed.
   SLOT_LOST
+  /// The poster spun the wheel.
+  SPUN
+  /// They took the discounted hour.
+  OFFER_TAKEN
+  /// They didn't, and it expired. The most diagnostic row in the promo.
+  OFFER_LAPSED
 }
 
 model ChallengeEvent {

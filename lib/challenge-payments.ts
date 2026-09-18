@@ -58,6 +58,7 @@ import { createRazorpayOrder, verifyRazorpaySignature, RAZORPAY_KEY_ID } from "@
 import { notifyUser } from "@/lib/user-notifications";
 import { logChallengeEvent } from "@/lib/challenges";
 import {
+  leadTimeRefusal,
   payRefusal,
   splitShare,
   statusAfterPayment,
@@ -127,6 +128,40 @@ async function freeCourtFor(
   return null;
 }
 
+/**
+ * Why a stranger cannot buy into this challenge — or null.
+ *
+ * Separate from `payRefusal` because the two ask different questions. A
+ * payer is being asked "is your half due?"; an acceptor is being asked "is
+ * this still takeable, and is there enough notice left to staff it?". The
+ * lead-time gate belongs here and not on the poster's own half, which is
+ * chasing money for an hour that is already blocked.
+ */
+function acceptGateRefusal(
+  c: { expiresAt: Date; status: string },
+  win: { date: Date; startHour: number } | null,
+  minLeadMins: number,
+  now: Date,
+): string | null {
+  if (!win) return "That time is no longer on the table.";
+  if (c.expiresAt.getTime() <= now.getTime()) return "That challenge has expired.";
+  return leadTimeRefusal(slotStart(win.date, win.startHour), now, minLeadMins);
+}
+
+/**
+ * The real instant a slot begins.
+ *
+ * `ChallengeWindow.date` is a `@db.Date` holding UTC midnight that STANDS
+ * FOR an IST calendar day, and `startHour` is an IST wall-clock hour. Doing
+ * this with host-local getters is gotcha 18 in PROJECT-CONTEXT: it gives a
+ * different answer on Vercel (UTC) than on a developer's Mac (IST), and a
+ * four-hour gate that is five and a half hours out on production is worse
+ * than no gate.
+ */
+export function slotStart(date: Date, startHour: number): Date {
+  return new Date(date.getTime() + (startHour - 5.5) * 3600000);
+}
+
 export type ChallengeQuote = {
   challengeId: string;
   courtConfigId: string | null;
@@ -161,6 +196,12 @@ export type ChallengeQuote = {
 export async function challengeQuote(
   challengeId: string,
   viewerId: string,
+  /**
+   * The window a NEW acceptor is buying into. Accepting a challenge is
+   * paying for it — there is no free handshake any more — so a stranger
+   * naming a window here is quoted as its prospective ACCEPTOR.
+   */
+  acceptWindowId?: string,
 ): Promise<ChallengeQuote | null> {
   const c = await db.challenge.findUnique({
     where: { id: challengeId },
@@ -168,10 +209,24 @@ export async function challengeQuote(
   });
   if (!c) return null;
 
-  const win = c.windows.find((w) => w.id === c.agreedWindowId) ?? null;
-  const hours = win ? windowHours(win.startHour, win.endHour) : [];
+  const settings = await db.challengeSettings.findFirst({
+    select: { advancePct: true, minLeadMins: true },
+  });
   const paidSides = c.payments.filter((p) => p.paidAt).map((p) => p.side as ChallengeSide);
-  const side = sideOf(c, viewerId);
+  const existingSide = sideOf(c, viewerId);
+
+  // A stranger paying into an OPEN or COUNTERED challenge becomes its
+  // acceptor by doing so. That is the flow now: money is the acceptance.
+  const acceptingNow =
+    !existingSide &&
+    !!acceptWindowId &&
+    (c.status === "OPEN" || c.status === "COUNTERED") &&
+    c.windows.some((w) => w.id === acceptWindowId && w.status === "OFFERED");
+  const side: ChallengeSide | null = existingSide ?? (acceptingNow ? "ACCEPTOR" : null);
+
+  const win =
+    c.windows.find((w) => w.id === (acceptingNow ? acceptWindowId : c.agreedWindowId)) ?? null;
+  const hours = win ? windowHours(win.startHour, win.endHour) : [];
 
   // Before a time is settled there is nothing to price. Say so through the
   // refusal rather than inventing a zero.
@@ -216,12 +271,13 @@ export async function challengeQuote(
   // Only the advance is collected online — the rest is taken at the gate,
   // exactly as for any other advance booking here. Charging the full court
   // would take four times the money the venue's own setting says to take.
-  const settings = await db.challengeSettings.findFirst({ select: { advancePct: true } });
   const advancePct = settings?.advancePct ?? 50;
   const advance = Math.round((total * advancePct) / 100);
   const shares = splitShare(advance);
   const refusal =
-    payRefusal(c, viewerId, new Date(), paidSides) ??
+    (acceptingNow
+      ? acceptGateRefusal(c, win, settings?.minLeadMins ?? 240, new Date())
+      : payRefusal(c, viewerId, new Date(), paidSides)) ??
     (courtId
       ? null
       : // Only reachable for the first payer: once one half is in, the
@@ -253,11 +309,12 @@ export async function challengeQuote(
 export async function createChallengePaymentOrder(
   challengeId: string,
   userId: string,
+  acceptWindowId?: string,
 ): Promise<
   | { ok: true; orderId: string; keyId: string; amount: number; courtLabel: string | null }
   | { ok: false; error: string }
 > {
-  const quote = await challengeQuote(challengeId, userId);
+  const quote = await challengeQuote(challengeId, userId, acceptWindowId);
   if (!quote) return { ok: false, error: "That challenge is gone." };
   if (quote.refusal) {
     await logChallengeEvent({
@@ -285,10 +342,43 @@ export async function createChallengePaymentOrder(
   // the sheet re-stamps the order id on the SAME row rather than making a
   // second one, so a captain who backs out and returns cannot end up owing
   // twice.
+  // Two strangers can reach for the same OPEN challenge at once, and the
+  // ACCEPTOR slot is unique per challenge. An upsert alone would quietly
+  // hand the in-flight row to whoever called second — and then the first
+  // one's payment captures against a row that is no longer theirs, which is
+  // money taken for nothing. So an unpaid row belonging to somebody else
+  // locks the slot for the length of the payment window, and only goes
+  // stale after that.
+  const held = await db.challengePayment.findUnique({
+    where: { challengeId_side: { challengeId, side: quote.yourSide } },
+    select: { id: true, userId: true, paidAt: true, createdAt: true },
+  });
+  if (held && held.userId !== userId) {
+    if (held.paidAt) return { ok: false, error: "Somebody else has taken this one." };
+    const windowMins =
+      (await db.challengeSettings.findFirst({ select: { paymentWindowMins: true } }))
+        ?.paymentWindowMins ?? 120;
+    const staleAt = held.createdAt.getTime() + windowMins * 60000;
+    if (Date.now() < staleAt) {
+      return { ok: false, error: "Someone else is paying for this right now. Try again shortly." };
+    }
+  }
+
   const row = await db.challengePayment.upsert({
     where: { challengeId_side: { challengeId, side: quote.yourSide } },
-    create: { challengeId, userId, side: quote.yourSide, amount: quote.yourShare },
-    update: { amount: quote.yourShare },
+    create: {
+      challengeId,
+      userId,
+      side: quote.yourSide,
+      amount: quote.yourShare,
+      acceptWindowId: acceptWindowId ?? null,
+    },
+    update: {
+      amount: quote.yourShare,
+      userId,
+      createdAt: new Date(),
+      acceptWindowId: acceptWindowId ?? null,
+    },
     select: { id: true, paidAt: true },
   });
   if (row.paidAt) return { ok: false, error: "You've already paid your half." };
@@ -350,7 +440,15 @@ export async function confirmChallengePayment(args: {
 
   const row = await db.challengePayment.findUnique({
     where: { razorpayOrderId },
-    select: { id: true, challengeId: true, userId: true, side: true, amount: true, paidAt: true },
+    select: {
+      id: true,
+      challengeId: true,
+      userId: true,
+      side: true,
+      amount: true,
+      paidAt: true,
+      acceptWindowId: true,
+    },
   });
   if (!row || row.challengeId !== challengeId) {
     return { ok: false, error: "That payment does not match this challenge." };
@@ -369,9 +467,40 @@ export async function confirmChallengePayment(args: {
   const c = await db.challenge.findUnique({ where: { id: challengeId }, select: challengeForPay });
   if (!c) return { ok: false, error: "That challenge is gone." };
 
-  const win = c.windows.find((w) => w.id === c.agreedWindowId);
+  // When the payment IS the acceptance, the window being settled on comes
+  // off the payment row rather than the challenge — the challenge has no
+  // agreed window until this moment.
+  const acceptingNow = !c.acceptedByUserId && !c.agreedWindowId && !!row.acceptWindowId;
+  const win = c.windows.find((w) => w.id === (acceptingNow ? row.acceptWindowId : c.agreedWindowId));
   if (!win) return { ok: false, error: "That challenge has no settled time." };
   const hours = windowHours(win.startHour, win.endHour);
+
+  if (acceptingNow) {
+    // Settle the handshake first, in one statement, so a second payer
+    // arriving in the same instant finds the challenge already taken.
+    await db.$transaction([
+      db.challengeWindow.update({ where: { id: win.id }, data: { status: "ACCEPTED" } }),
+      db.challengeWindow.updateMany({
+        where: { challengeId, id: { not: win.id }, status: "OFFERED" },
+        data: { status: "DECLINED" },
+      }),
+      db.challenge.update({
+        where: { id: challengeId },
+        data: {
+          acceptedByUserId: row.userId,
+          acceptedAt: new Date(),
+          agreedWindowId: win.id,
+        },
+      }),
+    ]);
+    await logChallengeEvent({
+      type: "ACCEPTED",
+      userId,
+      challengeId,
+      detail: "accepted by paying",
+      meta: { windowId: win.id },
+    });
+  }
 
   const alreadyPaid = c.payments.filter((p) => p.paidAt).map((p) => p.side as ChallengeSide);
   const paidAfter = [...alreadyPaid, row.side as ChallengeSide];
