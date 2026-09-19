@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendOfferReminders, expireOffers } from "@/lib/challenge-spin";
+import { resumeStalledPayments } from "@/lib/challenge-payments";
 
 /**
  * Cron worker — nudges live discount offers and closes out dead ones.
@@ -24,6 +25,14 @@ async function handle(request: Request) {
   }
 
   const now = new Date();
+  // Money first. A capture is claimed before any booking work, so a request
+  // that died in between left real money holding no court — and nothing else
+  // retries it, because the app verifies once and the customer who returns is
+  // refused by their own claimed row.
+  const finished = await resumeStalledPayments(now).catch((e) => {
+    console.error("[challenge-offers] stranded-payment sweep failed:", e);
+    return 0;
+  });
   // Nudge BEFORE expiring, so an offer in its final minute still gets its
   // last call rather than being closed out in the same tick.
   const nudged = await sendOfferReminders(now).catch((e) => {
@@ -35,7 +44,7 @@ async function handle(request: Request) {
     return 0;
   });
 
-  return NextResponse.json({ ok: true, nudged, lapsed });
+  return NextResponse.json({ ok: true, finished, nudged, lapsed });
 }
 
 export const GET = handle;

@@ -483,7 +483,22 @@ export async function createChallengePaymentOrder(
     row = { id: current.id, paidAt: null };
   }
 
-  if (row.paidAt) return { ok: false, error: "You've already paid your half." };
+  if (row.paidAt) {
+    // Distinguish "done" from "mid-flight". Telling somebody whose placement
+    // stalled that they have already paid their half is true and useless:
+    // their money is not on the booking yet, and the sweeper is about to put
+    // it there.
+    const done = await db.challengePayment.findUnique({
+      where: { id: row.id },
+      select: { placedAt: true },
+    });
+    return {
+      ok: false,
+      error: done?.placedAt
+        ? "You've already paid your half."
+        : "We're still finishing your last payment. Give it a minute, then pull to refresh.",
+    };
+  }
 
   let order: { id: string };
   try {
@@ -756,7 +771,7 @@ async function claimSlot(args: {
 
   const claimed = await db.challengePayment.updateMany({
     where: { id: row.id, paidAt: null },
-    data: { paidAt: new Date(), razorpayPaymentId },
+    data: { paidAt: new Date(), razorpayPaymentId, razorpaySignature: args.razorpaySignature },
   });
   if (claimed.count === 0) {
     const now = await db.challengePayment.findUnique({
@@ -913,11 +928,14 @@ async function tryBlockCourt(ctx: {
         select: { id: true },
       });
 
-      // This half is PLACED now, so it counts toward the status.
-      await tx.challengePayment.update({
-        where: { id: ctx.slot.rowId },
+      // This half is PLACED now, so it counts toward the status. Conditional
+      // for the same reason as the attach below: a retry racing the repair
+      // sweep must not place one capture twice.
+      const stamped = await tx.challengePayment.updateMany({
+        where: { id: ctx.slot.rowId, placedAt: null },
         data: { placedAt: new Date() },
       });
+      if (stamped.count === 0) throw new LostRace();
       const sides = await tx.challengePayment.findMany({
         where: { challengeId: ctx.challengeId, paidAt: { not: null }, placedAt: { not: null } },
         select: { side: true },
@@ -969,7 +987,12 @@ async function settleAgainst(
     0,
     (booking.payment?.advanceAmount ?? 0) - (booking.payment?.amount ?? 0),
   );
-  const settling = owed > 0 ? owed : ctx.slot.amount;
+  // Nothing outstanding means nothing to move. The old fallback to
+  // `ctx.slot.amount` here was a double-count waiting for a second settle
+  // against an already-settled booking — two overlapping repair sweeps, for
+  // instance — and it would have pushed the ledger past the advance with no
+  // capture behind the excess.
+  const settling = owed;
   // Computed from the POST-decrement figure: with advancePct at 100 there
   // is no venue balance, and the pre-decrement value would leave the
   // payment PARTIAL for ever with nothing left to collect.
@@ -984,11 +1007,16 @@ async function settleAgainst(
   // because this one is not placed until the transaction commits.
   const status = statusAfterPayment([...(await paidSides(ctx.challengeId)), ctx.slot.side]);
 
+  // The stamp is the serialisation point for placement, exactly as the
+  // attach is for blocking: two callers holding the same claimed row — a
+  // retry racing the repair sweep — must not both move the ledger.
+  const claimed = await db.challengePayment.updateMany({
+    where: { id: ctx.slot.rowId, placedAt: null },
+    data: { placedAt: new Date() },
+  });
+  if (claimed.count === 0) return { kind: "settled", bookingId, status };
+
   await db.$transaction([
-    db.challengePayment.update({
-      where: { id: ctx.slot.rowId },
-      data: { placedAt: new Date() },
-    }),
     ...(booking.payment
       ? [
           db.payment.update({
@@ -1012,6 +1040,74 @@ async function settleAgainst(
   return { kind: "settled", bookingId, status };
 }
 
+/**
+ * Finish halves that were claimed and then stranded.
+ *
+ * A capture is claimed before any booking work, so a request that dies in
+ * between leaves real money on a row that holds no court. Retrying the same
+ * capture repairs it — but nothing retries: the app calls verify once, and
+ * the customer who comes back is shown a Pay button their own claimed row
+ * then refuses. So the repair cannot depend on them returning.
+ *
+ * Runs on the per-minute cron. Two minutes of grace, so a request that is
+ * merely slow is never competing with its own repair.
+ *
+ * Idempotent by construction: every row it touches is claimed-but-unplaced,
+ * and the placement it runs claims the booking with the same conditional
+ * attach every other payer uses. A row that has since been placed, or
+ * flagged for refund, is not selected at all.
+ */
+export async function resumeStalledPayments(now = new Date()): Promise<number> {
+  const stalled = await db.challengePayment.findMany({
+    where: {
+      paidAt: { not: null, lt: new Date(now.getTime() - 2 * 60000) },
+      placedAt: null,
+      refundOwedAt: null,
+      razorpayOrderId: { not: null },
+      razorpayPaymentId: { not: null },
+    },
+    select: {
+      id: true,
+      challengeId: true,
+      userId: true,
+      side: true,
+      amount: true,
+      acceptWindowId: true,
+      quotedCourtConfigId: true,
+      razorpayOrderId: true,
+      razorpayPaymentId: true,
+      razorpaySignature: true,
+    },
+    take: 50,
+  });
+
+  let finished = 0;
+  for (const row of stalled) {
+    const result = await placeClaimedPayment({
+      challengeId: row.challengeId,
+      userId: row.userId,
+      slot: {
+        rowId: row.id,
+        side: row.side as ChallengeSide,
+        amount: row.amount,
+        acceptWindowId: row.acceptWindowId,
+        quotedCourtConfigId: row.quotedCourtConfigId,
+      },
+      razorpayOrderId: row.razorpayOrderId as string,
+      razorpayPaymentId: row.razorpayPaymentId as string,
+      razorpaySignature: row.razorpaySignature ?? "",
+    }).catch((e) => {
+      console.error("[challenges] could not finish a stranded payment:", row.id, e);
+      return null;
+    });
+    // A refusal is also a resolution: it stamps refundOwedAt, so the row
+    // leaves this queue and appears on the venue's refunds panel instead of
+    // being retried for ever.
+    if (result?.ok) finished += 1;
+  }
+  return finished;
+}
+
 export async function confirmChallengePayment(args: {
   challengeId: string;
   userId: string;
@@ -1020,15 +1116,33 @@ export async function confirmChallengePayment(args: {
   razorpaySignature: string;
   platform?: string;
 }): Promise<{ ok: true; status: string; bookingId: string | null } | { ok: false; error: string }> {
-  const { challengeId, userId } = args;
-
   // ── 1. Is this capture real, and is its slot ours to process? ──
   const claim = await claimSlot(args);
   if (claim.kind === "refused") return { ok: false, error: claim.error };
   if (claim.kind === "alreadyDone") {
     return { ok: true, status: claim.status, bookingId: claim.bookingId };
   }
-  const { slot } = claim;
+  return placeClaimedPayment({ ...args, slot: claim.slot });
+}
+
+/**
+ * Stages 2–5: everything after a capture has been claimed.
+ *
+ * Separate from the claim so a half that was claimed and then stranded —
+ * the request died between the two — can be finished later without a
+ * signature to re-verify. The claim IS the proof the signature verified;
+ * re-deciding that on a repair would mean the repair could never run.
+ */
+async function placeClaimedPayment(args: {
+  challengeId: string;
+  userId: string;
+  slot: ClaimedSlot;
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+  platform?: string;
+}): Promise<{ ok: true; status: string; bookingId: string | null } | { ok: false; error: string }> {
+  const { challengeId, userId, slot } = args;
 
   // ── 2. Does the challenge still want the money? ──
   //

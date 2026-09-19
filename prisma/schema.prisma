@@ -4231,6 +4231,10 @@ model ChallengePayment {
   /// Gateway refs, whichever rail collected it.
   razorpayOrderId      String? @unique
   razorpayPaymentId    String?
+  /// Kept so a claimed-but-unplaced half can be finished later. The claim is
+  /// already proof the signature verified; this is only for the booking's own
+  /// Payment row, which would otherwise lose it on a repair.
+  razorpaySignature    String?
   phonePeMerchantTxnId String? @unique
 
   /// Refunds here are MANUAL by decision — the venue returns the money and
