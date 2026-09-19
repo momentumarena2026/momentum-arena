@@ -761,6 +761,41 @@ hard way twice: **never ship a setting the runtime does not read** —
 broadcast existed to consume them, and their help text described behaviour
 the product did not have.
 
+**The stamp that says "this half is placed" must be in the SAME COMMIT as
+the money.** This bug has now been fixed three times at three different
+depths, each fix moving it one function down: first `paidAt` counted as paid,
+then `placedAt` was stamped before the ledger transaction in `settleAgainst`.
+A crash in that window is the worst state this module can reach, because it is
+invisible to *every* recovery path at once — the retry short-circuits, the
+repair sweep skips placed rows, the half-paid panel sees two paid sides, the
+refunds panel sees no flag, and the customer is told they have already paid.
+Both placement paths now use one interactive transaction in which the
+conditional stamp is also the serialisation point: whoever stamps, settles.
+
+**`ChallengeOrder` is the ledger that outlives everything.** Every Razorpay
+order this module opens is recorded there, with no relation to Challenge or
+ChallengePayment — deliberately, so it survives their deletion and
+reassignment. It exists because a capture could otherwise vanish entirely:
+when a stale payment slot is taken over the row is reassigned and its order id
+cleared, and when a challenge row is deleted the payment cascades and even the
+audit line fails on its own foreign key. An unmatched capture is now asked one
+question — *did we open this order?* — which separates a genuinely stranded
+payer (flag, notify, put it on the refunds queue) from somebody replaying an
+ordinary booking receipt at the endpoint (log once, claim nothing). Never
+collapse those two branches again; one of them is the audit-spam vector.
+
+**Pin the advance at order time (`ChallengePayment.quotedAdvance`).** Reading
+`advancePct` when the capture lands meant the booking's advance and the money
+charged described different deals whenever the venue edited the percentage
+while a sheet was open: at 50→100, a 1:3 split on an "each pays half" feature;
+at 50→10, a second half of ₹0, which Razorpay refuses — so that captain could
+never pay and the court stayed blocked and unconfirmable for ever.
+
+**Every refusal that carries captured money must dedupe on its own flag.**
+`refundOwed` fired unconditionally, so replaying a triple re-notified the payer
+and re-stated the debt: four replays read as ₹2,000 owed on one ₹500 capture.
+The conditional stamp is the claim — whoever sets it does the telling.
+
 **Captured money that cannot be honoured is flagged, not just narrated.**
 `refundOwed` stamps `ChallengePayment.refundOwedAt`/`refundOwedReason` as well
 as writing the event, because the admin's stranded-money panel is a query and
