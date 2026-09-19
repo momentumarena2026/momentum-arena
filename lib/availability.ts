@@ -133,7 +133,16 @@ export async function getSlotAvailability(
    * exhausted by the very code meant to serialise access. Defaults to the
    * global client, so every existing call site is unchanged.
    */
-  client: Pick<typeof db, "courtConfig" | "booking" | "slotHold" | "slotBlock"> = db
+  client: Pick<
+    typeof db,
+    | "courtConfig"
+    | "booking"
+    | "slotHold"
+    | "slotBlock"
+    | "timeClassification"
+    | "pricingRule"
+    | "arenaSettings"
+  > = db
 ): Promise<SlotAvailability[]> {
   const config = await client.courtConfig.findUnique({
     where: { id: courtConfigId },
@@ -155,6 +164,9 @@ export async function getSlotAvailability(
   // Awaiting them together is the whole fix: the work is identical, the
   // waiting is not repeated. Nothing here writes, so there is no ordering to
   // preserve between them.
+  // One read of the arena's hours, shared by this function and the pricing
+  // helper inside it — which used to fetch the same settings row again.
+  const hoursOnce = getAllSlotHoursLive(client as never);
   const [
     conflictingBookings,
     activeHolds,
@@ -204,10 +216,10 @@ export async function getSlotAvailability(
         courtConfig: { zones: { hasSome: config.zones } },
       },
     }),
-    getSlotPrices(courtConfigId, date),
+    getSlotPrices(courtConfigId, date, client, hoursOnce),
     // Fetched once here rather than awaited inside the block loops below,
     // where a day-long block paid for it again on every iteration.
-    getAllSlotHoursLive(),
+    hoursOnce,
   ]);
 
   // Build set of occupied hours
@@ -338,7 +350,13 @@ export async function getSlotAvailability(
   // same sport) as a fall-back when their slot is booked. Includes
   // self only to avoid an extra exclude clause; we'll skip it during
   // the per-hour filter.
-  const siblingConfigs = await db.courtConfig.findMany({
+  // `client`, not `db`. The whole reason this function takes a client is that
+  // a caller holding an advisory lock inside a transaction must not open a
+  // SECOND pooled connection — that is how the code meant to serialise access
+  // exhausts the pool. Five of the six reads honoured it and this one did not,
+  // so the challenges' `buyTheHour`, which passes a transaction client
+  // specifically to avoid that, took a second connection anyway.
+  const siblingConfigs = await client.courtConfig.findMany({
     where: {
       sport: config.sport,
       category: config.category,
@@ -372,7 +390,7 @@ export async function getSlotAvailability(
     if (!blocksPerSibling.has(block.courtConfigId))
       blocksPerSibling.set(block.courtConfigId, new Set());
     if (block.startHour === null) {
-      (await getAllSlotHoursLive()).forEach((h) =>
+      allHours.forEach((h) =>
         blocksPerSibling.get(block.courtConfigId!)!.add(h),
       );
     } else {
@@ -414,8 +432,15 @@ export async function getSlotAvailability(
     );
   }
 
-  // Build availability array
-  const hours = (await getAllSlotHoursLive());
+  // Build availability array. `allHours` — already read at the top of this
+  // function — rather than a third trip for the same settings row. That third
+  // call was on the GLOBAL client, and one global read inside an interactive
+  // transaction is enough on its own: ten concurrent transactions each hold a
+  // connection, each then asks for an eleventh the pool of ten cannot give,
+  // and all ten die on the transaction timeout. Measured exactly that way —
+  // `getAllSlotHoursLive()` alone, ten in flight, 10 of 10 failed; the same
+  // call given the transaction's client, 0 of 10.
+  const hours = allHours;
   const inWindow = new Set(hours);
   const result: SlotAvailability[] = hours.map((hour) => {
     let status: SlotStatus = "available";
@@ -495,17 +520,31 @@ export async function getSlotAvailability(
 // Get prices for each hour slot based on pricing rules and time classifications
 async function getSlotPrices(
   courtConfigId: string,
-  date: Date
+  date: Date,
+  /**
+   * The caller's client. This read the GLOBAL `db` whatever it was given,
+   * which is the hazard `getSlotAvailability`'s own client parameter exists
+   * to avoid: called from inside an interactive transaction — as
+   * `buyTheHour` does, while holding an advisory lock — every one of these
+   * took a SECOND pooled connection on top of the one the transaction is
+   * already holding. Running them together made that worse rather than
+   * better: three at once instead of three in turn, against a Neon adapter
+   * pool of ten, shared with every other transaction in the app. Measured:
+   * ten concurrent transactions and all ten fail with P2028.
+   */
+  client: Pick<typeof db, "timeClassification" | "pricingRule"> = db,
+  /**
+   * The arena's hours as a promise the caller is already awaiting, so the
+   * settings row is read ONCE per availability call rather than twice.
+   */
+  knownHours?: Promise<number[]>,
 ): Promise<Map<number, number>> {
   const dayType = isWeekend(date) ? "WEEKEND" : "WEEKDAY";
 
-  // Get time classifications for this day type
-  // Three independent reads, together. Sequentially they were three round
-  // trips inside a function that is itself called once per court-day.
   const [classifications, pricingRules, hours] = await Promise.all([
-    db.timeClassification.findMany({ where: { dayType }, orderBy: { startHour: "asc" } }),
-    db.pricingRule.findMany({ where: { courtConfigId } }),
-    getAllSlotHoursLive(),
+    client.timeClassification.findMany({ where: { dayType }, orderBy: { startHour: "asc" } }),
+    client.pricingRule.findMany({ where: { courtConfigId } }),
+    knownHours ?? getAllSlotHoursLive(),
   ]);
 
   const priceMap = new Map<number, number>();

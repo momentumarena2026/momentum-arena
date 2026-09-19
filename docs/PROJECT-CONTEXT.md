@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone (gotcha 15).
+**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone and taken through one function (gotcha 15); availability must stay on the caller's client (16).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -359,7 +359,7 @@ Anything else means main has drifted — stop and investigate, do not push.
     cannot meet a court-hour key) so the second payer waits and then sees both.
 
 16. **`getSlotAvailability` is the hottest read in the codebase — keep its
-    reads parallel.** It backs every availability grid the venue and its
+    reads parallel AND on the caller's client.** It backs every availability grid the venue and its
     customers look at, and the challenges sweep asks it once per court-day.
     It ran ~14 queries strictly one after another against a serverless
     Postgres — ~300ms each, ~4,250ms per call — which is how a sweep on a
@@ -367,6 +367,28 @@ Anything else means main has drifted — stop and investigate, do not push.
     `config`; awaiting them together took it to ~1,500ms with byte-identical
     output (checked across every court and eight dates, past and future).
     **Anything added here goes into the existing `Promise.all`, not after it.**
+
+    And it must use the `client` parameter, never the global `db`. A booking
+    or a challenge payment calls this from inside an interactive transaction,
+    which already holds one of the Neon adapter pool's **ten** connections; a
+    global read from in there asks for an eleventh that ten concurrent
+    transactions can never give, and every one of them dies on the transaction
+    timeout rather than merely queueing. One stray `getAllSlotHoursLive()`
+    deep in the function did exactly that: **10 of 10 concurrent transactions
+    failed with P2028; 0 of 60 after.** Measured both ways, and the pool was
+    never the problem — fourteen transactions doing six reads each on their
+    own client are fine. It is the one extra connection that is fatal, so
+    grep this file for `db.` before you ship a change to it.
+
+17. **The lock and the conflict rule are two different things, and only
+    testing them CONCURRENTLY tells you they disagree.** Every double-sell
+    found in rounds eight to ten — `createMediumHalfCourtHold`,
+    `createBowlingMachineHold`, `adminCreateBooking` — had a correct
+    zone-overlap conflict check and a lock keyed on something narrower. Run
+    sequentially, all three refuse the second booking correctly. It takes two
+    in flight at once to see the hole, which is why nine rounds of review
+    walked past them. **A booking path is not verified until two of them have
+    been raced against each other.**
 
 ---
 
