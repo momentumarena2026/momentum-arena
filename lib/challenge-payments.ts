@@ -52,7 +52,11 @@
 import { db } from "@/lib/db";
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { getSlotAvailability } from "@/lib/availability";
-import { createRazorpayOrder, verifyRazorpaySignature, RAZORPAY_KEY_ID } from "@/lib/razorpay";
+import {
+  createRazorpayOrder,
+  verifyRazorpaySignature,
+  RAZORPAY_KEY_ID,
+} from "@/lib/razorpay";
 import { notifyUser } from "@/lib/user-notifications";
 import {
   renderPush,
@@ -97,7 +101,14 @@ const challengeForPay = {
   createdBy: { select: { id: true, name: true, phone: true, email: true } },
   acceptedBy: { select: { id: true, name: true, phone: true, email: true } },
   windows: {
-    select: { id: true, date: true, startHour: true, endHour: true, courtConfigId: true, status: true },
+    select: {
+      id: true,
+      date: true,
+      startHour: true,
+      endHour: true,
+      courtConfigId: true,
+      status: true,
+    },
   },
   payments: {
     select: {
@@ -145,7 +156,9 @@ async function freeCourtFor(
 
   for (const c of ordered) {
     const avail = await getSlotAvailability(c.id, date, client);
-    const allFree = hours.every((h) => avail.find((s) => s.hour === h)?.status === "available");
+    const allFree = hours.every(
+      (h) => avail.find((s) => s.hour === h)?.status === "available",
+    );
     if (allFree) return c.id;
   }
   return null;
@@ -173,7 +186,8 @@ function acceptGateRefusal(
   // board on.
   if (!boardEnabled) return "The challenge board is currently switched off.";
   if (!win) return "That time is no longer on the table.";
-  if (c.expiresAt.getTime() <= now.getTime()) return "That challenge has expired.";
+  if (c.expiresAt.getTime() <= now.getTime())
+    return "That challenge has expired.";
   return leadTimeRefusal(slotStart(win.date, win.startHour), now, minLeadMins);
 }
 
@@ -265,10 +279,13 @@ export async function challengeQuote(
     !!acceptWindowId &&
     c.status === "OPEN" &&
     c.windows.some((w) => w.id === acceptWindowId && w.status === "OFFERED");
-  const side: ChallengeSide | null = existingSide ?? (acceptingNow ? "ACCEPTOR" : null);
+  const side: ChallengeSide | null =
+    existingSide ?? (acceptingNow ? "ACCEPTOR" : null);
 
   const win =
-    c.windows.find((w) => w.id === (acceptingNow ? acceptWindowId : c.agreedWindowId)) ?? null;
+    c.windows.find(
+      (w) => w.id === (acceptingNow ? acceptWindowId : c.agreedWindowId),
+    ) ?? null;
   const hours = win ? windowHours(win.startHour, win.endHour) : [];
 
   // Before a time is settled there is nothing to price. Say so through the
@@ -288,7 +305,9 @@ export async function challengeQuote(
       yourShare: null,
       yourSide: side,
       youHavePaid: false,
-      refusal: payRefusal(c, viewerId, new Date(), paidSides) ?? "No time has been settled yet.",
+      refusal:
+        payRefusal(c, viewerId, new Date(), paidSides) ??
+        "No time has been settled yet.",
     };
   }
 
@@ -297,7 +316,8 @@ export async function challengeQuote(
   // Once a half is placed, the court is DECIDED — it is the one that half was
   // quoted against. Re-searching for "any free court" here is what let the
   // second captain be quoted a different court from the first.
-  const placedPin = c.payments.find((p) => p.paidAt && p.placedAt)?.quotedCourtConfigId ?? null;
+  const placedPin =
+    c.payments.find((p) => p.paidAt && p.placedAt)?.quotedCourtConfigId ?? null;
   const booked = c.bookingId
     ? await db.booking.findUnique({
         where: { id: c.bookingId },
@@ -323,9 +343,14 @@ export async function challengeQuote(
   if (courtId) {
     const [prices, cfg] = await Promise.all([
       getSlotPricesForDate(courtId, win.date),
-      db.courtConfig.findUnique({ where: { id: courtId }, select: { label: true } }),
+      db.courtConfig.findUnique({
+        where: { id: courtId },
+        select: { label: true },
+      }),
     ]);
-    total = prices.filter((p) => hours.includes(p.hour)).reduce((s, p) => s + p.price, 0);
+    total = prices
+      .filter((p) => hours.includes(p.hour))
+      .reduce((s, p) => s + p.price, 0);
     courtLabel = cfg?.label ?? null;
   }
 
@@ -356,7 +381,11 @@ export async function challengeQuote(
     const settled = booked.payment.amount;
     shares =
       paidSides.length === 1
-        ? sharesAgainstBooking({ advanceAmount: advance, settled, paidSide: paidSides[0] })
+        ? sharesAgainstBooking({
+            advanceAmount: advance,
+            settled,
+            paidSide: paidSides[0],
+          })
         : // BOTH PAID: each side's share is what that side actually paid.
           //
           // This fell through to `splitShare(round(total × the CURRENT
@@ -442,7 +471,13 @@ export async function challengeQuote(
 
   const refusal =
     (acceptingNow
-      ? acceptGateRefusal(c, win, settings?.minLeadMins ?? 240, new Date(), settings?.enabled ?? false)
+      ? acceptGateRefusal(
+          c,
+          win,
+          settings?.minLeadMins ?? 240,
+          new Date(),
+          settings?.enabled ?? false,
+        )
       : payRefusal(c, viewerId, new Date(), paidSides)) ??
     lateRefusal ??
     unpayable ??
@@ -480,7 +515,13 @@ export async function createChallengePaymentOrder(
   userId: string,
   acceptWindowId?: string,
 ): Promise<
-  | { ok: true; orderId: string; keyId: string; amount: number; courtLabel: string | null }
+  | {
+      ok: true;
+      orderId: string;
+      keyId: string;
+      amount: number;
+      courtLabel: string | null;
+    }
   | { ok: false; error: string }
 > {
   const quote = await challengeQuote(challengeId, userId, acceptWindowId);
@@ -506,7 +547,9 @@ export async function createChallengePaymentOrder(
       select: { acceptedByUserId: true, createdByUserId: true },
     });
     const outsider =
-      taken && taken.acceptedByUserId && taken.acceptedByUserId !== userId &&
+      taken &&
+      taken.acceptedByUserId &&
+      taken.acceptedByUserId !== userId &&
       taken.createdByUserId !== userId;
     return {
       ok: false,
@@ -516,21 +559,28 @@ export async function createChallengePaymentOrder(
     };
   }
   if (quote.total <= 0) {
-    return { ok: false, error: "That court has no price set — the venue needs to fix that first." };
+    return {
+      ok: false,
+      error: "That court has no price set — the venue needs to fix that first.",
+    };
   }
   if (quote.advance <= 0) {
     // advancePct is zero, so there is nothing to collect online. Say that,
     // rather than blaming the court's price — which is set correctly.
     return {
       ok: false,
-      error: "Challenges aren't taking payment right now. Please tell the arena.",
+      error:
+        "Challenges aren't taking payment right now. Please tell the arena.",
     };
   }
   // A missing key is a deployment fault, not a user's. Refuse before
   // creating the row, so nobody ends up with a payment record and no way
   // to pay it.
   if (!RAZORPAY_KEY_ID) {
-    return { ok: false, error: "Card payments aren't configured. Please tell the arena." };
+    return {
+      ok: false,
+      error: "Card payments aren't configured. Please tell the arena.",
+    };
   }
 
   // One row per side, enforced by @@unique([challengeId, side]); re-opening
@@ -575,7 +625,8 @@ export async function createChallengePaymentOrder(
         razorpayOrderId: true,
       },
     });
-    if (!current) return { ok: false, error: "Couldn't start that payment. Try again." };
+    if (!current)
+      return { ok: false, error: "Couldn't start that payment. Try again." };
     if (current.userId !== userId) {
       // A capture that has been written off as a refund no longer holds the
       // slot. Without this, one stranded payment left an OPEN challenge on
@@ -585,8 +636,11 @@ export async function createChallengePaymentOrder(
         return { ok: false, error: "Somebody else has taken this one." };
       }
       const windowMins =
-        (await db.challengeSettings.findFirst({ select: { paymentWindowMins: true } }))
-          ?.paymentWindowMins ?? 120;
+        (
+          await db.challengeSettings.findFirst({
+            select: { paymentWindowMins: true },
+          })
+        )?.paymentWindowMins ?? 120;
       // A WRITTEN-OFF row is not somebody mid-payment. Running the staleness
       // clock over it too turned the permanent dead card into a two-hour one:
       // an OPEN, priced, un-takeable challenge answering strangers "someone
@@ -595,7 +649,11 @@ export async function createChallengePaymentOrder(
         !current.refundOwedAt &&
         Date.now() < current.createdAt.getTime() + windowMins * 60000
       ) {
-        return { ok: false, error: "Someone else is paying for this right now. Try again shortly." };
+        return {
+          ok: false,
+          error:
+            "Someone else is paying for this right now. Try again shortly.",
+        };
       }
       if (current.razorpayOrderId) {
         await logChallengeEvent({
@@ -683,7 +741,11 @@ export async function createChallengePaymentOrder(
       // payment" went to strangers who had paid nothing, about a payment they
       // never made.
       if (current.userId !== userId) {
-        return { ok: false, error: "Someone else is paying for this right now. Try again shortly." };
+        return {
+          ok: false,
+          error:
+            "Someone else is paying for this right now. Try again shortly.",
+        };
       }
       return {
         ok: false,
@@ -697,7 +759,8 @@ export async function createChallengePaymentOrder(
     row = {
       id: current.id,
       paidAt: null,
-      razorpayOrderId: current.userId === userId ? current.razorpayOrderId : null,
+      razorpayOrderId:
+        current.userId === userId ? current.razorpayOrderId : null,
     };
   }
 
@@ -719,7 +782,12 @@ export async function createChallengePaymentOrder(
   const live = row.razorpayOrderId
     ? await db.challengeOrder.findUnique({
         where: { razorpayOrderId: row.razorpayOrderId },
-        select: { razorpayOrderId: true, amount: true, settledAt: true, strandedAt: true },
+        select: {
+          razorpayOrderId: true,
+          amount: true,
+          settledAt: true,
+          strandedAt: true,
+        },
       })
     : null;
   if (
@@ -747,7 +815,10 @@ export async function createChallengePaymentOrder(
   try {
     order = await createRazorpayOrder(quote.yourShare, row.id);
   } catch {
-    return { ok: false, error: "Couldn't reach the payment gateway. Try again in a moment." };
+    return {
+      ok: false,
+      error: "Couldn't reach the payment gateway. Try again in a moment.",
+    };
   }
 
   await db.challengePayment.update({
@@ -882,8 +953,9 @@ async function refundOwed(args: {
   // refund-owed case. Absent that, each caller's own specific sentence is
   // kept — "that match was called off" tells the customer more than a
   // generic apology, so the default is deliberately NOT one template.
-  const stored = (await db.challengeSettings.findFirst({ select: { refundOwedPush: true } }))
-    ?.refundOwedPush;
+  const stored = (
+    await db.challengeSettings.findFirst({ select: { refundOwedPush: true } })
+  )?.refundOwedPush;
   const tpl = resolveTemplate(stored, { title: args.title, body: args.body });
   // RENDER IT. This was the one lifecycle message that never substituted, so a
   // venue that edited it shipped its own template source to the customer —
@@ -914,7 +986,10 @@ async function markRefundOwed(rowId: string, reason: string): Promise<boolean> {
   const done = await db.challengePayment
     .updateMany({
       where: { id: rowId, refundOwedAt: null },
-      data: { refundOwedAt: new Date(), refundOwedReason: reason.slice(0, 300) },
+      data: {
+        refundOwedAt: new Date(),
+        refundOwedReason: reason.slice(0, 300),
+      },
     })
     .catch(() => ({ count: 0 }));
   return done.count > 0;
@@ -928,9 +1003,16 @@ async function markRefundOwed(rowId: string, reason: string): Promise<boolean> {
  * payment id is inside the sentence, which is what makes one line per
  * genuine capture and no lines for a replay.
  */
-async function logOnce(challengeId: string, userId: string, detail: string): Promise<void> {
+async function logOnce(
+  challengeId: string,
+  userId: string,
+  detail: string,
+): Promise<void> {
   const seen = await db.challengeEvent
-    .findFirst({ where: { challengeId, type: "MONEY_NOTE", detail }, select: { id: true } })
+    .findFirst({
+      where: { challengeId, type: "MONEY_NOTE", detail },
+      select: { id: true },
+    })
     .catch(() => null);
   if (seen) return;
   await logChallengeEvent({ type: "MONEY_NOTE", userId, challengeId, detail });
@@ -961,7 +1043,12 @@ async function strandOrder(
   razorpayOrderId: string,
   razorpayPaymentId: string,
   reason: string,
-): Promise<{ userId: string; challengeId: string; amount: number; side: string } | null> {
+): Promise<{
+  userId: string;
+  challengeId: string;
+  amount: number;
+  side: string;
+} | null> {
   const order = await db.challengeOrder.findUnique({
     where: { razorpayOrderId },
     select: {
@@ -1014,7 +1101,11 @@ async function strandOrder(
     // `settledAt: null` in the predicate too, so a settle landing between the
     // read and the write cannot be overtaken by a strand.
     where: { id: order.id, strandedAt: null, settledAt: null },
-    data: { strandedAt: new Date(), strandedReason: reason.slice(0, 300), razorpayPaymentId },
+    data: {
+      strandedAt: new Date(),
+      strandedReason: reason.slice(0, 300),
+      razorpayPaymentId,
+    },
   });
   return claimed.count > 0 ? order : null;
 }
@@ -1039,7 +1130,13 @@ async function claimSlot(args: {
 > {
   const { challengeId, userId, razorpayOrderId, razorpayPaymentId } = args;
 
-  if (!verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, args.razorpaySignature)) {
+  if (
+    !verifyRazorpaySignature(
+      razorpayOrderId,
+      razorpayPaymentId,
+      args.razorpaySignature,
+    )
+  ) {
     await logChallengeEvent({
       type: "MONEY_NOTE",
       userId,
@@ -1114,7 +1211,8 @@ async function claimSlot(args: {
       );
       return {
         kind: "refused",
-        error: "That payment arrived too late to be used. The arena will refund you in full.",
+        error:
+          "That payment arrived too late to be used. The arena will refund you in full.",
       };
     }
     // Either not ours at all, or ours and already flagged. Both are quiet:
@@ -1128,7 +1226,8 @@ async function claimSlot(args: {
     if (known) {
       return {
         kind: "refused",
-        error: "That payment arrived too late to be used. The arena will refund you in full.",
+        error:
+          "That payment arrived too late to be used. The arena will refund you in full.",
       };
     }
     await logOnce(
@@ -1136,14 +1235,24 @@ async function claimSlot(args: {
       userId,
       `a payment from elsewhere was offered here (${razorpayPaymentId})`,
     );
-    return { kind: "refused", error: "That payment does not match this challenge." };
+    return {
+      kind: "refused",
+      error: "That payment does not match this challenge.",
+    };
   }
   if (row.challengeId !== challengeId) {
     // Real challenge money, but the client named the wrong challenge. Its
     // own row is intact and will honour it, so this is a misroute, not a
     // loss — log against the challenge it actually belongs to.
-    await logOnce(row.challengeId, userId, `a payment for another challenge was offered here (${razorpayPaymentId})`);
-    return { kind: "refused", error: "That payment does not match this challenge." };
+    await logOnce(
+      row.challengeId,
+      userId,
+      `a payment for another challenge was offered here (${razorpayPaymentId})`,
+    );
+    return {
+      kind: "refused",
+      error: "That payment does not match this challenge.",
+    };
   }
   if (row.userId !== userId) {
     // Stranded: the payer's money is captured and their slot now names
@@ -1181,7 +1290,8 @@ async function claimSlot(args: {
     }
     return {
       kind: "refused",
-      error: "Somebody else took this one while you were paying. The arena will refund you.",
+      error:
+        "Somebody else took this one while you were paying. The arena will refund you.",
     };
   }
 
@@ -1218,7 +1328,11 @@ async function claimSlot(args: {
 
   const claimed = await db.challengePayment.updateMany({
     where: { id: row.id, paidAt: null },
-    data: { paidAt: new Date(), razorpayPaymentId, razorpaySignature: args.razorpaySignature },
+    data: {
+      paidAt: new Date(),
+      razorpayPaymentId,
+      razorpaySignature: args.razorpaySignature,
+    },
   });
   // NOTE: `settledAt` is deliberately NOT stamped here. Stamping it at claim
   // time — before any placement work — meant every capture the system later
@@ -1262,7 +1376,13 @@ async function placeMoney(ctx: {
   challengeId: string;
   slot: ClaimedSlot;
   challenge: { sport: string; createdByUserId: string };
-  win: { id: string; date: Date; startHour: number; endHour: number; courtConfigId: string | null };
+  win: {
+    id: string;
+    date: Date;
+    startHour: number;
+    endHour: number;
+    courtConfigId: string | null;
+  };
   razorpayOrderId: string;
   razorpayPaymentId: string;
   razorpaySignature: string;
@@ -1279,7 +1399,11 @@ async function placeMoney(ctx: {
       where: { id: ctx.slot.rowId, placedAt: null },
       data: { placedAt: new Date() },
     });
-    return { kind: "settled", bookingId: existing.bookingId, status: "CONFIRMED" };
+    return {
+      kind: "settled",
+      bookingId: existing.bookingId,
+      status: "CONFIRMED",
+    };
   }
 
   // Stamp this half placed and read who is placed NOW, in one transaction —
@@ -1291,7 +1415,11 @@ async function placeMoney(ctx: {
       data: { placedAt: new Date() },
     });
     return tx.challengePayment.findMany({
-      where: { challengeId: ctx.challengeId, paidAt: { not: null }, placedAt: { not: null } },
+      where: {
+        challengeId: ctx.challengeId,
+        paidAt: { not: null },
+        placedAt: { not: null },
+      },
       select: {
         id: true,
         side: true,
@@ -1375,7 +1503,10 @@ export async function unwindChallengesForCancelledBooking(
         bookingId: null,
         status: "WITHDRAWN",
         withdrawnAt: new Date(),
-        withdrawReason: `the arena cancelled the booking: ${reason}`.slice(0, 200),
+        withdrawReason: `the arena cancelled the booking: ${reason}`.slice(
+          0,
+          200,
+        ),
       },
     });
     if (claimed.count === 0) continue;
@@ -1410,7 +1541,12 @@ export async function flagChallengeRefunds(
   reason: string,
 ): Promise<number> {
   const owed = await db.challengePayment.findMany({
-    where: { challengeId, paidAt: { not: null }, refundedAt: null, refundOwedAt: null },
+    where: {
+      challengeId,
+      paidAt: { not: null },
+      refundedAt: null,
+      refundOwedAt: null,
+    },
     select: {
       id: true,
       amount: true,
@@ -1433,7 +1569,12 @@ export async function flagChallengeRefunds(
       body: `₹${row.amount} for that match is coming back to you in full.`,
       amount: row.amount,
     });
-    await tellTheArenaAboutARefundFor(row.user.id, row.amount, challengeId, reason);
+    await tellTheArenaAboutARefundFor(
+      row.user.id,
+      row.amount,
+      challengeId,
+      reason,
+    );
   }
   return flagged;
 }
@@ -1492,7 +1633,11 @@ async function discardForLostHour(args: {
 
   // Every captured half on this challenge is owed back.
   const owed = await db.challengePayment.findMany({
-    where: { challengeId: args.challengeId, paidAt: { not: null }, refundedAt: null },
+    where: {
+      challengeId: args.challengeId,
+      paidAt: { not: null },
+      refundedAt: null,
+    },
     select: {
       id: true,
       amount: true,
@@ -1556,9 +1701,13 @@ async function notifyRefundOwed(
   challengeId: string,
   fallback: { title: string; body: string; amount: number },
 ): Promise<void> {
-  const stored = (await db.challengeSettings.findFirst({ select: { refundOwedPush: true } }))
-    ?.refundOwedPush;
-  const tpl = resolveTemplate(stored, { title: fallback.title, body: fallback.body });
+  const stored = (
+    await db.challengeSettings.findFirst({ select: { refundOwedPush: true } })
+  )?.refundOwedPush;
+  const tpl = resolveTemplate(stored, {
+    title: fallback.title,
+    body: fallback.body,
+  });
   const [u, c] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { name: true } }),
     db.challenge.findUnique({
@@ -1567,11 +1716,20 @@ async function notifyRefundOwed(
         teamName: true,
         windows: {
           where: { status: "ACCEPTED" },
-          select: { date: true, startHour: true, endHour: true, courtConfigId: true },
+          select: {
+            date: true,
+            startHour: true,
+            endHour: true,
+            courtConfigId: true,
+          },
           take: 1,
         },
         payments: {
-          select: { quotedCourtConfigId: true, quotedTotal: true, quotedAdvance: true },
+          select: {
+            quotedCourtConfigId: true,
+            quotedTotal: true,
+            quotedAdvance: true,
+          },
         },
       },
     }),
@@ -1600,12 +1758,14 @@ async function notifyRefundOwed(
           acceptedBy: { select: { id: true, name: true } },
         },
       });
-      const them = ch?.createdBy?.id === userId ? ch?.acceptedBy : ch?.createdBy;
+      const them =
+        ch?.createdBy?.id === userId ? ch?.acceptedBy : ch?.createdBy;
       return them?.name ?? "the other captain";
     })(),
   ]);
   const pinned = c?.payments.find((p) => p.quotedTotal)?.quotedTotal ?? 0;
-  const pinnedAdvance = c?.payments.find((p) => p.quotedAdvance)?.quotedAdvance ?? 0;
+  const pinnedAdvance =
+    c?.payments.find((p) => p.quotedAdvance)?.quotedAdvance ?? 0;
   const vars = {
     name: other,
     team: c?.teamName ?? "",
@@ -1632,13 +1792,21 @@ async function tellTheArenaAboutARefundFor(
   reason: string,
 ): Promise<void> {
   const [u, c] = await Promise.all([
-    db.user.findUnique({ where: { id: userId }, select: { name: true, phone: true } }),
+    db.user.findUnique({
+      where: { id: userId },
+      select: { name: true, phone: true },
+    }),
     db.challenge.findUnique({
       where: { id: challengeId },
       select: {
         windows: {
           where: { status: "ACCEPTED" },
-          select: { date: true, startHour: true, endHour: true, courtConfigId: true },
+          select: {
+            date: true,
+            startHour: true,
+            endHour: true,
+            courtConfigId: true,
+          },
           take: 1,
         },
         payments: { select: { quotedCourtConfigId: true } },
@@ -1650,10 +1818,16 @@ async function tellTheArenaAboutARefundFor(
   // the middle of the venue's own message — "on  was booked by somebody else" —
   // on the one notification whose reader has to act on it.
   const courtId =
-    c?.payments.find((p) => p.quotedCourtConfigId)?.quotedCourtConfigId ?? w?.courtConfigId ?? null;
+    c?.payments.find((p) => p.quotedCourtConfigId)?.quotedCourtConfigId ??
+    w?.courtConfigId ??
+    null;
   const court = courtId
-    ? ((await db.courtConfig.findUnique({ where: { id: courtId }, select: { label: true } }))
-        ?.label ?? "")
+    ? ((
+        await db.courtConfig.findUnique({
+          where: { id: courtId },
+          select: { label: true },
+        })
+      )?.label ?? "")
     : "";
   await tellTheArenaAboutARefund({
     name: u?.name ?? "A captain",
@@ -1683,15 +1857,18 @@ async function tellTheArenaAboutARefund(vars: {
   court: string;
   reason: string;
 }): Promise<void> {
-  const stored = (await db.challengeSettings.findFirst({ select: { ownerRefundPush: true } }))
-    ?.ownerRefundPush;
+  const stored = (
+    await db.challengeSettings.findFirst({ select: { ownerRefundPush: true } })
+  )?.ownerRefundPush;
   const tpl = resolveTemplate(stored, DEFAULT_OWNER_REFUND_PUSH);
   const { sendToAdmins } = await import("@/lib/push");
   await sendToAdmins({
     title: renderPush(tpl.title, vars),
     body: renderPush(tpl.body, vars),
     data: { kind: "admin_challenge_refund_owed", amount: String(vars.amount) },
-  }).catch((e) => console.error("[challenges] could not tell the arena about a refund:", e));
+  }).catch((e) =>
+    console.error("[challenges] could not tell the arena about a refund:", e),
+  );
 }
 
 /**
@@ -1721,7 +1898,12 @@ async function buyTheHour(
     challengeId: string;
     slot: ClaimedSlot;
     challenge: { sport: string; createdByUserId: string };
-    win: { date: Date; startHour: number; endHour: number; courtConfigId: string | null };
+    win: {
+      date: Date;
+      startHour: number;
+      endHour: number;
+      courtConfigId: string | null;
+    };
     razorpayOrderId: string;
     razorpayPaymentId: string;
     razorpaySignature: string;
@@ -1758,9 +1940,16 @@ async function buyTheHour(
   // quoted first and is what the other half was quoted against.
   const firstPin = placed[0];
   const quotedCourt =
-    firstPin?.quotedCourtConfigId ?? ctx.slot.quotedCourtConfigId ?? ctx.win.courtConfigId;
+    firstPin?.quotedCourtConfigId ??
+    ctx.slot.quotedCourtConfigId ??
+    ctx.win.courtConfigId;
   const courtId = quotedCourt
-    ? (await freeCourtFor(ctx.challenge.sport, ctx.win.date, hours, quotedCourt)) === quotedCourt
+    ? (await freeCourtFor(
+        ctx.challenge.sport,
+        ctx.win.date,
+        hours,
+        quotedCourt,
+      )) === quotedCourt
       ? quotedCourt
       : null
     : await freeCourtFor(ctx.challenge.sport, ctx.win.date, hours, null);
@@ -1815,11 +2004,11 @@ async function buyTheHour(
         challengeId: ctx.challengeId,
         detail: `collected ₹${advance} online for a court now priced ₹${total} — ₹${over} owed back`,
       });
-    // AND tell the arena. A line in the activity feed is exactly the "money
-    // discoverable only by reading prose" that `refundOwedAt` was added to end;
-    // this overage has no half of its own to flag, so the notification is the
-    // whole of the trail. It is split across the two captains, because that is
-    // who over-paid.
+      // AND tell the arena. A line in the activity feed is exactly the "money
+      // discoverable only by reading prose" that `refundOwedAt` was added to end;
+      // this overage has no half of its own to flag, so the notification is the
+      // whole of the trail. It is split across the two captains, because that is
+      // who over-paid.
       for (const p of placed) {
         const share = Math.round((over * p.amount) / Math.max(1, advance));
         if (share > 0) {
@@ -1840,81 +2029,104 @@ async function buyTheHour(
 
   const dateStr = ctx.win.date.toISOString().slice(0, 10);
   const bought = await db
-    .$transaction(async (tx) => {
-      // ASK THE HOUR UNDER A LOCK, INSIDE THE TRANSACTION.
-      //
-      // `freeCourtFor` above is a plain read taken before this transaction
-      // opens, and the conditional attach below serialises this challenge
-      // against ITSELF — not the hour against the world. So between the read
-      // and the insert the hour looked free to every other path, and a
-      // challenge capture racing a walk-in's checkout could double-book it.
-      //
-      // `slot-hold.ts` has owned the answer to this all along: one advisory
-      // lock per (court, date, hour), taken in sorted order. The challenge path
-      // was keeping a second, unlocked copy of the question. It now takes the
-      // same locks, then asks again — because the whole point of the lock is
-      // that the answer may have changed.
-      for (const h of [...hours].sort((a, b) => a - b)) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(courtId, dateStr, h)}::bigint)`;
-      }
-      // On the TRANSACTION's client: the lock is held on this connection, and
-      // asking the question on another one takes a second connection from the
-      // pool for the whole time it is held.
-      const stillFree = await freeCourtFor(
-        ctx.challenge.sport,
-        ctx.win.date,
-        hours,
-        courtId,
-        tx as unknown as typeof db,
-      );
-      if (stillFree !== courtId) throw new HourGone();
+    .$transaction(
+      async (tx) => {
+        // ASK THE HOUR UNDER A LOCK, INSIDE THE TRANSACTION.
+        //
+        // `freeCourtFor` above is a plain read taken before this transaction
+        // opens, and the conditional attach below serialises this challenge
+        // against ITSELF — not the hour against the world. So between the read
+        // and the insert the hour looked free to every other path, and a
+        // challenge capture racing a walk-in's checkout could double-book it.
+        //
+        // `slot-hold.ts` has owned the answer to this all along: one advisory
+        // lock per (court, date, hour), taken in sorted order. The challenge path
+        // was keeping a second, unlocked copy of the question. It now takes the
+        // same locks, then asks again — because the whole point of the lock is
+        // that the answer may have changed.
+        for (const h of [...hours].sort((a, b) => a - b)) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(courtId, dateStr, h)}::bigint)`;
+        }
+        // ONE COURT, on the TRANSACTION's client.
+        //
+        // This called `freeCourtFor`, which loops EVERY active court of the sport
+        // and runs a full availability computation for each — five of them for
+        // cricket — all inside the advisory lock. Running the per-minute cron for
+        // real showed what that costs: transactions exceeding Prisma's 20-second
+        // interactive timeout and dying with "a query cannot be executed on an
+        // expired transaction", leaving the capture claimed and unplaced for the
+        // repair sweep to finish.
+        //
+        // The court is already decided by this point — it is the one the first
+        // half was quoted against. The only question left is whether it is still
+        // free, which is one lookup, not a search.
+        const avail = await getSlotAvailability(
+          courtId,
+          ctx.win.date,
+          tx as unknown as typeof db,
+        );
+        const stillFree = hours.every(
+          (h) => avail.find((sl) => sl.hour === h)?.status === "available",
+        );
+        if (!stillFree) throw new HourGone();
 
-      const created = await tx.booking.create({
-        data: {
-          userId: ctx.challenge.createdByUserId,
-          courtConfigId: courtId,
-          date: ctx.win.date,
-          // CONFIRMED, not PENDING: both halves of the advance are in, so
-          // there is nothing provisional left about it. The old PENDING row
-          // existed to hold an hour against one payment, which is exactly
-          // what no longer happens.
-          status: "CONFIRMED",
-          totalAmount: total,
-          platform: ctx.platform ?? "ios",
-          slots: { create: slots },
-          payment: {
-            create: {
-              method: "RAZORPAY",
-              status: gateBalance > 0 ? "PARTIAL" : "COMPLETED",
-              amount: advance,
-              isPartialPayment: gateBalance > 0,
-              advanceAmount: advance,
-              remainingAmount: gateBalance,
-              confirmedAt: new Date(),
-              // ONE COHERENT TRIPLE. These were assembled from two different
-              // captures — the second half's order id and signature with the
-              // FIRST half's payment id — so the row held a combination that
-              // verifies against nothing, and any reconciliation or
-              // re-verification against it fails. All three now come from the
-              // first half, with the second half's capture recorded beside it.
-              razorpayOrderId: first?.razorpayOrderId ?? ctx.razorpayOrderId,
-              razorpayPaymentId: first?.razorpayPaymentId ?? ctx.razorpayPaymentId,
-              razorpaySignature: first?.razorpaySignature ?? ctx.razorpaySignature,
-              secondRazorpayPaymentId: second?.razorpayPaymentId ?? null,
+        const created = await tx.booking.create({
+          data: {
+            userId: ctx.challenge.createdByUserId,
+            courtConfigId: courtId,
+            date: ctx.win.date,
+            // CONFIRMED, not PENDING: both halves of the advance are in, so
+            // there is nothing provisional left about it. The old PENDING row
+            // existed to hold an hour against one payment, which is exactly
+            // what no longer happens.
+            status: "CONFIRMED",
+            totalAmount: total,
+            platform: ctx.platform ?? "ios",
+            slots: { create: slots },
+            payment: {
+              create: {
+                method: "RAZORPAY",
+                status: gateBalance > 0 ? "PARTIAL" : "COMPLETED",
+                amount: advance,
+                isPartialPayment: gateBalance > 0,
+                advanceAmount: advance,
+                remainingAmount: gateBalance,
+                confirmedAt: new Date(),
+                // ONE COHERENT TRIPLE. These were assembled from two different
+                // captures — the second half's order id and signature with the
+                // FIRST half's payment id — so the row held a combination that
+                // verifies against nothing, and any reconciliation or
+                // re-verification against it fails. All three now come from the
+                // first half, with the second half's capture recorded beside it.
+                razorpayOrderId: first?.razorpayOrderId ?? ctx.razorpayOrderId,
+                razorpayPaymentId:
+                  first?.razorpayPaymentId ?? ctx.razorpayPaymentId,
+                razorpaySignature:
+                  first?.razorpaySignature ?? ctx.razorpaySignature,
+                secondRazorpayPaymentId: second?.razorpayPaymentId ?? null,
+              },
             },
           },
-        },
-        select: { id: true },
-      });
+          select: { id: true },
+        });
 
-      const attached = await tx.challenge.updateMany({
-        where: { id: ctx.challengeId, bookingId: null },
-        data: { status: "CONFIRMED", bookingId: created.id },
-      });
-      // Throwing rolls the booking back rather than deleting it afterwards.
-      if (attached.count === 0) throw new LostRace();
-      return { bookingId: created.id };
-    })
+        const attached = await tx.challenge.updateMany({
+          where: { id: ctx.challengeId, bookingId: null },
+          data: { status: "CONFIRMED", bookingId: created.id },
+        });
+        // Throwing rolls the booking back rather than deleting it afterwards.
+        if (attached.count === 0) throw new LostRace();
+        return { bookingId: created.id };
+      },
+      {
+        // Stated rather than inherited. The work inside is one availability
+        // lookup and the booking insert, but this transaction also WAITS on an
+        // advisory lock that a contended hour can hold for a while, and the
+        // default is short enough to turn that wait into a failed payment.
+        timeout: 20_000,
+        maxWait: 15_000,
+      },
+    )
     .catch((e) => {
       if (e instanceof LostRace) return null;
       if (e instanceof HourGone) return "gone" as const;
@@ -1973,7 +2185,9 @@ class HourGone extends Error {}
  * when there is nothing left to play: the agreed hour has gone, or every
  * offered hour has.
  */
-export async function discardChallengesWhoseHourWent(now = new Date()): Promise<number> {
+export async function discardChallengesWhoseHourWent(
+  now = new Date(),
+): Promise<number> {
   const live = await db.challenge.findMany({
     where: {
       status: { in: ["OPEN", "COUNTERED", "AGREED", "PART_PAID"] },
@@ -1988,9 +2202,18 @@ export async function discardChallengesWhoseHourWent(now = new Date()): Promise<
       acceptedBy: { select: { id: true, name: true } },
       windows: {
         where: { status: { in: ["OFFERED", "ACCEPTED"] } },
-        select: { id: true, date: true, startHour: true, endHour: true, courtConfigId: true },
+        select: {
+          id: true,
+          date: true,
+          startHour: true,
+          endHour: true,
+          courtConfigId: true,
+        },
       },
-      payments: { where: { paidAt: { not: null } }, select: { quotedCourtConfigId: true } },
+      payments: {
+        where: { paidAt: { not: null } },
+        select: { quotedCourtConfigId: true },
+      },
     },
     // OLDEST FIRST, and bounded. Unordered, a venue with more than 200 live
     // challenges could have the same page returned every tick while others were
@@ -2000,6 +2223,26 @@ export async function discardChallengesWhoseHourWent(now = new Date()): Promise<
     orderBy: { createdAt: "asc" },
     take: 200,
   });
+
+  // ONE availability computation per (court, day, hours), reused across every
+  // challenge and window in this run.
+  //
+  // Running the cron for real showed this sweep taking up to 163 SECONDS on a
+  // sixty-second schedule — so in production three runs would be in flight at
+  // once, each redoing the same lookups, on the sweep whose job is to tell two
+  // captains their hour has gone. It asked per window per challenge, and a
+  // board of forty challenges asks the same question forty times.
+  const seen = new Map<string, boolean>();
+  const isFree = async (courtId: string, date: Date, hrs: number[]) => {
+    const key = `${courtId}:${date.toISOString().slice(0, 10)}:${hrs.join(",")}`;
+    const hit = seen.get(key);
+    if (hit !== undefined) return hit;
+    const avail = await getSlotAvailability(courtId, date);
+    const free = hrs.every((h) => avail.find((sl) => sl.hour === h)?.status === "available");
+    seen.set(key, free);
+    return free;
+  };
+
 
   let discarded = 0;
   for (const c of live) {
@@ -2011,15 +2254,22 @@ export async function discardChallengesWhoseHourWent(now = new Date()): Promise<
 
     // A window is dead if the court it was quoted on is gone, or — when no
     // court was pinned — if no court of that sport is free for it any more.
-    const quotedCourt = c.payments.find((p) => p.quotedCourtConfigId)?.quotedCourtConfigId ?? null;
+    const quotedCourt =
+      c.payments.find((p) => p.quotedCourtConfigId)?.quotedCourtConfigId ??
+      null;
     const alive: typeof decisive = [];
     for (const w of decisive) {
       // Only hours still in the future can be lost; a window already in the
       // past is the expiry sweep's business, not this one's.
       if (slotStart(w.date, w.startHour).getTime() <= now.getTime()) continue;
       const want = quotedCourt ?? w.courtConfigId;
-      const free = await freeCourtFor(c.sport, w.date, windowHours(w.startHour, w.endHour), want);
-      if (want ? free === want : !!free) alive.push(w);
+      const hrs = windowHours(w.startHour, w.endHour);
+      // A KNOWN court is one lookup. Only an unpinned window needs the search,
+      // and that is the rarer case — anything with money in it has a pin.
+      const free = want
+        ? await isFree(want, w.date, hrs)
+        : !!(await freeCourtFor(c.sport, w.date, hrs, null));
+      if (free) alive.push(w);
     }
     if (alive.length > 0) continue;
 
@@ -2037,9 +2287,16 @@ export async function discardChallengesWhoseHourWent(now = new Date()): Promise<
     const gone = decisive[0];
     const court = quotedCourt ?? gone.courtConfigId;
     const label = court
-      ? (await db.courtConfig.findUnique({ where: { id: court }, select: { label: true } }))?.label
+      ? (
+          await db.courtConfig.findUnique({
+            where: { id: court },
+            select: { label: true },
+          })
+        )?.label
       : null;
-    const tpls = await db.challengeSettings.findFirst({ select: { slotLostPush: true } });
+    const tpls = await db.challengeSettings.findFirst({
+      select: { slotLostPush: true },
+    });
     const ok = await discardForLostHour({
       challengeId: c.id,
       reason,
@@ -2054,7 +2311,10 @@ export async function discardChallengesWhoseHourWent(now = new Date()): Promise<
         total: 0,
         balance: 0,
       },
-      slotLostTemplate: resolveTemplate(tpls?.slotLostPush, DEFAULT_LIFECYCLE_PUSHES.slotLost),
+      slotLostTemplate: resolveTemplate(
+        tpls?.slotLostPush,
+        DEFAULT_LIFECYCLE_PUSHES.slotLost,
+      ),
     });
     if (ok) discarded += 1;
   }
@@ -2130,7 +2390,14 @@ export async function resumeStalledPayments(now = new Date()): Promise<number> {
       razorpayOrderId: true,
       razorpayPaymentId: true,
       razorpaySignature: true,
-      challenge: { select: { payments: { where: { placedAt: { not: null } }, select: { side: true } } } },
+      challenge: {
+        select: {
+          payments: {
+            where: { placedAt: { not: null } },
+            select: { side: true },
+          },
+        },
+      },
     },
     take: 50,
   });
@@ -2156,7 +2423,11 @@ export async function resumeStalledPayments(now = new Date()): Promise<number> {
       razorpayPaymentId: row.razorpayPaymentId as string,
       razorpaySignature: row.razorpaySignature ?? "",
     }).catch((e) => {
-      console.error("[challenges] could not finish a stranded payment:", row.id, e);
+      console.error(
+        "[challenges] could not finish a stranded payment:",
+        row.id,
+        e,
+      );
       return null;
     });
     // A refusal is also a resolution: it stamps refundOwedAt, so the row
@@ -2174,7 +2445,10 @@ export async function confirmChallengePayment(args: {
   razorpayPaymentId: string;
   razorpaySignature: string;
   platform?: string;
-}): Promise<{ ok: true; status: string; bookingId: string | null } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; status: string; bookingId: string | null }
+  | { ok: false; error: string }
+> {
   // ── 1. Is this capture real, and is its slot ours to process? ──
   const claim = await claimSlot(args);
   if (claim.kind === "refused") return { ok: false, error: claim.error };
@@ -2200,14 +2474,20 @@ async function placeClaimedPayment(args: {
   razorpayPaymentId: string;
   razorpaySignature: string;
   platform?: string;
-}): Promise<{ ok: true; status: string; bookingId: string | null } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; status: string; bookingId: string | null }
+  | { ok: false; error: string }
+> {
   const { challengeId, userId, slot } = args;
 
   // ── 2. Does the challenge still want the money? ──
   //
   // Everything from here on has CAPTURED money behind it, so no branch may
   // simply refuse: each one records the capture and says a refund is owed.
-  const c = await db.challenge.findUnique({ where: { id: challengeId }, select: challengeForPay });
+  const c = await db.challenge.findUnique({
+    where: { id: challengeId },
+    select: challengeForPay,
+  });
   if (!c) {
     return refundOwed({
       challengeId,
@@ -2216,14 +2496,27 @@ async function placeClaimedPayment(args: {
       rowId: slot.rowId,
       // A minimal but TRUE set: the hour and court are unknowable here, and a
       // template rendering "court=" is better than one rendering "{court}".
-      vars: { amount: slot.amount, name: "", team: "", hour: "", date: "", court: "", total: 0, balance: 0 },
+      vars: {
+        amount: slot.amount,
+        name: "",
+        team: "",
+        hour: "",
+        date: "",
+        court: "",
+        total: 0,
+        balance: 0,
+      },
       title: "That match is gone",
       body: "Your payment went through just after it was removed. The arena will refund you.",
       error: "That challenge is gone. The arena will refund you.",
     });
   }
 
-  if (c.status === "WITHDRAWN" || c.status === "EXPIRED" || c.status === "SLOT_LOST") {
+  if (
+    c.status === "WITHDRAWN" ||
+    c.status === "EXPIRED" ||
+    c.status === "SLOT_LOST"
+  ) {
     return refundOwed({
       challengeId,
       userId,
@@ -2241,14 +2534,18 @@ async function placeClaimedPayment(args: {
       },
       title: "That match was called off",
       body: "Your payment went through just after it ended. The arena will refund you.",
-      error: "That match was called off just before your payment. The arena will refund you.",
+      error:
+        "That match was called off just before your payment. The arena will refund you.",
     });
   }
 
   // When the payment IS the acceptance, the window comes off the payment
   // row — the challenge has no agreed window until this moment.
-  const acceptingNow = !c.acceptedByUserId && !c.agreedWindowId && !!slot.acceptWindowId;
-  const win = c.windows.find((w) => w.id === (acceptingNow ? slot.acceptWindowId : c.agreedWindowId));
+  const acceptingNow =
+    !c.acceptedByUserId && !c.agreedWindowId && !!slot.acceptWindowId;
+  const win = c.windows.find(
+    (w) => w.id === (acceptingNow ? slot.acceptWindowId : c.agreedWindowId),
+  );
   if (!win) {
     return refundOwed({
       challengeId,
@@ -2267,7 +2564,8 @@ async function placeClaimedPayment(args: {
       },
       title: "That match moved on",
       body: "Your payment went through just after somebody else took it. The arena will refund you.",
-      error: "Somebody else took this one while you were paying. The arena will refund you.",
+      error:
+        "Somebody else took this one while you were paying. The arena will refund you.",
     });
   }
 
@@ -2309,7 +2607,10 @@ async function placeClaimedPayment(args: {
     balance: quoted?.venueBalance ?? 0,
   };
   /** The same vars, but `{name}` is the OTHER captain from the reader's seat. */
-  const varsFor = (reader: { id: string } | null, extra?: Record<string, string | number>) => {
+  const varsFor = (
+    reader: { id: string } | null,
+    extra?: Record<string, string | number>,
+  ) => {
     const other = reader?.id === c.createdBy?.id ? c.acceptedBy : c.createdBy;
     return { ...pushVars, name: other?.name ?? "The other captain", ...extra };
   };
@@ -2333,18 +2634,19 @@ async function placeClaimedPayment(args: {
   // refund it", while the captain whose payment actually buys the court could
   // hold the sheet open and commit the venue with no notice at all.
   if ((await paidSides(challengeId)).length === 1) {
-    const settings = await db.challengeSettings.findFirst({ select: { minLeadMins: true } });
+    const settings = await db.challengeSettings.findFirst({
+      select: { minLeadMins: true },
+    });
     // A grace of ten minutes, because this gate must catch somebody holding
     // the sheet for hours and must NOT punish an honest payer whose capture
     // took a minute longer than the gateway usually does.
-    const late =
-      settings?.minLeadMins
-        ? leadTimeRefusal(
-            slotStart(win.date, win.startHour),
-            new Date(Date.now() - 10 * 60000),
-            settings.minLeadMins,
-          )
-        : null;
+    const late = settings?.minLeadMins
+      ? leadTimeRefusal(
+          slotStart(win.date, win.startHour),
+          new Date(Date.now() - 10 * 60000),
+          settings.minLeadMins,
+        )
+      : null;
     if (late) {
       return refundOwed({
         challengeId,
@@ -2362,14 +2664,21 @@ async function placeClaimedPayment(args: {
   // ── 3. If this payment is the acceptance, settle the handshake ──
   if (acceptingNow) {
     await db.$transaction([
-      db.challengeWindow.update({ where: { id: win.id }, data: { status: "ACCEPTED" } }),
+      db.challengeWindow.update({
+        where: { id: win.id },
+        data: { status: "ACCEPTED" },
+      }),
       db.challengeWindow.updateMany({
         where: { challengeId, id: { not: win.id }, status: "OFFERED" },
         data: { status: "DECLINED" },
       }),
       db.challenge.update({
         where: { id: challengeId },
-        data: { acceptedByUserId: userId, acceptedAt: new Date(), agreedWindowId: win.id },
+        data: {
+          acceptedByUserId: userId,
+          acceptedAt: new Date(),
+          agreedWindowId: win.id,
+        },
       }),
     ]);
     await logChallengeEvent({
@@ -2405,7 +2714,8 @@ async function placeClaimedPayment(args: {
       detail: `paid ₹${slot.amount} but the booking it should settle had gone — refund owed`,
       title: "We owe you a refund",
       body: "Your payment landed but the booking it belonged to was no longer there. The arena will refund you in full.",
-      error: "Something went wrong holding that hour. Your money is safe — the arena will refund it.",
+      error:
+        "Something went wrong holding that hour. Your money is safe — the arena will refund it.",
     });
   }
 
@@ -2422,7 +2732,10 @@ async function placeClaimedPayment(args: {
       reason: "the hour was booked by somebody else before both halves were in",
       captains: [c.createdBy, c.acceptedBy],
       pushVars,
-      slotLostTemplate: resolveTemplate(tpls?.slotLostPush, DEFAULT_LIFECYCLE_PUSHES.slotLost),
+      slotLostTemplate: resolveTemplate(
+        tpls?.slotLostPush,
+        DEFAULT_LIFECYCLE_PUSHES.slotLost,
+      ),
     });
     return {
       ok: false,
@@ -2446,7 +2759,10 @@ async function placeClaimedPayment(args: {
   const other = slot.side === "CHALLENGER" ? c.acceptedBy : c.createdBy;
   const payer = slot.side === "CHALLENGER" ? c.createdBy : c.acceptedBy;
   if (placement.status !== "CONFIRMED" && other) {
-    const half = resolveTemplate(tpls?.payHalfPush, DEFAULT_LIFECYCLE_PUSHES.payHalf);
+    const half = resolveTemplate(
+      tpls?.payHalfPush,
+      DEFAULT_LIFECYCLE_PUSHES.payHalf,
+    );
     // {name} is whoever just PAID, and {amount} is what the recipient owes —
     // not what the payer paid. With a mid-window rate change those two
     // numbers differ, and the one that matters to the reader is theirs.
@@ -2472,7 +2788,10 @@ async function placeClaimedPayment(args: {
       where: { id: challengeId, confirmedNotifiedAt: null },
       data: { confirmedNotifiedAt: new Date() },
     });
-    const done = resolveTemplate(tpls?.confirmedPush, DEFAULT_LIFECYCLE_PUSHES.confirmed);
+    const done = resolveTemplate(
+      tpls?.confirmedPush,
+      DEFAULT_LIFECYCLE_PUSHES.confirmed,
+    );
     for (const u of announce.count === 1 ? [c.createdBy, c.acceptedBy] : []) {
       if (u) {
         await notifyUser(u.id, {
@@ -2495,7 +2814,10 @@ async function placeClaimedPayment(args: {
   await db.challengeOrder
     .updateMany({
       where: { razorpayOrderId: args.razorpayOrderId, settledAt: null },
-      data: { settledAt: new Date(), razorpayPaymentId: args.razorpayPaymentId },
+      data: {
+        settledAt: new Date(),
+        razorpayPaymentId: args.razorpayPaymentId,
+      },
     })
     .catch(() => undefined);
 
@@ -2503,6 +2825,8 @@ async function placeClaimedPayment(args: {
     ok: true,
     status: placement.status,
     bookingId:
-      placement.kind === "booked" || placement.kind === "settled" ? placement.bookingId : null,
+      placement.kind === "booked" || placement.kind === "settled"
+        ? placement.bookingId
+        : null,
   };
 }
