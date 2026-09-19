@@ -4254,6 +4254,14 @@ model ChallengePayment {
   quotedTotal Int?
 
   placedAt DateTime?
+  /// Claimed once this half's arrival has been ANNOUNCED — the PAID audit
+  /// line written and the other captain nudged for their share. The telling
+  /// had no serialisation point of its own, so two sweep passes overlapping
+  /// (which the sweep's runtime makes routine) each logged PAID and each sent
+  /// "pay your half" — the captain got the same nudge twice and the venue's
+  /// audit trail said the money arrived twice. `confirmedNotifiedAt` already
+  /// does exactly this one stage later; this is its half-paid counterpart.
+  notifiedAt DateTime?
   /// Set when a capture could not be honoured. Without it a row owed a
   /// refund was byte-identical to a healthy paid half, and the venue's
   /// stranded-money panel could not see it.

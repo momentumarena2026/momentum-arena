@@ -2855,20 +2855,43 @@ async function placeClaimedPayment(args: {
   }
 
   // ── 5. Tell the people it changes something for ──
-  await logChallengeEvent({
-    type: "PAID",
-    userId,
-    challengeId,
-    detail: `${slot.side.toLowerCase()} paid ₹${slot.amount}${
-      placement.kind === "halfPaid"
-        ? " · waiting on the other half, the hour is NOT held"
-        : " · both halves in, court booked"
-    }`,
-  });
+  //
+  // CLAIM THE TELLING, exactly as the CONFIRMED announcement below claims its
+  // own. This path is re-entrant by design — the repair sweep re-runs a
+  // payer's own path because it is idempotent — and the sweep takes long
+  // enough that two passes overlap routinely. Both passes then logged PAID
+  // and both sent "pay your half", so a captain got the same nudge twice and
+  // the venue's audit trail read as though the money had arrived twice.
+  // Reproduced by running the sweep concurrently with itself.
+  //
+  // The row is the right claim: one announcement per half, which is what the
+  // sentence describes. Stamped BEFORE the telling, so a crash between the
+  // two loses a push rather than sending it twice — the same trade the
+  // confirmed announcement already makes, and the quieter failure.
+  const tell =
+    (
+      await db.challengePayment.updateMany({
+        where: { id: slot.rowId, notifiedAt: null },
+        data: { notifiedAt: new Date() },
+      })
+    ).count === 1;
+
+  if (tell) {
+    await logChallengeEvent({
+      type: "PAID",
+      userId,
+      challengeId,
+      detail: `${slot.side.toLowerCase()} paid ₹${slot.amount}${
+        placement.kind === "halfPaid"
+          ? " · waiting on the other half, the hour is NOT held"
+          : " · both halves in, court booked"
+      }`,
+    });
+  }
 
   const other = slot.side === "CHALLENGER" ? c.acceptedBy : c.createdBy;
   const payer = slot.side === "CHALLENGER" ? c.createdBy : c.acceptedBy;
-  if (placement.status !== "CONFIRMED" && other) {
+  if (tell && placement.status !== "CONFIRMED" && other) {
     const half = resolveTemplate(
       tpls?.payHalfPush,
       DEFAULT_LIFECYCLE_PUSHES.payHalf,

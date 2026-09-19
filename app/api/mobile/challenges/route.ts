@@ -74,6 +74,28 @@ export async function GET(request: NextRequest) {
   if (id) {
     const one = await getChallenge(id);
     if (!one) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // ONCE IT IS MATCHED, IT IS PRIVATE.
+    //
+    // `getChallenge` fetches by id with no viewer check, and the board hands
+    // out ids for everything on it — so anyone who saved an id while a
+    // challenge was OPEN could keep reading it afterwards and see both
+    // captains' real names, the court price, the 50/50 split, and
+    // `paidSides`: exactly who has paid and who is still owing. Reproduced
+    // against this handler; a stranger's payload was byte-for-byte the
+    // captain's. The per-viewer fields around it (`spin`, `offer`) were
+    // already scoped by userId, which is what made this stand out as an
+    // oversight rather than a decision.
+    //
+    // The rule is the one the board already applies: a non-participant may
+    // read a challenge exactly while it is still on the board. After that it
+    // is two named people and their money. Answered as "Not found" rather
+    // than "Forbidden", because confirming that a particular id matched is
+    // itself worth something to somebody enumerating.
+    const viewerIsIn =
+      one.createdByUserId === user.id || one.acceptedByUserId === user.id;
+    if (!viewerIsIn && !["OPEN", "COUNTERED"].includes(one.status)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     void logChallengeEvent({ type: "DETAIL_VIEWED", userId: user.id, challengeId: id });
     // Answer "can this viewer still counter?" here, with the same rule the
     // write path enforces, so the screen can hide an affordance that would
