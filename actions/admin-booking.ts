@@ -1,5 +1,7 @@
 "use server";
 
+import { unwindChallengesForCancelledBooking } from "@/lib/challenge-payments";
+
 import { after } from "next/server";
 import { notifyBookingActivity } from "@/lib/booking-activity";
 
@@ -52,6 +54,7 @@ import {
   type RazorpayPaymentRecord,
 } from "@/lib/razorpay";
 import { createBookingFromHold as _createBookingFromHold } from "@/actions/booking";
+import { lockCourtHours, findSlotClashes } from "@/lib/slot-hold";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -698,6 +701,18 @@ export async function cancelBooking(bookingId: string, reason: string) {
   // Pass-paid booking → hours go back on the pass (no-op otherwise).
   await restorePassForBooking(bookingId).catch(() => {});
 
+  // A CHALLENGE court is two customers' money, and cancelling the booking is
+  // the venue deciding to unwind the match. Without this the challenge was left
+  // CONFIRMED, still pointing at the cancelled booking, with both halves
+  // unflagged — so it appeared on no worklist, and BOTH admin actions refused
+  // by naming the one thing the venue had just done: "mark refunded" said the
+  // money was on a live booking and to cancel it, and take-down said the match
+  // was booked and to cancel the booking instead. ₹1000 captured, the hour
+  // resold, and nothing in the product able to record the refund.
+  await unwindChallengesForCancelledBooking(bookingId, reason).catch((err: unknown) =>
+    console.error("[challenges] could not unwind for cancelled booking", bookingId, err),
+  );
+
   await revalidateBookingPaths(bookingId);
 
   // Deferred so the admin's roundtrip stays fast and a flaky FCM call
@@ -832,6 +847,25 @@ export async function refundBooking(
       },
     }),
   ]);
+
+  // A CHALLENGE court is two customers' money, and refunding it is the venue
+  // unwinding the match just as surely as cancelling it. `cancelBooking` was
+  // given this in round eight, with a comment describing the exact deadlock
+  // it prevents — and its sibling was not, so the same trap stayed open
+  // through the door an admin is MORE likely to use when money is actually
+  // going back. The challenge stayed CONFIRMED pointing at a cancelled
+  // booking, and then take-down refused ("cancel the booking and refund
+  // first" — done) while mark-refunded refused ("take the challenge down" —
+  // refused), with nothing in the product able to break the loop.
+  //
+  // The AMOUNT actually returned, not a boolean. This function works out its
+  // own `isPartialRefund` and used to throw that away, so refunding ₹500 of a
+  // ₹1000 challenge court wrote off both captains' halves — one of them with
+  // no cash behind it, and off every worklist. Only what genuinely went back
+  // is written off; the rest stays owed and stays queued.
+  await unwindChallengesForCancelledBooking(bookingId, reason, actualRefundAmount).catch((err: unknown) =>
+    console.error("[challenges] could not unwind for refunded booking", bookingId, err),
+  );
 
   await revalidateBookingPaths(bookingId);
 
@@ -2559,6 +2593,101 @@ export async function adminCreateBooking(data: {
 
     // Create in transaction
     const bookingId = await db.$transaction(async (tx) => {
+      // LOCK THE GROUND, THEN ASK AGAIN.
+      //
+      // The zone-overlap conflict check above is a plain unlocked read, and it
+      // runs three hundred lines before this transaction opens. So an admin
+      // taking a booking at the counter and a customer taking one on their
+      // phone could both pass their checks and both be written — the one path
+      // in this venue that creates a booking with no advisory lock anywhere in
+      // it. Every other path takes these keys; this one is why it has to be
+      // asked twice, because the answer can change between the check and the
+      // write.
+      const lockHours = usingBowling
+        ? [...new Set(data.bowlingSlots!.map((s) => s.hour))]
+        : data.hours;
+      await lockCourtHours(
+        tx,
+        [{ configId: data.courtConfigId, zones: config.zones as string[] }],
+        data.date,
+        lockHours,
+      );
+      const taken = await tx.booking.findMany({
+        where: {
+          date: dateOnly,
+          status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+          courtConfig: { zones: { hasSome: config.zones } },
+        },
+        include: { slots: true },
+      });
+      // ONE definition of "is that slot taken", shared with the hold path —
+      // the lock is per whole hour because that is the ground, but the CHECK
+      // must be at the granularity the thing is sold at. Comparing
+      // `startHour` alone made a bowling 14:30 clash with an existing 14:00.
+      const asking = usingBowling
+        ? { kind: "halfHours" as const, slots: data.bowlingSlots! }
+        : { kind: "hours" as const, hours: data.hours };
+      const clash = findSlotClashes(taken, asking);
+      if (clash.length > 0) {
+        throw new Error(`Slots already booked: ${clash.join(", ")}`);
+      }
+      // A LIVE HOLD IS SOMEBODY MID-CHECKOUT.
+      //
+      // This re-check asked only about bookings. So an admin at the counter
+      // wrote straight over a customer who was on the payment screen — not a
+      // race, every single time — and the customer then paid for an hour that
+      // had already been sold. `createSlotHold` treats another user's live
+      // hold as occupying; this has to as well, or the hold means nothing
+      // against the one path that can ignore it.
+      const heldByOthers = await tx.slotHold.findMany({
+        where: {
+          date: dateOnly,
+          expiresAt: { gt: new Date() },
+          userId: { not: data.userId },
+          courtConfig: { zones: { hasSome: config.zones } },
+        },
+        select: { hours: true, startMinutes: true },
+      });
+      const heldClash = findSlotClashes(
+        heldByOthers.map((h) => ({
+          slots: h.hours.map((hr, i) => ({
+            startHour: hr,
+            startMinute: h.startMinutes[i] ?? 0,
+            durationMinutes: h.startMinutes.length > 0 ? 30 : 60,
+          })),
+        })),
+        asking,
+      );
+      if (heldClash.length > 0) {
+        throw new Error(
+          `Somebody is paying for these right now: ${heldClash.join(", ")}. Try again in a few minutes.`,
+        );
+      }
+      // AND A BLOCK PLACED WHILE THIS WAS BEING PRICED.
+      //
+      // The unlocked check three hundred lines above does ask about blocks —
+      // but coupon, equipment and pass computation sit in between, which is a
+      // real window for a colleague to block the hour for maintenance. A
+      // booking was written against a blocked hour, 1 trial in 1.
+      const blocks = await tx.slotBlock.findMany({
+        where: {
+          date: dateOnly,
+          OR: [
+            { courtConfigId: data.courtConfigId },
+            { sport: config.sport },
+            { courtConfigId: null, sport: null },
+            { courtConfig: { zones: { hasSome: config.zones } } },
+          ],
+        },
+        select: { startHour: true },
+      });
+      for (const b of blocks) {
+        if (b.startHour === null) throw new Error("This court is blocked for the entire day");
+        if (lockHours.includes(b.startHour)) {
+          throw new Error(`Slot at hour ${b.startHour} is blocked`);
+        }
+      }
+
       // Create booking. When the admin negotiated a different total, we
       // stash the slot-sum on originalAmount so the audit view can surface
       // the delta.
@@ -4052,6 +4181,10 @@ export interface RecoverRazorpayResult {
    *  needs to use the manual "+ New Booking" path. */
   state?: "created" | "already-linked" | "no-hold";
   bookingId?: string;
+  /** Extra context when the money is accounted for somewhere this tool does
+   *  not own — a challenge half, for instance, which may legitimately have no
+   *  booking yet because the court is bought only when both captains pay. */
+  note?: string;
   payment?: {
     id: string;
     orderId: string;
@@ -4104,7 +4237,13 @@ export async function recoverRazorpayPayment(
   //    Booking, return immediately. Saves a Razorpay round-trip when
   //    the admin pastes the same ID twice.
   const existing = await db.payment.findFirst({
-    where: { razorpayPaymentId: trimmed },
+    where: {
+      // A challenge court is paid for by TWO captures; the second lives in
+      // `secondRazorpayPaymentId`. Matching only the first told the admin that
+      // a perfectly accounted-for payment was unreconstructible, which invites
+      // them to build a second booking for money that already has one.
+      OR: [{ razorpayPaymentId: trimmed }, { secondRazorpayPaymentId: trimmed }],
+    },
     select: { bookingId: true },
   });
   if (existing) {
@@ -4154,6 +4293,31 @@ export async function recoverRazorpayPayment(
   // 3. Look up our SlotHold via the Razorpay order id we stamped at
   //    create-order time. If it's gone, the admin needs the manual
   //    path (slot info isn't reconstructible from Razorpay alone).
+  // Challenge money has no SlotHold and may legitimately have no booking yet —
+  // the court is bought only once both captains have paid. Say so, rather than
+  // reporting it as unreconstructible.
+  const challengeOrder = await db.challengeOrder.findUnique({
+    where: { razorpayOrderId: rzpPayment.order_id },
+    select: { challengeId: true, amount: true, side: true, settledAt: true, strandedAt: true },
+  });
+  if (challengeOrder) {
+    const c = await db.challenge.findUnique({
+      where: { id: challengeOrder.challengeId },
+      select: { bookingId: true, status: true },
+    });
+    return {
+      success: true,
+      state: "already-linked" as const,
+      bookingId: c?.bookingId ?? undefined,
+      note: challengeOrder.strandedAt
+        ? `Challenge money (${challengeOrder.side.toLowerCase()}, ₹${challengeOrder.amount}) that could not be honoured — it is on the challenges refunds queue. Do not create a booking for it.`
+        : challengeOrder.settledAt
+          ? `Challenge money (${challengeOrder.side.toLowerCase()}, ₹${challengeOrder.amount}) — already on the match's booking.`
+          : `Challenge money (${challengeOrder.side.toLowerCase()}, ₹${challengeOrder.amount}) waiting on the other captain's half. The court is bought only when both have paid. Do not create a booking for it.`,
+      payment: paymentMeta,
+    };
+  }
+
   const hold = await db.slotHold.findFirst({
     where: { razorpayOrderId: rzpPayment.order_id },
   });

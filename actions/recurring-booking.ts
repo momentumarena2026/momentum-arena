@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { checkSlotsAvailable } from "@/lib/availability";
 import { getSlotPricesForDate, formatBookingDate } from "@/lib/pricing";
 import { restorePassForBooking } from "@/lib/passes";
+import { lockCourtHours, findSlotClashes } from "@/lib/slot-hold";
+import { OCCUPYING_BOOKING_STATUSES } from "@/lib/availability";
 
 const MAX_WEEKS_AHEAD = 4; // Initial bookings created upfront
 const MAX_TOTAL_MONTHS = 3; // Maximum recurrence window
@@ -153,6 +155,44 @@ export async function createRecurringBooking(data: {
   // Create the recurring booking record and future bookings in a transaction
   // Week 1 is the booking already created via normal checkout — we link it after
   const result = await db.$transaction(async (tx) => {
+    // LOCK EVERY DATE THIS SERIES WILL WRITE, AND ASK AGAIN.
+    //
+    // The availability loop above runs BEFORE this transaction opens, so its
+    // answers are already stale by the time the bookings are written — the
+    // same check-then-act shape behind every double-sell found in rounds
+    // eight to eleven. A recurring series writes many weeks at once, so a
+    // single stale answer books somebody else's court for months.
+    const zonesForSeries =
+      (
+        await tx.courtConfig.findUnique({
+          where: { id: courtConfigId },
+          select: { zones: true },
+        })
+      )?.zones ?? [];
+    for (const check of availabilityChecks) {
+      const dateStr = check.date.toISOString().slice(0, 10);
+      await lockCourtHours(
+        tx,
+        [{ configId: courtConfigId, zones: zonesForSeries as string[] }],
+        dateStr,
+        hours,
+      );
+      const rivals = await tx.booking.findMany({
+        where: {
+          date: check.date,
+          status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+          courtConfig: { zones: { hasSome: zonesForSeries } },
+        },
+        include: { slots: true },
+      });
+      const clash = findSlotClashes(rivals, { kind: "hours", hours });
+      if (clash.length > 0) {
+        throw new Error(
+          `SERIES_CONFLICT:${dateStr}:${clash.join(",")}`,
+        );
+      }
+    }
+
     const recurringBooking = await tx.recurringBooking.create({
       data: {
         userId: session.user.id!,

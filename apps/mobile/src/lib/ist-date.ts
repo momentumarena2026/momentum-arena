@@ -27,6 +27,14 @@ export function getCurrentHourIST(): number {
   );
 }
 
+/** Minutes since midnight, IST. The hour alone rounds a deadline down. */
+export function getCurrentMinutesIST(): number {
+  const parts = new Date()
+    .toLocaleTimeString("en-GB", { timeZone: IST_TZ, hour: "2-digit", minute: "2-digit", hour12: false })
+    .split(":");
+  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+}
+
 /**
  * Generate an array of "YYYY-MM-DD" date strings starting from today in IST.
  * Powers the horizontally-scrollable date picker.

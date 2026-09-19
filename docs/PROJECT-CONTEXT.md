@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-16 · accurate as of `main` = `48b83d0d` (app 1.0.7).
+**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone and taken through one function (gotcha 15); availability must stay on the caller's client (16).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -198,6 +198,21 @@ Anything else means main has drifted — stop and investigate, do not push.
 6. **`StyleSheet.absoluteFillObject` does not typecheck** in this RN version — write the four
    absolute offsets out by hand.
 7. **`grep -c` exits 1 when the count is 0**, which breaks `&&` chains. Bitten twice.
+
+7b. **The app NEVER talks to your dev server. Metro serves the JS; the API is
+    always a deployed host.** `apps/mobile/src/config/env.ts` picks the base URL
+    at bundle time from `build-config.generated.ts`: `GIT_BRANCH === "main"` →
+    `https://www.momentumarena.com`, anything else → `https://development.momentumarena.com`.
+    There is no localhost branch. So a server change is invisible to the
+    simulator until it is **committed, pushed and deployed** — while a client
+    change appears instantly through fast refresh. This is a genuinely
+    confusing half-state: the screen you just edited is live, the endpoint it
+    calls is yesterday's. It cost a debugging session on the challenge home
+    card, where the card was correctly hidden because the deployed API had no
+    `homeCard` field yet and the card fails closed. **Symptom to recognise:** a
+    new field reads as `undefined` in the app while `curl` against localhost
+    returns it fine. Check the deploy (`gh api repos/:owner/:repo/commits/<sha>/status`)
+    before debugging the client.
 8. **Next.js dev mode forces `Cache-Control: no-store`.** Any cache-header work *must* be
    verified against a real `next build` + `next start`, never the dev server.
 9. Web pages that render bare against the black background usually mean a **missing
@@ -311,6 +326,69 @@ Anything else means main has drifted — stop and investigate, do not push.
     Dismissal labels degrade to the shortest *true* statement (`caught`, not
     `c — b —`) because matches scored before fielder capture have no fielder
     and never will.
+
+15. **A lock only excludes what its KEY says — and there is exactly ONE
+    function that takes court-hour locks, because a helper cannot be
+    half-migrated.** `advisoryLockKey(configId, date, hour)` serialised two
+    people reaching for the same court *config* — but whether two bookings clash
+    is decided by **zone overlap**, and Full Field ([LEATHER_1, BOX_A, BOX_B,
+    LEATHER_2]) and Medium Left Half ([LEATHER_1, BOX_A]) are different configs.
+    Different configs, different hashes, neither request waited for the other,
+    and the same patch of ground was sold twice for the same hour — reproduced
+    end to end, not theorised. `courtHourLockKeys(zones, configId, date, hours)`
+    in `lib/slot-hold.ts` is now the only way to lock a court-hour: one key per
+    (zone, date, hour) plus the old config key, returned **sorted** so two
+    overlapping requests cannot deadlock by taking them in opposite orders.
+    Every path that creates a booking must use it. The first version of this
+    fix reached `createSlotHold` and `buyTheHour` and **missed
+    `createMediumHalfCourtHold`** — the "Half Court (40x90)" customer flow —
+    which kept locking on the two half-config ids alone and so shared no key
+    with a Full Field booking. The double-sell stayed open through that door
+    for a day: racing the two checkouts, 4 trials in 5 sold both. That is why
+    `lockCourtHours()` now exists and every site calls it.
+
+    It also takes every key in ONE statement (`unnest`). One `$executeRaw` per
+    key meant `hours x (zones + 1)` round trips, and an 8-hour Full Field
+    booking — an ordinary "book the ground for the afternoon" — blew the
+    transaction's 15s timeout at 40 locks. Batched, a whole day (105 locks)
+    runs in ~3s. **If you add a lock, add it to the array, not to a loop.** The same lesson in the other direction:
+    `placeMoney` stamps `placedAt` and then counts placed sides *inside* one
+    transaction, which under READ COMMITTED is **not** mutual exclusion — two
+    payers each saw one side and neither bought the hour. It takes a
+    per-challenge advisory lock (`challengeLockKey`, a band above 2^31 so it
+    cannot meet a court-hour key) so the second payer waits and then sees both.
+
+16. **`getSlotAvailability` is the hottest read in the codebase — keep its
+    reads parallel AND on the caller's client.** It backs every availability grid the venue and its
+    customers look at, and the challenges sweep asks it once per court-day.
+    It ran ~14 queries strictly one after another against a serverless
+    Postgres — ~300ms each, ~4,250ms per call — which is how a sweep on a
+    sixty-second schedule came to take 231 seconds. The reads only need
+    `config`; awaiting them together took it to ~1,500ms with byte-identical
+    output (checked across every court and eight dates, past and future).
+    **Anything added here goes into the existing `Promise.all`, not after it.**
+
+    And it must use the `client` parameter, never the global `db`. A booking
+    or a challenge payment calls this from inside an interactive transaction,
+    which already holds one of the Neon adapter pool's **ten** connections; a
+    global read from in there asks for an eleventh that ten concurrent
+    transactions can never give, and every one of them dies on the transaction
+    timeout rather than merely queueing. One stray `getAllSlotHoursLive()`
+    deep in the function did exactly that: **10 of 10 concurrent transactions
+    failed with P2028; 0 of 60 after.** Measured both ways, and the pool was
+    never the problem — fourteen transactions doing six reads each on their
+    own client are fine. It is the one extra connection that is fatal, so
+    grep this file for `db.` before you ship a change to it.
+
+17. **The lock and the conflict rule are two different things, and only
+    testing them CONCURRENTLY tells you they disagree.** Every double-sell
+    found in rounds eight to ten — `createMediumHalfCourtHold`,
+    `createBowlingMachineHold`, `adminCreateBooking` — had a correct
+    zone-overlap conflict check and a lock keyed on something narrower. Run
+    sequentially, all three refuse the second booking correctly. It takes two
+    in flight at once to see the hole, which is why nine rounds of review
+    walked past them. **A booking path is not verified until two of them have
+    been raced against each other.**
 
 ---
 
@@ -570,6 +648,309 @@ its templates here, or it ships with no push voice at all.
   has said it is working fine, but it was never formally closed out. Related history: a
   Paytm-intent stuck-payment incident means the **intent toggle** has been handled cautiously.
 - Older backlog context lives in the user's memory files (see §9).
+
+---
+
+## 7b. Challenges (team matchmaking) — phase 1, `development` only
+
+**The problem it solves.** A whole-ground booking is ₹2,000, which is nothing
+between two full sides and impossible for one person or a half-team. Challenges
+let a captain put up a match — sport, how many players they have, up to three
+times they could play — and let another captain take it, so two halves of a
+booking find each other before either pays.
+
+**Shape.** One API door (`app/api/mobile/challenges/route.ts`): GET returns the
+whole viewer-shaped payload (`board`, `mine`, `limits`, `copy`, `homeCard`), POST
+is a discriminated union of `post | accept | counter | withdraw | track`. Rules
+are pure and separately tested in `lib/challenge-rules.ts`; everything that
+touches the database is in `lib/challenges.ts`. **App-only by design** — there is
+no public web surface, and every knob is admin-configured at
+`/admin/challenges`.
+
+**Why the module logs so heavily.** `ChallengeEvent` records every action that
+reaches the server *and every refusal, with the exact sentence the user was
+shown*. The reason is that a board with no posts looks identical whether nobody
+found the feature, found it and left, or tried to post and was turned away —
+and only the refusal reasons tell those three apart. Before rolling this out
+the venue asked to see every click, and the refusals are the half of that which
+is actually diagnostic. Logging is best-effort (`void logChallengeEvent(...)`),
+never awaited into a failure: a board that broke because its telemetry did
+would be worse than one nobody can measure.
+
+**Two traps already hit inside the funnel:**
+
+- The Home card reads the same GET endpoint for its copy, so it was logging a
+  `BOARD_VIEWED` on every Home render — which made board views a count of Home
+  renders and pinned the impression→open step at 100%. The Home read now sends
+  `?for=home` and is excluded from that log. **Any new caller of that endpoint
+  must decide which side of this line it is on.**
+- `HOME_CARD_SHOWN` is the funnel's denominator and is fired once per app
+  session from a ref, not per render. Without it a tap count means nothing:
+  40 taps is a triumph against 200 impressions and a failure against 20,000.
+- Both challenge screens wrapped their calls in
+  `.catch(() => "Couldn't reach the arena.")`, and `api.ts` signals a refusal
+  by *throwing* — so every deliberate server refusal was reported to the user
+  as a network failure while the event log recorded the real reason. The log
+  and the user's experience disagreed, which makes a refusal log worse than
+  none. `challengeErrorMessage` reads the reason off `ApiError` and keeps the
+  reachability sentence for `status === 0`, which is how `api.ts` reports an
+  actual unreachable host.
+- `expireStaleChallenges` reads the doomed rows before updating them so each
+  gets its own `EXPIRED` event. A bulk `updateMany` was cheaper and left the
+  feed showing `POSTED` then silence forever, with nothing to separate a
+  challenge still waiting from one that died unanswered — the feature's whole
+  failure mode.
+- `logChallengeEvent` takes Prisma's `ChallengeEventType`, not a hand-copied
+  union of the same names: the copy drifts the first time somebody adds a
+  type and edits only one of the two lists.
+
+**The home card fails CLOSED** (`!!enabled && !!homeCard?.enabled`), unlike
+Quick book which fails open. Quick book hidden in error costs a working booking
+route; a challenge card shown in error sends somebody to a board that refuses
+them, which is a worse first impression of a feature they have never heard of.
+
+**Screens are registered in BOTH the Home and Account stacks** (the
+Notifications precedent), so Back from the Home card returns to Home rather
+than stranding the user on a tab they never chose.
+
+**Paying: the court is bought only when BOTH halves are in** (venue's
+decision, 2026-09-19, reversing the 2026-09-18 decision that the first payment
+blocked it; `lib/challenge-payments.ts`).
+
+No Indian rail can hold a UPI customer's money pending a stranger's decision —
+Razorpay auth/capture is card-only and UPI mandates exclude PhonePe and GPay —
+so somebody's money is exposed whatever you do, and the only question is
+against what. The venue's answer is: **against nothing**. A court stays on sale
+until both captains have paid, and neither half creates a booking on its own.
+
+What that costs, and why it was chosen anyway: an hour two captains are halfway
+through buying **can be sold to a walk-in**. The venue accepted that in
+exchange for never holding a court against half a payment — which is what makes
+"chase it, or refund it" a decision a human can take calmly, instead of "cancel
+a slot I may already have promised on the phone".
+
+Because the cost is real, the communication is the feature, and all of it is
+load-bearing:
+
+- **`buyTheHour`** creates ONE booking, CONFIRMED, for the sum of both
+  captures. There is no PENDING challenge booking any more and no
+  second-half-settles-against-the-first path: the conditional attach is still
+  the serialisation point, and the loser's booking is rolled back by its own
+  transaction.
+- **`advanceAmount` is the sum of what was actually captured**, never a
+  recomputed percentage. A venue repricing between the two payments moves the
+  GATE balance and nothing else.
+- **The second half is quoted off the FIRST half's `quotedAdvance`**, because
+  there is no booking to read. Same invariant as before — the two halves add to
+  one advance — sourced from the first capture instead.
+- **`discardForLostHour`** is the whole of what makes the trade acceptable:
+  both captains are told the hour is gone (paid or not), everyone who paid is
+  told their money is coming back and has `refundOwedAt` stamped, and **the
+  arena gets its own admin push naming who is owed how much, with a phone
+  number in it**. Nothing here refunds automatically; if that message does not
+  land, the refund does not happen. Its wording is `ownerRefundPush` in
+  `ChallengeSettings` — the one template that may carry `{phone}`, kept out of
+  the shared customer variable set so the venue cannot leak one captain's
+  number to the other.
+- **`discardChallengesWhoseHourWent`** on the per-minute cron is the only path
+  by which "somebody booked your hour" reaches two captains who are not
+  currently paying. A challenge offering three times is NOT discarded because
+  one went — only when the agreed hour has gone, or every offered hour has.
+- **The lead-time gate moved to the SECOND payment.** It follows the money that
+  commits the venue to staffing an hour. Gating the first half would refuse a
+  payment that holds nothing.
+
+The mirror case is deliberately NOT automated: one side pays and the other
+never does. The venue is holding money against nothing, which is a phone call,
+not a timer. The admin board's "Half paid — money in, hour NOT held" panel
+lists exactly these.
+
+**Four invariants in `confirmChallengePayment` that testing paid for.** Each
+of these was a real defect found by a zero-context agent against staging, and
+each is the kind that reads as fine in a diff:
+
+1. **`placedAt`, not `paidAt`, is what counts as paid.** `claimSlot` stamps
+   `paidAt` before any money is placed, so counting it let a half whose
+   placement died mid-flight write CONFIRMED — and `alreadyDone` then
+   short-circuited every retry, permanently. `paidSides()` filters on BOTH,
+   and both placement paths stamp `placedAt` inside the same transaction that
+   moves the money. Never widen that filter back to `paidAt`. (The
+   *withdraw* and *expiry* guards in `lib/challenges.ts` correctly use the
+   looser `paidAt` — there a claimed capture is still real money that must
+   block the sweep.)
+2. **Create-and-attach is one transaction.** As two statements it left a
+   window where a booking occupied the hour while `challenge.bookingId` was
+   still null; the other captain paying inside it was told the hour was gone
+   and promised a refund on a match that was in fact booked. A crash in that
+   window also orphaned a booking that held the hour for ever. Still true
+   under the both-halves rule — `buyTheHour` is the single transaction now.
+3. **The second half owes the rest of the FIRST half's advance.** Its charge,
+   the quote the app shows, and what lands on the booking must be one number.
+   Re-quoting live meant an `advancePct` edit between the halves charged ₹750
+   against a ₹500 ledger move (₹2250 for a ₹2000 court) or ₹250 against ₹500
+   (₹250 of revenue nobody paid). `sharesAgainstBooking` holds the invariant
+   and is property-tested; it now reads `ChallengePayment.quotedAdvance` from
+   the first capture, since under the both-halves rule there is no booking to
+   read until the end.
+4. **The lead-time gate runs at capture, not only at order** — otherwise a
+   captain opens the sheet at T−4h01m and presses pay at T−5m — and it gates
+   the SECOND half, the one that buys the hour.
+
+**Two rules about the admin screen that testing kept re-teaching.**
+
+1. **GATE ONLY WHAT THIS SAVE TOUCHES.** The form saves one field per blur,
+   so any cross-field validation run against the merged settings refuses
+   *every* save while one stored pair is inconsistent — including
+   `enabled: false`. Twice now that has meant the venue could not switch off
+   a wheel because the band describing it was out of range: a kill switch the
+   thing it kills can disable is not a kill switch. Every guard in
+   `saveChallengeSettings` is now conditioned on `input.<field> !== undefined`.
+2. **A worklist must be a server query, and it must count what it means.**
+   The half-paid panel tested `!payments.every(paid)` — but `ChallengePayment`
+   rows are created LAZILY, one per side, when that side first opens a payment
+   sheet. The canonical half-paid state therefore has exactly ONE row,
+   `every()` over it is vacuously true, and the panel built for that case was
+   the one case it excluded. Count DISTINCT SIDES. And both money panels are
+   asked for directly (uncapped) rather than derived from the 200-row list the
+   board renders: a list of things the venue owes must not silently truncate.
+
+**Anything the screen tells the venue to do, the screen must be able to do.**
+The refunds panel said "mark it refunded on the payment" for weeks while
+nothing in the product could write `refundedAt` — so the queue only grew, and
+because the take-down guard counted flagged money as still held, those
+challenges could not be closed either. `markChallengePaymentRefunded` records
+the arena's own act (the refund itself is made by hand in Razorpay or in
+cash), and take-down now excludes flagged money.
+
+**The form must re-read the database after a save.** `router.refresh()`
+re-renders the server component but cannot re-seed `useState`, so the screen
+showed what was TYPED rather than what was STORED — a 238-character board
+title displayed in full while the app served it cut at 200, and a saved
+custom wheel left the banner insisting the built-in one was live. Every
+editor on that page needs its own re-sync effect keyed on the prop, including
+each child editor: the page-level rollback cannot reach into them.
+
+**`PART_PAID` is not a challenge "on the board".** It is matched, off the
+board, unwithdrawable by rule and never swept, so counting it in the
+one-live-challenge-per-person gate locked out the captain who paid FIRST when
+their opponent never paid — while telling them to withdraw something no
+surface lets them withdraw. The person who did everything right was the one
+punished.
+
+**The match's own copy is the venue's too** (`DEFAULT_LIFECYCLE_PUSHES` in
+`lib/challenge-push.ts`). A time is agreed, your half is due, match
+confirmed, the hour went, a refund is owed — five stored templates with their
+own variable set. Deliberately unlike the promo nudges, an empty value is NOT
+"off" for these: a captain whose court is held and who is never told has lost
+money to silence, so only the words are configurable. Corollary, learned the
+hard way twice: **never ship a setting the runtime does not read** —
+`pushAudience` and `pushDailyCap` were saved, validated and bounded while no
+broadcast existed to consume them, and their help text described behaviour
+the product did not have.
+
+**The stamp that says "this half is placed" must be in the SAME COMMIT as
+the money.** This bug has now been fixed three times at three different
+depths, each fix moving it one function down: first `paidAt` counted as paid,
+then `placedAt` was stamped before the ledger transaction in `settleAgainst`.
+A crash in that window is the worst state this module can reach, because it is
+invisible to *every* recovery path at once — the retry short-circuits, the
+repair sweep skips placed rows, the half-paid panel sees two paid sides, the
+refunds panel sees no flag, and the customer is told they have already paid.
+Both placement paths now use one interactive transaction in which the
+conditional stamp is also the serialisation point: whoever stamps, settles.
+
+**`ChallengeOrder` is the ledger that outlives everything.** Every Razorpay
+order this module opens is recorded there, with no relation to Challenge or
+ChallengePayment — deliberately, so it survives their deletion and
+reassignment. It exists because a capture could otherwise vanish entirely:
+when a stale payment slot is taken over the row is reassigned and its order id
+cleared, and when a challenge row is deleted the payment cascades and even the
+audit line fails on its own foreign key. An unmatched capture is now asked one
+question — *did we open this order?* — which separates a genuinely stranded
+payer (flag, notify, put it on the refunds queue) from somebody replaying an
+ordinary booking receipt at the endpoint (log once, claim nothing). Never
+collapse those two branches again; one of them is the audit-spam vector.
+
+**Pin the advance at order time (`ChallengePayment.quotedAdvance`).** Reading
+`advancePct` when the capture lands meant the booking's advance and the money
+charged described different deals whenever the venue edited the percentage
+while a sheet was open: at 50→100, a 1:3 split on an "each pays half" feature;
+at 50→10, a second half of ₹0, which Razorpay refuses — so that captain could
+never pay and the court stayed blocked and unconfirmable for ever.
+
+**Every refusal that carries captured money must dedupe on its own flag.**
+`refundOwed` fired unconditionally, so replaying a triple re-notified the payer
+and re-stated the debt: four replays read as ₹2,000 owed on one ₹500 capture.
+The conditional stamp is the claim — whoever sets it does the telling.
+
+**Captured money that cannot be honoured is flagged, not just narrated.**
+`refundOwed` stamps `ChallengePayment.refundOwedAt`/`refundOwedReason` as well
+as writing the event, because the admin's stranded-money panel is a query and
+a sentence in the activity feed is not. The two *pre-claim* refusals are
+deliberately different: a capture that matches no challenge row is somebody
+replaying an ordinary booking receipt at this endpoint, so it is logged once
+per payment id and claims no refund — without that dedupe the audit trail was
+an open write endpoint.
+
+It charges `ChallengeSettings.advancePct` (default 50) of the court, not the
+whole court — the rest is collected at the gate like any advance booking. The
+retired `holdMinsAfterFirstPayment` knob described the old temporary hold; it
+was removed rather than left lying because a settings field that promises
+behaviour the system no longer has is worse than no field.
+
+**The prize wheel** (`lib/challenge-spin.ts`, `lib/challenge-push.ts`).
+A confirmed challenge earns its POSTER one spin for a discount on an extra
+hour, headlined "up to 50%" and weighted so the average lands in the
+venue's band. Four things about it are load-bearing:
+
+- **Average, floor and ceiling cannot all be inputs.** They are not
+  independent — floor 15 / ceiling 50 / average 25 may have no distribution
+  that satisfies it. The admin edits SEGMENTS AND WEIGHTS; the average is
+  derived, shown live, and a save outside the band is refused. Do not
+  "simplify" this into three number boxes.
+- **The draw is honestly weighted and written before the device hears it.**
+  50% rarely stops because it rarely WINS, not because an animation is
+  steered off a result it already landed on — and the row exists before the
+  spin animates, so killing the app mid-spin cannot re-roll.
+- **Two offers on two clocks.** ADJACENT is the hour after the match, held
+  unsold while the captain asks his side, so its window is minutes.
+  FALLBACK is any hour in the next few days when that hour was taken;
+  nothing is held, so it can be longer. Both windows, both nudge schedules
+  and every word of every push are admin-set — `{minsLeft}`, `{pct}`,
+  `{price}`, `{saving}`, `{hour}`, `{date}`, `{court}` are substituted at
+  send time. A nudge configured at or above its own window never fires, so
+  both the admin UI and `pushScheduleRefusal` reject it.
+- **Nudges are "marker reached", not "marker equals".** A cron that skips a
+  minute must still send the last call, which is the one that converts;
+  each marker is recorded on the offer so an overlapping run cannot
+  double-send. `/api/cron/challenge-offers` runs every minute.
+- **That cron also repairs money, so it is not optional.** It sweeps
+  `ChallengePayment` rows that were claimed and never placed and finishes
+  them (`resumeStalledPayments`). A capture is claimed before any booking
+  work, and the app verifies once, so without the sweep a request that died
+  in between leaves real money holding no court until a human notices.
+  GitHub only schedules `on: schedule` workflows from the **default branch**,
+  which means `cron-challenge-offers.yml` does nothing on `development` —
+  **it must be confirmed running before this module carries real money.**
+
+**ACCEPTING IS PAYING** (2026-09-19). There is no free AGREED state any
+more: a stranger buys into a challenge by paying their half, and that
+payment settles the window. This creates a race the old flow could not —
+two strangers reaching for one unique ACCEPTOR slot — so an unpaid payment
+row locks it for `paymentWindowMins` before going stale. Without that lock
+the second caller's upsert steals the first's row and the first's capture
+lands on a row that is no longer theirs: money taken for nothing.
+
+`minLeadMins` (default 240) blocks posting and accepting close to the slot.
+It is deliberately NOT applied to the poster's own half — that is chasing
+money for an hour already blocked — nor to the adjacent-hour prize, which
+is the same session with staff already there. `slotStart()` converts a
+`@db.Date` plus an IST wall-clock hour into a real instant without
+host-local getters; doing it the obvious way is gotcha 18 and puts the gate
+5½ hours out on production only.
+
+Still not built: push beyond the in-app notification rows, and any automated
+refund.
 
 ---
 

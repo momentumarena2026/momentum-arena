@@ -1,0 +1,41 @@
+name: Cron — Challenge Discount Offers
+
+# Nudges live spin offers and closes out the ones nobody used.
+#
+# Every minute, because the shortest offer the venue can configure is
+# measured in minutes and the last-call nudge is the one that converts —
+# a coarser tick turns "10 minutes left" into "we told you at some point".
+#
+# Reuses PRODUCTION_URL + CRON_SECRET from cron-send-reminders.yml.
+
+on:
+  schedule:
+    - cron: "* * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: POST /api/cron/challenge-offers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify required secrets
+        run: |
+          if [ -z "${{ secrets.PRODUCTION_URL }}" ]; then
+            echo "::error::PRODUCTION_URL secret missing"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::CRON_SECRET secret missing"
+            exit 1
+          fi
+
+      - name: Nudge and expire challenge offers
+        env:
+          URL: ${{ secrets.PRODUCTION_URL }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fS --max-time 90 \
+            -H "Authorization: Bearer $SECRET" \
+            -X POST "$URL/api/cron/challenge-offers"

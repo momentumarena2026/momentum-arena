@@ -32,8 +32,88 @@ export interface BowlingSlotPrice {
  * PostgreSQL advisory locks use bigint keys.
  * We hash the string to a 32-bit integer to stay within range.
  */
-function advisoryLockKey(configId: string, date: string, hour: number): number {
+export function advisoryLockKey(configId: string, date: string, hour: number): number {
   const str = `${configId}:${date}:${hour}`;
+  return hashToLockKey(str);
+}
+
+/**
+ * The locks that actually exclude two bookings of the same ground.
+ *
+ * A court-hour lock keyed on the CONFIG serialises two people reaching for the
+ * same config — and nothing else. But whether two bookings conflict is decided
+ * by ZONE overlap: on this arena, Full Field covers [LEATHER_1, BOX_A, BOX_B,
+ * LEATHER_2] and Medium (Left Half) covers [LEATHER_1, BOX_A], so they clash —
+ * and their config ids hash to different keys, so neither waited for the other.
+ * Two customers were sold overlapping halves of the same ground for the same
+ * hour, reproduced end to end.
+ *
+ * Locking per (zone, date, hour) makes the exclusion match the conflict rule.
+ * Keys are returned SORTED so every caller acquires them in the same order,
+ * which is what stops two overlapping requests deadlocking against each other.
+ */
+export function courtHourLockKeys(
+  zones: string[],
+  configId: string,
+  date: string,
+  hours: number[],
+): number[] {
+  const keys = new Set<number>();
+  for (const hour of hours) {
+    // The config key stays, so nothing that relied on it loses its exclusion.
+    keys.add(hashToLockKey(`${configId}:${date}:${hour}`));
+    for (const zone of zones) keys.add(hashToLockKey(`zone:${zone}:${date}:${hour}`));
+  }
+  return [...keys].sort((a, b) => a - b);
+}
+
+/**
+ * Take every court-hour lock for one request, in one round trip.
+ *
+ * TWO reasons this is a function rather than a loop at each call site.
+ *
+ * The first is that there are THREE call sites and the zone fix reached only
+ * one of them. `createMediumHalfCourtHold` — the "Half Court (40x90)" flow,
+ * a mainstream customer journey — kept locking on the two half configs' ids
+ * alone, which share no key with the zone keys a Full Field booking takes. So
+ * the double-sell the zone fix was written to close stayed wide open through
+ * the other door, reproduced 3 times in 3 with ordinary concurrent traffic.
+ * A helper cannot be half-migrated.
+ *
+ * The second is cost. Each lock was its own `$executeRaw`, so a request paid
+ * one network round trip per (zone, hour): locks = hours x (zones + 1), and a
+ * Full Field booking of 8 hours took 40 of them and blew the transaction's
+ * 15-second timeout — measured, with the customer shown the raw Prisma
+ * exception. Booking a whole day of the venue's flagship ground is an ordinary
+ * thing to want. `unnest` takes them all in one statement, in array order,
+ * which is also what keeps the ordering guarantee that stops two overlapping
+ * requests deadlocking.
+ */
+export async function lockCourtHours(
+  tx: { $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<unknown> },
+  targets: { configId: string; zones: string[] }[],
+  dateStr: string,
+  hours: number[],
+  /**
+   * Keys from another family to take in the SAME sorted acquisition — the
+   * bowling machine's half-hour keys, which give it precision against other
+   * bowling bookings that whole hours cannot. They must come through here
+   * rather than in a second statement: deadlock freedom depends on every
+   * transaction taking ALL of its keys in ascending order, and two statements
+   * are two orders.
+   */
+  extraKeys: number[] = [],
+): Promise<void> {
+  const keys = new Set<number>(extraKeys);
+  for (const t of targets) {
+    for (const k of courtHourLockKeys(t.zones, t.configId, dateStr, hours)) keys.add(k);
+  }
+  if (keys.size === 0) return;
+  const sorted = [...keys].sort((a, b) => a - b);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(k) FROM unnest(${sorted}::bigint[]) AS k`;
+}
+
+function hashToLockKey(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
@@ -61,6 +141,135 @@ function advisoryLockKey(configId: string, date: string, hour: number): number {
  * 4. Delete any prior holds by this user for the same config+date (cleanup)
  * 5. Create the SlotHold
  */
+/**
+ * Turn whatever went wrong into something a customer can read.
+ *
+ * The three hold paths each ended `return { success: false, error: message }`,
+ * and the lock endpoints return that object verbatim at HTTP 200 — so when a
+ * transaction timed out against a contended lock, the booking screen showed
+ * the customer the raw exception: "Invalid `prisma.$executeRaw()` invocation:
+ * Transaction API error: Transaction not found...". Reproduced by holding the
+ * lock a booking needed. The status code said 200, so nothing upstream
+ * flagged it either.
+ *
+ * `CONFLICTS:` and the venue's own deliberate sentences ("This court is
+ * currently unavailable") are answers and pass through. Anything else is an
+ * internal fault: the real error goes to the log where it is useful, and the
+ * customer is told to try again, which is true — nothing was reserved and
+ * nothing was charged, since a hold is taken before any money moves.
+ */
+function holdFailure(error: unknown): HoldResult {
+  const message = error instanceof Error ? error.message : "Failed to reserve slots";
+
+  if (message.startsWith("CONFLICTS:")) {
+    return {
+      success: false,
+      error: "Some slots are no longer available",
+      conflicts: message.replace("CONFLICTS:", "").split(",").map(Number),
+    };
+  }
+
+  // AN ALLOWLIST, NOT A BLOCKLIST.
+  //
+  // The first version listed the Prisma signatures and let everything else
+  // through, which meant any OTHER exception still reached the customer
+  // verbatim: a plain TypeError from a helper — "Cannot read properties of
+  // undefined (reading 'reduce')" — rendered on the booking screen, which is
+  // precisely what this function exists to prevent. The set of sentences we
+  // deliberately show is small and knowable; the set of ways code can throw
+  // is not.
+  if (
+    CUSTOMER_SAFE_REFUSALS.includes(message) ||
+    // The one refusal that carries a number in it.
+    /^Slot at hour \d+ is blocked by admin$/.test(message)
+  ) {
+    return { success: false, error: message };
+  }
+  console.error("[slot-hold] internal failure taking a hold:", error);
+  return {
+    success: false,
+    error: "We couldn't hold those slots just now. Please try again.",
+  };
+}
+
+/**
+ * The refusals a customer is meant to read, verbatim. Anything thrown from a
+ * hold path that is not on this list is a fault, not an answer.
+ *
+ * Kept next to `holdFailure` deliberately: adding a `throw new Error("...")`
+ * to a hold path without adding it here turns that sentence into "please try
+ * again", which is a visible, harmless failure — the other direction, a
+ * blocklist, fails silently and shows a stack-trace fragment to a customer.
+ */
+const CUSTOMER_SAFE_REFUSALS: string[] = [
+  "Court config not found",
+  "This court is currently unavailable",
+  "This court is blocked for the entire day",
+  "This court was just reconfigured. Please try again.",
+  "All bowling slots are blocked for this day",
+  "This slot is blocked",
+  "Failed to reserve slots",
+];
+
+/**
+ * Which of the requested slots are already taken.
+ *
+ * Exported because the admin booking path needs exactly this question
+ * answered under its advisory lock, and the alternative — a copy of the rule
+ * inlined there — is how two rules become two different rules. That is not
+ * hypothetical here: the first version of that re-check compared `startHour`
+ * alone, so a bowling machine's 14:30 clashed with an existing 14:00 and the
+ * venue was refused a half-hour that was genuinely free.
+ *
+ * The granularity is the thing's own: a 30-minute slot occupies its half
+ * hour, a 60-minute booking occupies both halves of its hour. Labels come
+ * back in the shape the caller asked in, so the error names what the admin
+ * typed.
+ */
+export function findSlotClashes(
+  taken: { slots: { startHour: number; startMinute: number; durationMinutes: number }[] }[],
+  wanted:
+    | { kind: "hours"; hours: number[] }
+    | { kind: "halfHours"; slots: { hour: number; minute: number }[] },
+): string[] {
+  // EXPAND BY THE REAL SPAN, not by a guess from `durationMinutes`.
+  //
+  // The first version asked "is this 30 minutes? then it is that half hour;
+  // otherwise it is both halves of `startHour`" — which ignores `startMinute`
+  // entirely and cannot see a booking that runs past its own hour. Given a
+  // 90-minute slot at 14:00 it reported no clash at 15:00, and given a
+  // 60-minute slot at 14:30 it claimed 14:00 while missing 15:00. Four
+  // adversarial shapes, four wrong answers: three missed clashes, which is
+  // the same ground sold twice, and one free half-hour refused.
+  //
+  // Nothing in the app writes those shapes today — every path writes 30 at
+  // :00/:30 or 60 at :00 — so this was latent rather than live. It is also
+  // the shared answer to "is that slot taken", and the next feature that
+  // sells a 90-minute session would have made it live silently. Deriving the
+  // buckets from start-to-end is both simpler and true for any span.
+  const busy = new Set<string>();
+  for (const b of taken) {
+    for (const sl of b.slots) {
+      const startsAt = sl.startHour * 60 + sl.startMinute;
+      const endsAt = startsAt + Math.max(30, sl.durationMinutes);
+      for (let m = Math.floor(startsAt / 30) * 30; m < endsAt; m += 30) {
+        busy.add(`${Math.floor(m / 60)}:${m % 60}`);
+      }
+    }
+  }
+  const asked =
+    wanted.kind === "halfHours"
+      ? wanted.slots.map((sl) => ({
+          key: `${sl.hour}:${sl.minute}`,
+          label: `${sl.hour}:${String(sl.minute).padStart(2, "0")}`,
+        }))
+      : wanted.hours.flatMap((h) => [
+          { key: `${h}:0`, label: String(h) },
+          { key: `${h}:30`, label: String(h) },
+        ]);
+  return [...new Set(asked.filter((a) => busy.has(a.key)).map((a) => a.label))];
+}
+
 export async function createSlotHold(
   userId: string,
   courtConfigId: string,
@@ -74,15 +283,32 @@ export async function createSlotHold(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + LOCK_TTL_MINUTES * 60 * 1000);
 
+  // The zones this config covers, read BEFORE the transaction so the locks can
+  // be taken on the thing that actually decides a conflict. Reading it inside
+  // would mean locking first and learning what to lock afterwards.
+  const zonesForLock =
+    (
+      await db.courtConfig.findUnique({
+        where: { id: courtConfigId },
+        select: { zones: true },
+      })
+    )?.zones ?? [];
+
   try {
     const holdId = await db.$transaction(
       async (tx) => {
-        // 1. Acquire advisory locks (sorted to prevent ordering edge-cases)
-        const sortedHours = [...hours].sort((a, b) => a - b);
-        for (const hour of sortedHours) {
-          const lockKey = advisoryLockKey(courtConfigId, dateStr, hour);
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
-        }
+        // 1. Acquire advisory locks — per ZONE as well as per config, sorted so
+        //    every caller takes them in the same order. Keyed on the config
+        //    alone, two overlapping configs of the same ground (Full Field and
+        //    Medium Left Half share LEATHER_1 and BOX_A) hashed to different
+        //    keys and neither waited for the other, so the same ground could be
+        //    sold twice for the same hour.
+        await lockCourtHours(
+          tx,
+          [{ configId: courtConfigId, zones: zonesForLock as string[] }],
+          dateStr,
+          hours,
+        );
 
         // 2. Validate the court config
         const config = await tx.courtConfig.findUnique({
@@ -90,6 +316,23 @@ export async function createSlotHold(
         });
         if (!config) throw new Error("Court config not found");
         if (!config.isActive) throw new Error("This court is currently unavailable");
+        // THE ZONES WE LOCKED MUST BE THE ZONES WE CHECK.
+        //
+        // `zonesForLock` is read before the transaction — it has to be, or we
+        // would be locking first and learning what to lock afterwards — while
+        // the conflict check below uses the zones read fresh inside it. An
+        // admin repointing a config's zones in that window put those two out
+        // of step: the lock was taken on the old ground and the check done on
+        // the new, and two holds landed on the same zone (4 trials in 8).
+        // Rare, and admin-triggered rather than customer-reachable, but the
+        // outcome is the one this whole file exists to prevent. Retrying is
+        // the honest answer — the second attempt reads the new zones and locks
+        // them, and nothing has been reserved or charged yet.
+        const locked = [...(zonesForLock as string[])].sort().join(",");
+        const fresh = [...(config.zones as string[])].sort().join(",");
+        if (locked !== fresh) {
+          throw new Error("This court was just reconfigured. Please try again.");
+        }
 
         // 3. Find bookings on this date that could overlap
         const activeBookings = await tx.booking.findMany({
@@ -204,22 +447,7 @@ export async function createSlotHold(
 
     return { success: true, holdId };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to reserve slots";
-
-    if (message.startsWith("CONFLICTS:")) {
-      const conflicts = message
-        .replace("CONFLICTS:", "")
-        .split(",")
-        .map(Number);
-      return {
-        success: false,
-        error: "Some slots are no longer available",
-        conflicts,
-      };
-    }
-
-    return { success: false, error: message };
+    return holdFailure(error);
   }
 }
 
@@ -250,25 +478,41 @@ export async function createMediumHalfCourtHold(
   slotPrices: SlotPrice[],
   platform: BookingPlatform = "web"
 ): Promise<HoldResult> {
-  const { leftId, rightId } = await getMediumConfigs(sport);
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const dateStr = date.toISOString().split("T")[0];
   const now = new Date();
   const expiresAt = new Date(now.getTime() + LOCK_TTL_MINUTES * 60 * 1000);
 
   try {
+    // INSIDE the try. `getMediumConfigs` throws when a sport has no active
+    // MEDIUM configs — true of FOOTBALL on this arena today — and sitting
+    // above the try meant that exception escaped `holdFailure` entirely and
+    // came out of the route as a framework 500, instead of the
+    // `{success:false,error}` shape every other failure on this path returns.
+    const { leftId, rightId } = await getMediumConfigs(sport);
+    // The zones of BOTH halves, read before the transaction so the locks can
+    // be taken on the thing that decides a conflict. Either half may be the
+    // one handed out, so both are locked — and a Full Field request, which
+    // locks the union of the ground's zones, now genuinely waits for this one.
+    const halfZones = await db.courtConfig.findMany({
+      where: { id: { in: [leftId, rightId] } },
+      select: { id: true, zones: true },
+    });
+
     const holdId = await db.$transaction(
       async (tx) => {
-        // Lock the requested hours on BOTH halves so another half-court
-        // transaction can't race us between checks. Sorted keys prevent
-        // deadlocks against other same-half transactions.
-        const sortedHours = [...hours].sort((a, b) => a - b);
-        for (const cfgId of [leftId, rightId]) {
-          for (const hour of sortedHours) {
-            const lockKey = advisoryLockKey(cfgId, dateStr, hour);
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
-          }
-        }
+        // Lock the requested hours on BOTH halves, BY ZONE.
+        //
+        // Keyed on the two half-config ids alone — which is what this did —
+        // the key set shared nothing with the zone keys a Full Field booking
+        // takes, so the two never waited for each other and the same ground
+        // was sold twice for the same hour. Reproduced 3 times in 3.
+        await lockCourtHours(
+          tx,
+          halfZones.map((c) => ({ configId: c.id, zones: c.zones as string[] })),
+          dateStr,
+          hours,
+        );
 
         // Helper: is every requested hour free on `configId`?
         const isHalfFree = async (configId: string): Promise<boolean> => {
@@ -385,22 +629,7 @@ export async function createMediumHalfCourtHold(
 
     return { success: true, holdId };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to reserve slots";
-
-    if (message.startsWith("CONFLICTS:")) {
-      const conflicts = message
-        .replace("CONFLICTS:", "")
-        .split(",")
-        .map(Number);
-      return {
-        success: false,
-        error: "Some slots are no longer available",
-        conflicts,
-      };
-    }
-
-    return { success: false, error: message };
+    return holdFailure(error);
   }
 }
 
@@ -438,21 +667,48 @@ export async function createBowlingMachineHold(
     return h * 2 + (m === 30 ? 1 : 0);
   }
 
+  // The ground this machine stands on, read before the transaction so the
+  // locks can be taken on what actually decides a conflict.
+  const zonesForLock =
+    (
+      await db.courtConfig.findUnique({
+        where: { id: courtConfigId },
+        select: { zones: true },
+      })
+    )?.zones ?? [];
+
   try {
     const holdId = await db.$transaction(
       async (tx) => {
-        // 1. Acquire advisory locks
+        // 1. Acquire advisory locks — ON THE GROUND, plus the half-hour keys.
+        //
+        // This kept its config-only keys when the other two hold paths moved
+        // to zone keys, on the stated reasoning that "a bowling machine is a
+        // single resource rather than a patch of ground shared between
+        // configs". That reasoning was simply false: the machine's config
+        // carries zones [LEATHER_1, BOX_A], which is the whole of Medium
+        // (Left Half) and contains Leather Pitch 1. Its key set therefore
+        // intersected neither of theirs, and a bowling customer and a cricket
+        // customer could each be sold the same ground for the same hour —
+        // 12 trials in 12, against two different configs.
+        //
+        // The conflict CHECK below was right all along; it is the lock that
+        // let two transactions both reach it before either committed.
+        //
+        // Both families in one sorted acquisition: the zone keys are whole
+        // hours, because that is the granularity the courts are sold in, and
+        // the half-hour keys stay so that two bowling bookings still exclude
+        // each other at 14:00 and 14:30 separately.
         const sorted = [...slots].sort(
           (a, b) => slotKey(a.hour, a.minute) - slotKey(b.hour, b.minute),
         );
-        for (const s of sorted) {
-          const lockKey = advisoryLockKey(
-            courtConfigId,
-            dateStr,
-            slotKey(s.hour, s.minute),
-          );
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
-        }
+        await lockCourtHours(
+          tx,
+          [{ configId: courtConfigId, zones: zonesForLock as string[] }],
+          dateStr,
+          [...new Set(sorted.map((s) => s.hour))],
+          sorted.map((s) => advisoryLockKey(courtConfigId, dateStr, slotKey(s.hour, s.minute))),
+        );
 
         // 2. Validate the court config
         const config = await tx.courtConfig.findUnique({
@@ -585,21 +841,7 @@ export async function createBowlingMachineHold(
 
     return { success: true, holdId };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to reserve slots";
-
-    if (message.startsWith("CONFLICTS:")) {
-      const conflicts = message
-        .replace("CONFLICTS:", "")
-        .split(",")
-        .map(Number);
-      return {
-        success: false,
-        error: "Some slots are no longer available",
-        conflicts,
-      };
-    }
-    return { success: false, error: message };
+    return holdFailure(error);
   }
 }
 

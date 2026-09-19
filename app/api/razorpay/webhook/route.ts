@@ -330,6 +330,52 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // CHALLENGE money is accounted for somewhere this path cannot see.
+    //
+    // A challenge court is bought only once BOTH captains have paid, so the
+    // FIRST half legitimately has no booking for as long as the second takes —
+    // and the second half's capture id lives in `secondRazorpayPaymentId`,
+    // which the `razorpayPaymentId` lookup above does not match. Challenges
+    // also never create a SlotHold. So without this, every challenge capture
+    // raised a false orphan telling the venue to honour or refund money that
+    // is either already on a booking or deliberately waiting for the other
+    // half — and acting on it means a duplicate booking or a wrong refund.
+    //
+    // `ChallengeOrder` records every order this module opens, and
+    // `ChallengeOffer` every prize-hour order, so the order id is enough.
+    const challengeOrder = await db.challengeOrder.findUnique({
+      where: { razorpayOrderId: payment.order_id },
+      select: { challengeId: true, side: true, settledAt: true, strandedAt: true },
+    });
+    if (challengeOrder) {
+      return NextResponse.json({
+        ok: true,
+        via: "challenge",
+        challengeId: challengeOrder.challengeId,
+        side: challengeOrder.side,
+        // Not an orphan either way: settled money is on a booking, stranded
+        // money is already on the venue's refunds queue, and neither is on
+        // this webhook's list of things to worry about.
+        state: challengeOrder.strandedAt
+          ? "refund-owed"
+          : challengeOrder.settledAt
+            ? "settled"
+            : "awaiting-the-other-half",
+      });
+    }
+    const offerOrder = await db.challengeOffer.findFirst({
+      where: { razorpayOrderId: payment.order_id },
+      select: { id: true, bookingId: true },
+    });
+    if (offerOrder) {
+      return NextResponse.json({
+        ok: true,
+        via: "challenge-prize",
+        offerId: offerOrder.id,
+        bookingId: offerOrder.bookingId,
+      });
+    }
+
     console.warn(
       "[razorpay-webhook] no hold for order",
       payment.order_id,

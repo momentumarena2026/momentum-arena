@@ -1,11 +1,5 @@
 import { useEffect } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  View,
-} from "react-native";
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View, Pressable } from "react-native";
 import {
   useInfiniteQuery,
   useMutation,
@@ -18,6 +12,9 @@ import {
   Ticket,
   Users,
 } from "lucide-react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { AccountStackParamList } from "../../navigation/types";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -62,6 +59,7 @@ function timeAgo(iso: string): string {
  * for this one viewing.
  */
 export function NotificationsScreen() {
+  const nav = useNavigation<NativeStackNavigationProp<AccountStackParamList>>();
   const qc = useQueryClient();
   /**
    * Paged, and virtualised below.
@@ -83,6 +81,12 @@ export function NotificationsScreen() {
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => notificationsApi.list(pageParam),
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // ALWAYS re-ask on mount. The global `staleTime` is 30 seconds and the
+    // cache is persisted to disk, so opening the bell within that window —
+    // which is exactly when something has just happened — showed a list that
+    // predated the event. A captain who had just paid and won a prize opened
+    // their notifications and saw neither.
+    refetchOnMount: "always",
   });
 
   const markRead = useMutation({
@@ -110,8 +114,31 @@ export function NotificationsScreen() {
       bg: colors.zinc800,
     };
     const unread = !n.readAt;
+    // A notification that cannot be tapped is a dead end, and for anything
+    // on a clock — a prize offer expires in thirty minutes — it is the
+    // difference between a working feature and one nobody can reach in
+    // time. `link` was written by the server, carried in the payload, typed
+    // on the client, and read by nothing.
+    const go = () => {
+      const link = n.link;
+      if (!link) return;
+      const challenge = link.match(/^\/challenges\/([\w-]+)$/);
+      if (challenge) {
+        nav.navigate("ChallengeDetail", { id: challenge[1] });
+        return;
+      }
+      const booking = link.match(/^\/bookings\/([\w-]+)$/);
+      if (booking) {
+        nav.navigate("BookingDetail", { bookingId: booking[1] });
+        return;
+      }
+    };
+    const Row = n.link ? Pressable : View;
     return (
-      <View style={[styles.row, unread ? styles.rowUnread : styles.rowRead]}>
+      <Row
+        onPress={go}
+        style={[styles.row, unread ? styles.rowUnread : styles.rowRead]}
+      >
         <View style={[styles.iconWrap, { backgroundColor: t.bg }]}>
           <t.Icon size={18} color={t.color} />
         </View>
@@ -127,7 +154,7 @@ export function NotificationsScreen() {
           </Text>
         </View>
         {unread ? <View style={styles.unreadDot} /> : null}
-      </View>
+      </Row>
     );
   };
 

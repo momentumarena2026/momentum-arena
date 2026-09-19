@@ -14,6 +14,8 @@ import { sportForCourtConfigId } from "@/lib/booking-log-sport";
 import { db } from "@/lib/db";
 import { Prisma, Sport } from "@prisma/client";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
+import { badHours } from "@/lib/booking-hours";
+
 
 /**
  * Snapshot the customer's equipment picks onto the just-created hold,
@@ -217,8 +219,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid data" }, { status: 400 });
   }
 
-  if (!date || !hours?.length) {
-    return NextResponse.json({ error: "Invalid data" }, { status: 400 });
+  const hoursProblem = await badHours(hours);
+  if (!date || hoursProblem) {
+    return NextResponse.json({ error: hoursProblem ?? "Invalid data" }, { status: 400 });
   }
 
   const bookingDate = new Date(date);

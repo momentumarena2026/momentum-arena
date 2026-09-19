@@ -17,6 +17,12 @@ export type HomeStackParamList = {
   // to jump to the Account TAB to reach it, so Back landed the customer
   // on Account rather than where they started.
   Notifications: undefined;
+  // Same reasoning as Notifications: the home card is the main way anyone
+  // finds the board, and a cross-tab jump would land Back on Account
+  // rather than Home where they started.
+  ChallengeBoard: undefined;
+  PostChallenge: undefined;
+  ChallengeDetail: { id: string };
   TournamentsList: undefined;
   /** Optional slug — a promo banner or deep link opens that camp's
    *  sheet directly instead of dropping the customer on the list. */
@@ -47,6 +53,11 @@ export type HomeStackParamList = {
 
 export type AccountStackParamList = {
   AccountHome: undefined;
+  // The challenge board. App-only feature — there is no web equivalent to
+  // deep-link to, so these three screens are the whole of it.
+  ChallengeBoard: undefined;
+  PostChallenge: undefined;
+  ChallengeDetail: { id: string };
   /// Tournament scoring by code — reachable without an admin account so a
   /// third-party organiser can run their own matches. The code is the
   /// credential (CSPRNG, rotatable, rate-limited).

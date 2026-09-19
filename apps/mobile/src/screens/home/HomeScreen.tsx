@@ -27,7 +27,9 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchTournamentHub } from "../../lib/tournaments";
 import { fetchCampsHub } from "../../lib/camps";
 import { fetchQuickBookConfig } from "../../lib/quick-book";
-import { Bell, Camera, ChevronRight, Clock, Mail, MapPin, MessageCircle, Phone as PhoneIcon, Sparkles, Video } from "lucide-react-native";
+import { Bell, Camera, ChevronRight, Clock, Mail, MapPin, MessageCircle, Phone as PhoneIcon, Sparkles, Video ,
+  Swords,} from "lucide-react-native";
+import { fetchChallengeBoard, trackChallenge } from "../../lib/challenges";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Card } from "../../components/ui/Card";
@@ -169,6 +171,31 @@ export function HomeScreen() {
   // gate, and it refuses on its own when the feature is off. The worst
   // case of showing it wrongly is one tap and a clear message. The worst
   // case of hiding it wrongly is silence.
+  // The challenge board's own card. Unlike Quick book this fails CLOSED:
+  // a feature nobody has heard of, advertised in error while the venue has
+  // it switched off, sends people to a board that refuses them. Quick book
+  // fails open because hiding it removes a working booking route; there is
+  // no equivalent loss here.
+  const { data: challengeCfg } = useQuery({
+    queryKey: ["challenge-home-card"],
+    queryFn: () => fetchChallengeBoard(undefined, true),
+    staleTime: 5 * 60 * 1000,
+  });
+  const showChallengeCard =
+    !!challengeCfg?.enabled && !!challengeCfg?.homeCard?.enabled;
+  const challengeBadge = challengeCfg?.homeCard?.badge ?? "NEW";
+
+  // The impression is the funnel's denominator. Without it a tap count says
+  // nothing — 40 taps is a triumph against 200 impressions and a failure
+  // against 20,000 — so record the card being seen, once per app session
+  // rather than once per render, which would drown the feed.
+  const challengeShownRef = useRef(false);
+  useEffect(() => {
+    if (!showChallengeCard || challengeShownRef.current) return;
+    challengeShownRef.current = true;
+    trackChallenge("HOME_CARD_SHOWN");
+  }, [showChallengeCard]);
+
   const quickBookEnabled = quickBook?.enabled ?? true;
   const showNewBadge = quickBook?.newBadge ?? true;
   const showBetaBadge = quickBook?.betaBadge ?? true;
@@ -389,6 +416,50 @@ export function HomeScreen() {
               </View>
               <ChevronRight size={18} color={colors.zinc500} />
             </Pressable>
+            ) : null}
+
+            {/* The challenge board, promoted the same way Quick book was:
+                full width, above the tile grid, with a badge. A feature
+                whose entire risk is that nobody finds it cannot live only
+                as a menu row inside Account — the first thing somebody
+                should learn on opening the app is that it exists. */}
+            {showChallengeCard ? (
+              <Pressable
+                onPress={() => {
+                  trackChallenge("HOME_CARD_TAPPED");
+                  homeNav.navigate("ChallengeBoard");
+                }}
+                style={({ pressed }) => [styles.challengeCard, pressed && styles.pressed]}
+              >
+                <View style={styles.challengeIcon}>
+                  <Swords size={17} color="#fca5a5" />
+                </View>
+                <View style={styles.quickBookBody}>
+                  <View style={styles.quickBookTitleRow}>
+                    <Text variant="bodyStrong" color={colors.foreground}>
+                      {challengeCfg?.homeCard?.title || "Challenge a team"}
+                    </Text>
+                    {challengeBadge !== "NONE" ? (
+                      <View
+                        style={challengeBadge === "BETA" ? styles.betaPill : styles.newPill}
+                      >
+                        <Text
+                          variant="tiny"
+                          weight="700"
+                          color={challengeBadge === "BETA" ? colors.yellow400 : "#032016"}
+                        >
+                          {challengeBadge}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text variant="tiny" color={colors.zinc400}>
+                    {challengeCfg?.homeCard?.subtitle ||
+                      "Got a side but no opposition? Post a match."}
+                  </Text>
+                </View>
+                <ChevronRight size={18} color={colors.zinc500} />
+              </Pressable>
             ) : null}
 
             <View style={styles.heroRow}>
@@ -1161,6 +1232,27 @@ function SocialPill({
 }
 
 const styles = StyleSheet.create({
+  // Red-tinted twin of the Quick book card: same shape so the two read as
+  // one family, different hue so the second does not look like a repeat.
+  challengeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.30)",
+    backgroundColor: "rgba(239, 68, 68, 0.10)",
+    borderRadius: radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  challengeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.14)",
+  },
   quickBook: {
     flexDirection: "row",
     alignItems: "center",

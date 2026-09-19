@@ -101,7 +101,13 @@ export const COURT_CONFIGS: CourtConfigDef[] = [
 // for sync UI code where a one-render fallback is acceptable.
 export const OPERATING_HOURS = {
   start: 5,
-  end: 25, // exclusive — last slot starts at hour 24 (12 AM)
+  // Exclusive. The arena's real setting is 26 — it sells the 12–1am slot
+  // (hour 25) — and this default had drifted a slot behind it. That only
+  // shows when the settings read FAILS and this fallback takes over, and the
+  // symptom is a customer being refused a legitimate late-night hour during a
+  // transient database blip. Reproduced by pointing the connection at an
+  // unreachable host: `badHours([25])` answered "the arena isn't open".
+  end: 26,
 };
 
 export const SLOT_DURATION_HOURS = 1;
@@ -115,7 +121,9 @@ export const LOCK_TTL_MINUTES = 5;
  * NOT cached: this is a bare Prisma call, so every invocation hits the
  * DB. Hoist it out of loops rather than calling it per iteration.
  */
-export async function getOperatingHours(): Promise<{
+export async function getOperatingHours(client?: {
+  arenaSettings: { findFirst: (args: unknown) => Promise<{ openHour: number; closeHour: number } | null> };
+}): Promise<{
   start: number;
   end: number;
 }> {
@@ -123,7 +131,14 @@ export async function getOperatingHours(): Promise<{
   // pulled into client bundles that import unrelated helpers
   // from this file (e.g. formatHour). The async helper itself is
   // only callable from server code, so this is safe.
-  const { db } = await import("./db");
+  //
+  // `client` matters more than it looks. Called from inside an interactive
+  // transaction — which every booking and every challenge payment does — the
+  // global client takes a SECOND pooled connection while the transaction
+  // holds the first. The Neon adapter's pool is ten. Ten concurrent
+  // transactions each needing an eleventh connection is not slow, it is
+  // deadlocked: measured, 10 of 10 failing with P2028 after twenty seconds.
+  const db = client ?? (await import("./db")).db;
   try {
     const row = await db.arenaSettings.findFirst({
       select: { openHour: true, closeHour: true },
@@ -139,8 +154,8 @@ export async function getOperatingHours(): Promise<{
  *  hours from the DB and expands them into the [start, end) array
  *  of hour indices. Use this on every server-side path that
  *  needs the bookable hour list. */
-export async function getAllSlotHoursLive(): Promise<number[]> {
-  const { start, end } = await getOperatingHours();
+export async function getAllSlotHoursLive(client?: Parameters<typeof getOperatingHours>[0]): Promise<number[]> {
+  const { start, end } = await getOperatingHours(client);
   const hours: number[] = [];
   for (let h = start; h < end; h++) hours.push(h);
   return hours;

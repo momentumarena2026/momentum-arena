@@ -8,7 +8,10 @@ import {
   createSlotHold,
   releaseSlotHold,
   getValidHold,
+  lockCourtHours,
+  findSlotClashes,
 } from "@/lib/slot-hold";
+import { OCCUPYING_BOOKING_STATUSES } from "@/lib/availability";
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { getTodayIST, getCurrentHourIST } from "@/lib/ist-date";
 import {
@@ -1169,7 +1172,9 @@ export async function createBookingFromHold(
 
   const hold = await db.slotHold.findUnique({
     where: { id: holdId },
-    include: { courtConfig: { select: { category: true, slotDurationMinutes: true } } },
+    // `zones` comes too: the conversion below locks the ground and asks the
+    // conflict question again, and the ground is what zones describe.
+    include: { courtConfig: { select: { category: true, slotDurationMinutes: true, zones: true } } },
   });
   if (!hold) return null;
 
@@ -1251,6 +1256,53 @@ export async function createBookingFromHold(
   try {
     result = await db.$transaction(
     async (tx) => {
+    // LOCK THE GROUND FIRST, AND ASK AGAIN — FOR EVERY COURT.
+    //
+    // This path turns a hold into a booking, and it took no advisory lock at
+    // all: the lock was taken when the HOLD was created, in a transaction
+    // that committed and released minutes earlier. The re-check below then
+    // ran only for the bowling machine, on the stated reasoning that an
+    // ordinary court's "zone-overlap rules already apply at lock time" —
+    // which is exactly the lock that is no longer held.
+    //
+    // The consequence needs no race whatsoever, and was reproduced in three
+    // plain steps: a customer holds Full Field at 7pm, an admin books the
+    // same hour at the counter, the customer's payment confirms. Two
+    // CONFIRMED bookings on the same ground for the same hour.
+    //
+    // Taking the same keys every other booking path takes, and asking the
+    // question again under them, is what makes the hold's exclusion mean
+    // something at the moment the booking is actually written.
+    const holdHours = hold.hours ?? [];
+    if (holdHours.length > 0) {
+      await lockCourtHours(
+        tx,
+        [{ configId: hold.courtConfigId, zones: hold.courtConfig.zones as string[] }],
+        hold.date.toISOString().slice(0, 10),
+        holdHours,
+      );
+      const rivals = await tx.booking.findMany({
+        where: {
+          date: hold.date,
+          status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+          courtConfig: { zones: { hasSome: hold.courtConfig.zones } },
+        },
+        include: { slots: true },
+      });
+      const clash = findSlotClashes(
+        rivals,
+        hold.startMinutes.length > 0
+          ? {
+              kind: "halfHours" as const,
+              slots: holdHours.map((h, i) => ({ hour: h, minute: hold.startMinutes[i] ?? 0 })),
+            }
+          : { kind: "hours" as const, hours: holdHours },
+      );
+      if (clash.length > 0) {
+        throw new Error(`SLOT_CONFLICT:${clash.join(",")}`);
+      }
+    }
+
     // Re-fetch inside transaction and lock via delete (deleted row implies someone else consumed it)
     const deleted = await tx.slotHold.deleteMany({
       where: { id: holdId },

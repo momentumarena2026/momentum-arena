@@ -1,6 +1,9 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { HomeScreen } from "../screens/home/HomeScreen";
 import { NotificationsScreen } from "../screens/account/NotificationsScreen";
+import { ChallengeBoardScreen } from "../screens/challenges/ChallengeBoardScreen";
+import { PostChallengeScreen } from "../screens/challenges/PostChallengeScreen";
+import { ChallengeDetailScreen } from "../screens/challenges/ChallengeDetailScreen";
 import { BookingBotScreen } from "../screens/book/BookingBotScreen";
 import { CheckoutScreen } from "../screens/book/CheckoutScreen";
 import { BookingConfirmedScreen } from "../screens/book/BookingConfirmedScreen";
@@ -80,6 +83,21 @@ export function HomeStack() {
         name="RewardsHowItWorks"
         component={RewardsHowItWorksScreen}
         options={{ title: "How it works" }}
+      />
+      <Stack.Screen
+        name="ChallengeBoard"
+        component={ChallengeBoardScreen}
+        options={{ title: "Challenges" }}
+      />
+      <Stack.Screen
+        name="PostChallenge"
+        component={PostChallengeScreen}
+        options={{ title: "Post a challenge" }}
+      />
+      <Stack.Screen
+        name="ChallengeDetail"
+        component={ChallengeDetailScreen}
+        options={{ title: "Challenge" }}
       />
       <Stack.Screen
         name="Notifications"

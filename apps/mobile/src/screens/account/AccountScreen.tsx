@@ -26,6 +26,7 @@ import {
   Ticket,
   Trash2,
   User as UserIcon,
+  Swords,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -168,7 +169,13 @@ export function AccountScreen() {
             {user.phone && (
               <View style={styles.phoneRow}>
                 <Phone size={12} color={colors.zinc500} />
-                <Text style={styles.phoneText}>+91 {user.phone}</Text>
+                {/* Numbers are stored ALREADY prefixed (normalizeIndianPhone
+                    writes "91XXXXXXXXXX"), so prepending "+91" printed
+                    "+91 919000010002" to every user in the app. Strip the
+                    stored prefix rather than assuming it is absent. */}
+                <Text style={styles.phoneText}>
+                  +91 {(user.phone ?? "").replace(/^(\+?91)/, "")}
+                </Text>
               </View>
             )}
             <View style={styles.profilePillRow}>
@@ -225,6 +232,13 @@ export function AccountScreen() {
           title="My Passes"
           subtitle="Prepaid hours — balances & sharing"
           onPress={() => navigation.navigate("MyPasses")}
+        />
+        <ActionTile
+          icon={<Swords size={20} color="#fca5a5" />}
+          iconBg="rgba(239, 68, 68, 0.14)"
+          title="Challenges"
+          subtitle="Post a match, or take one on"
+          onPress={() => navigation.navigate("ChallengeBoard")}
         />
         <ActionTile
           icon={<Bell size={20} color={colors.warning} />}
