@@ -54,6 +54,7 @@ type Settings = {
   spinFallbackWindowMins: number;
   spinFallbackDays: number;
   spinAdjacentOnly: boolean;
+  spinSameSizeOnly: boolean;
   spinsPerPosterCap: number;
   spinsPerPosterPerDays: number;
   spinWonPush: unknown;
@@ -1012,6 +1013,21 @@ function PromoTab({
             }}
             hint="Both must be above zero for the cap to apply."
           />
+        </div>
+        <div className="mt-3">
+          <Toggle
+            label="Prize only on the same size of court"
+            value={s.spinSameSizeOnly}
+            onChange={(v) => {
+              setS({ ...s, spinSameSizeOnly: v });
+              save({ spinSameSizeOnly: v });
+            }}
+          />
+          <p className="mt-1 text-xs text-zinc-500">
+            Ties the prize to the match that earned it. Switch this off and a spin won on the
+            cheapest pitch can be spent on the full ground — two friends can confirm a ₹200
+            match for ₹50 each and take ~₹350 of the big court, over and over.
+          </p>
         </div>
         <div className="mt-3">
           <Toggle

@@ -220,6 +220,7 @@ export type ChallengeSettingsInput = {
   spinFallbackWindowMins?: number;
   spinFallbackDays?: number;
   spinAdjacentOnly?: boolean;
+  spinSameSizeOnly?: boolean;
   spinsPerPosterCap?: number;
   spinsPerPosterPerDays?: number;
   spinWonPush?: { title: string; body: string };
@@ -309,6 +310,9 @@ export async function saveChallengeSettings(
         : {}),
       ...(input.spinAdjacentOnly !== undefined
         ? { spinAdjacentOnly: input.spinAdjacentOnly }
+        : {}),
+      ...(input.spinSameSizeOnly !== undefined
+        ? { spinSameSizeOnly: input.spinSameSizeOnly }
         : {}),
       ...(num(input.spinsPerPosterCap, 0, 100, "Spins per poster") !== undefined
         ? { spinsPerPosterCap: input.spinsPerPosterCap }

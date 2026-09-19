@@ -472,3 +472,18 @@ test("a late-night window's expiry is after the match, not a day before it", () 
   const exp = expiryFor(w, { ...DEFAULT_LIMITS, ttlDays: 30 }, new Date("2026-09-20T00:00:00Z"));
   assert.equal(exp.toISOString(), "2026-09-25T18:30:00.000Z");
 });
+
+test("a prize is worth what the match that earned it was worth", () => {
+  // Not a rule function — a statement of the economics the same-size
+  // restriction defends. Without it the cheapest confirmable match funds a
+  // discount on the most expensive court: ₹50 each online on a ₹200 pitch
+  // buys an expected ₹350 off the ₹2,000 ground, repeatable for ever.
+  const CHEAPEST_COURT = 200;
+  const DEAREST_COURT = 2000;
+  const advancePct = 50;
+  const cashToConfirm = Math.round((CHEAPEST_COURT * advancePct) / 100);
+  const unbounded = (DEAREST_COURT * wheelAveragePct(DEFAULT_WHEEL)) / 100;
+  assert.ok(unbounded > cashToConfirm, "the farm is profitable while unbounded");
+  const bounded = (CHEAPEST_COURT * wheelAveragePct(DEFAULT_WHEEL)) / 100;
+  assert.ok(bounded < cashToConfirm, "same-size bounds the prize below the cost of earning it");
+});

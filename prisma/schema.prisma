@@ -4408,6 +4408,14 @@ model ChallengeSettings {
   /// it was won in.
   spinAdjacentOnly       Boolean @default(false)
 
+  /// The prize may only be spent on a court the SAME SIZE as the one the
+  /// match was played on. Without this the prize's value is untied from
+  /// the match that earned it: a pair could confirm a challenge on the
+  /// ₹200 XS pitch — ₹50 each online, the whole cash outlay — and spend
+  /// the spin on the ₹2,000 full field, netting the venue down ~₹350 a
+  /// cycle with a 1-in-10 shot at ₹1,000, repeatable for ever.
+  spinSameSizeOnly       Boolean @default(true)
+
   /// The push sent the moment the wheel stops, as { title, body }.
   spinWonPush Json?
 

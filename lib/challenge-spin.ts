@@ -64,6 +64,7 @@ export type SpinConfig = {
   fallbackWindowMins: number;
   fallbackDays: number;
   adjacentOnly: boolean;
+  sameSizeOnly: boolean;
   wonPush: PushTemplate;
   adjacentPushes: PushTemplate[];
   fallbackPushes: PushTemplate[];
@@ -109,6 +110,7 @@ export async function spinConfig(): Promise<SpinConfig> {
     fallbackWindowMins: s?.spinFallbackWindowMins ?? 120,
     fallbackDays: s?.spinFallbackDays ?? 1,
     adjacentOnly: !!s?.spinAdjacentOnly,
+    sameSizeOnly: s?.spinSameSizeOnly ?? true,
     wonPush: safeTemplate(s?.spinWonPush, DEFAULT_WON_PUSH),
     adjacentPushes: asTemplates(s?.spinAdjacentPushes, DEFAULT_ADJACENT_PUSHES),
     fallbackPushes: asTemplates(s?.spinFallbackPushes, DEFAULT_FALLBACK_PUSHES),
@@ -545,7 +547,18 @@ export async function offerQuote(
       courtConfigId: true,
       date: true,
       startHour: true,
-      spin: { select: { challenge: { select: { sport: true } } } },
+      spin: {
+        select: {
+          challenge: {
+            select: {
+              sport: true,
+              // The court the match was actually played on. Its SIZE is what
+              // bounds the prize.
+              booking: { select: { courtConfig: { select: { size: true } } } },
+            },
+          },
+        },
+      },
     },
   });
   if (!o) return { ok: false, error: "That offer is gone." };
@@ -610,10 +623,21 @@ export async function offerQuote(
   // the picker restricted it, the write path did not.
   const court = await db.courtConfig.findUnique({
     where: { id: courtConfigId },
-    select: { id: true, label: true, sport: true, isActive: true },
+    select: { id: true, label: true, sport: true, isActive: true, size: true },
   });
   if (!court || !court.isActive || court.sport !== o.spin.challenge.sport) {
     return { ok: false, error: "That court isn't available for this match." };
+  }
+  // Same size as the court the match was played on. This is what ties the
+  // prize's value to the match that earned it — without it, a spin won on
+  // the cheapest pitch in the arena is spendable on the most expensive one.
+  const cfgSize = await spinConfig();
+  const earnedOn = o.spin.challenge.booking?.courtConfig?.size ?? null;
+  if (cfgSize.sameSizeOnly && earnedOn && court.size !== earnedOn) {
+    return {
+      ok: false,
+      error: "That discount is good on the same size of court you played on.",
+    };
   }
   if (!Number.isInteger(startHour) || startHour < 0 || startHour > 25) {
     return { ok: false, error: "That isn't an hour the arena runs." };
@@ -962,7 +986,17 @@ export async function offerSlots(
       discountPct: true,
       expiresAt: true,
       takenAt: true,
-      spin: { select: { challenge: { select: { sport: true, bookingId: true } } } },
+      spin: {
+        select: {
+          challenge: {
+            select: {
+              sport: true,
+              bookingId: true,
+              booking: { select: { courtConfig: { select: { size: true } } } },
+            },
+          },
+        },
+      },
     },
   });
   if (!o) return { ok: false, error: "That offer is gone." };
@@ -972,8 +1006,15 @@ export async function offerSlots(
   if (minsLeft <= 0) return { ok: false, error: "That offer has expired." };
 
   const cfg = await spinConfig();
+  // Filtered to what offerQuote will actually accept, so the picker cannot
+  // offer an hour the payment step then refuses.
+  const earnedOn = o.spin.challenge.booking?.courtConfig?.size ?? null;
   const courts = await db.courtConfig.findMany({
-    where: { sport: o.spin.challenge.sport, isActive: true },
+    where: {
+      sport: o.spin.challenge.sport,
+      isActive: true,
+      ...(cfg.sameSizeOnly && earnedOn ? { size: earnedOn } : {}),
+    },
     select: { id: true, label: true, size: true },
     orderBy: { label: "asc" },
   });
