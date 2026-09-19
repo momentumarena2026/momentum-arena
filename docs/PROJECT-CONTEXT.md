@@ -327,8 +327,9 @@ Anything else means main has drifted — stop and investigate, do not push.
     `c — b —`) because matches scored before fielder capture have no fielder
     and never will.
 
-15. **A lock only excludes what its KEY says. Key it on the thing the conflict
-    rule actually uses.** `advisoryLockKey(configId, date, hour)` serialised two
+15. **A lock only excludes what its KEY says — and there is exactly ONE
+    function that takes court-hour locks, because a helper cannot be
+    half-migrated.** `advisoryLockKey(configId, date, hour)` serialised two
     people reaching for the same court *config* — but whether two bookings clash
     is decided by **zone overlap**, and Full Field ([LEATHER_1, BOX_A, BOX_B,
     LEATHER_2]) and Medium Left Half ([LEATHER_1, BOX_A]) are different configs.
@@ -338,13 +339,34 @@ Anything else means main has drifted — stop and investigate, do not push.
     in `lib/slot-hold.ts` is now the only way to lock a court-hour: one key per
     (zone, date, hour) plus the old config key, returned **sorted** so two
     overlapping requests cannot deadlock by taking them in opposite orders.
-    Every path that creates a booking must use it — `createSlotHold` and the
-    challenges' `buyTheHour` both do. The same lesson in the other direction:
+    Every path that creates a booking must use it. The first version of this
+    fix reached `createSlotHold` and `buyTheHour` and **missed
+    `createMediumHalfCourtHold`** — the "Half Court (40x90)" customer flow —
+    which kept locking on the two half-config ids alone and so shared no key
+    with a Full Field booking. The double-sell stayed open through that door
+    for a day: racing the two checkouts, 4 trials in 5 sold both. That is why
+    `lockCourtHours()` now exists and every site calls it.
+
+    It also takes every key in ONE statement (`unnest`). One `$executeRaw` per
+    key meant `hours x (zones + 1)` round trips, and an 8-hour Full Field
+    booking — an ordinary "book the ground for the afternoon" — blew the
+    transaction's 15s timeout at 40 locks. Batched, a whole day (105 locks)
+    runs in ~3s. **If you add a lock, add it to the array, not to a loop.** The same lesson in the other direction:
     `placeMoney` stamps `placedAt` and then counts placed sides *inside* one
     transaction, which under READ COMMITTED is **not** mutual exclusion — two
     payers each saw one side and neither bought the hour. It takes a
     per-challenge advisory lock (`challengeLockKey`, a band above 2^31 so it
     cannot meet a court-hour key) so the second payer waits and then sees both.
+
+16. **`getSlotAvailability` is the hottest read in the codebase — keep its
+    reads parallel.** It backs every availability grid the venue and its
+    customers look at, and the challenges sweep asks it once per court-day.
+    It ran ~14 queries strictly one after another against a serverless
+    Postgres — ~300ms each, ~4,250ms per call — which is how a sweep on a
+    sixty-second schedule came to take 231 seconds. The reads only need
+    `config`; awaiting them together took it to ~1,500ms with byte-identical
+    output (checked across every court and eight dates, past and future).
+    **Anything added here goes into the existing `Promise.all`, not after it.**
 
 ---
 

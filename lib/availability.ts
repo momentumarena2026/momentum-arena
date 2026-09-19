@@ -143,22 +143,72 @@ export async function getSlotAvailability(
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const now = new Date();
 
-  // 1. Bookings that reserve the slot: anything not CANCELLED — CONFIRMED
-  //    (paid), PENDING (awaiting admin verification) and the closed-out
-  //    COMPLETED / ABSENT sessions (see OCCUPYING_BOOKING_STATUSES)
-  const conflictingBookings = await client.booking.findMany({
-    where: {
-      date: dateOnly,
-      status: { in: [...OCCUPYING_BOOKING_STATUSES] },
-      courtConfig: {
-        zones: { hasSome: config.zones as CourtZone[] },
+  // EVERY REMAINING READ AT ONCE.
+  //
+  // These six are independent of each other — they only need `config` — and
+  // they used to run strictly one after another, each its own round trip to a
+  // serverless Postgres. Measured: ~300ms per query, ~4,250ms for the call.
+  // This function backs every availability grid the venue and its customers
+  // look at, and the challenges sweep asks it once per court-day, which is how
+  // that sweep came to take 231 seconds on a sixty-second schedule.
+  //
+  // Awaiting them together is the whole fix: the work is identical, the
+  // waiting is not repeated. Nothing here writes, so there is no ordering to
+  // preserve between them.
+  const [
+    conflictingBookings,
+    activeHolds,
+    slotBlocks,
+    overlappingConfigBlocks,
+    prices,
+    allHours,
+  ] = await Promise.all([
+    // 1. Bookings that reserve the slot: anything not CANCELLED — CONFIRMED
+    //    (paid), PENDING (awaiting admin verification) and the closed-out
+    //    COMPLETED / ABSENT sessions (see OCCUPYING_BOOKING_STATUSES)
+    client.booking.findMany({
+      where: {
+        date: dateOnly,
+        status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+        courtConfig: { zones: { hasSome: config.zones as CourtZone[] } },
       },
-    },
-    include: {
-      courtConfig: true,
-      slots: true,
-    },
-  });
+      include: { courtConfig: true, slots: true },
+    }),
+    // 2. Transient SlotHolds — another user is currently in checkout for this
+    //    slot. The hold's courtConfig comes too, so the UI can say what is
+    //    blocking an hour rather than only that something is.
+    client.slotHold.findMany({
+      where: {
+        date: dateOnly,
+        expiresAt: { gt: now },
+        courtConfig: { zones: { hasSome: config.zones as CourtZone[] } },
+      },
+      include: { courtConfig: true },
+    }),
+    // 3. Admin slot blocks on this config, its sport, or the whole arena.
+    client.slotBlock.findMany({
+      where: {
+        date: dateOnly,
+        OR: [
+          { courtConfigId: courtConfigId },
+          { sport: config.sport },
+          { courtConfigId: null, sport: null }, // global blocks
+        ],
+      },
+    }),
+    // 4. Blocks placed on a SIBLING config sharing this ground.
+    client.slotBlock.findMany({
+      where: {
+        date: dateOnly,
+        courtConfigId: { not: null },
+        courtConfig: { zones: { hasSome: config.zones } },
+      },
+    }),
+    getSlotPrices(courtConfigId, date),
+    // Fetched once here rather than awaited inside the block loops below,
+    // where a day-long block paid for it again on every iteration.
+    getAllSlotHoursLive(),
+  ]);
 
   // Build set of occupied hours
   const occupiedHours = new Map<number, SlotStatus>();
@@ -176,19 +226,6 @@ export async function getSlotAvailability(
     }
   }
 
-  // 2. Transient SlotHolds — another user is currently in checkout for this slot
-  // Include the hold's courtConfig so we can surface "what's blocking
-  // this hour?" labels for in-flight holds, not just confirmed bookings.
-  const activeHolds = await client.slotHold.findMany({
-    where: {
-      date: dateOnly,
-      expiresAt: { gt: now },
-      courtConfig: {
-        zones: { hasSome: config.zones as CourtZone[] },
-      },
-    },
-    include: { courtConfig: true },
-  });
   /** Hour → when the LAST hold covering it lapses (epoch ms). */
   const holdExpiryByHour = new Map<number, number>();
   for (const hold of activeHolds) {
@@ -225,49 +262,12 @@ export async function getSlotAvailability(
     return { lockKind: "checkout", lockedUntil: new Date(until).toISOString() };
   }
 
-  // Check admin slot blocks
-  const slotBlocks = await client.slotBlock.findMany({
-    where: {
-      date: dateOnly,
-      OR: [
-        { courtConfigId: courtConfigId },
-        { sport: config.sport },
-        { courtConfigId: null, sport: null }, // global blocks
-      ],
-    },
-  });
-
   const blockedHours = new Set<number>();
-  for (const block of slotBlocks) {
-    if (block.startHour === null) {
-      // Entire day blocked
-      (await getAllSlotHoursLive()).forEach((h) => blockedHours.add(h));
-    } else {
-      blockedHours.add(block.startHour);
-    }
+  for (const block of [...slotBlocks, ...overlappingConfigBlocks]) {
+    // A null startHour is the whole day.
+    if (block.startHour === null) allHours.forEach((h) => blockedHours.add(h));
+    else blockedHours.add(block.startHour);
   }
-
-  // Also check if any overlapping configs have zone-level blocks
-  // by checking blocks on configs that share zones
-  const overlappingConfigBlocks = await client.slotBlock.findMany({
-    where: {
-      date: dateOnly,
-      courtConfigId: { not: null },
-      courtConfig: {
-        zones: { hasSome: config.zones },
-      },
-    },
-  });
-  for (const block of overlappingConfigBlocks) {
-    if (block.startHour === null) {
-      (await getAllSlotHoursLive()).forEach((h) => blockedHours.add(h));
-    } else {
-      blockedHours.add(block.startHour);
-    }
-  }
-
-  // Get pricing for this config
-  const prices = await getSlotPrices(courtConfigId, date);
 
   // Check if the requested date is today or in the past (IST)
   const todayIST = getTodayIST();
@@ -500,18 +500,15 @@ async function getSlotPrices(
   const dayType = isWeekend(date) ? "WEEKEND" : "WEEKDAY";
 
   // Get time classifications for this day type
-  const classifications = await db.timeClassification.findMany({
-    where: { dayType },
-    orderBy: { startHour: "asc" },
-  });
-
-  // Get pricing rules for this config
-  const pricingRules = await db.pricingRule.findMany({
-    where: { courtConfigId },
-  });
+  // Three independent reads, together. Sequentially they were three round
+  // trips inside a function that is itself called once per court-day.
+  const [classifications, pricingRules, hours] = await Promise.all([
+    db.timeClassification.findMany({ where: { dayType }, orderBy: { startHour: "asc" } }),
+    db.pricingRule.findMany({ where: { courtConfigId } }),
+    getAllSlotHoursLive(),
+  ]);
 
   const priceMap = new Map<number, number>();
-  const hours = (await getAllSlotHoursLive());
 
   for (const hour of hours) {
     // Find which time type this hour falls into

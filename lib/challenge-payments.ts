@@ -51,7 +51,7 @@
 
 import { db } from "@/lib/db";
 import { getSlotPricesForDate } from "@/lib/pricing";
-import { getSlotAvailability } from "@/lib/availability";
+import { getSlotAvailability, type SlotAvailability } from "@/lib/availability";
 import {
   createRazorpayOrder,
   verifyRazorpaySignature,
@@ -139,6 +139,13 @@ async function freeCourtFor(
   preferredId: string | null,
   /** Pass a transaction client when asking under an advisory lock. */
   client: typeof db = db,
+  /**
+   * How to get a day's availability. The sweep passes a memo: this function
+   * asks the same court-day over and over across a board of challenges, and
+   * each ask is a round trip.
+   */
+  availFor: (courtId: string, on: Date) => Promise<SlotAvailability[]> = (id, on) =>
+    getSlotAvailability(id, on, client),
 ): Promise<string | null> {
   const configs = await client.courtConfig.findMany({
     where: { sport: sport as never, isActive: true },
@@ -155,7 +162,7 @@ async function freeCourtFor(
   ];
 
   for (const c of ordered) {
-    const avail = await getSlotAvailability(c.id, date, client);
+    const avail = await availFor(c.id, date);
     const allFree = hours.every(
       (h) => avail.find((s) => s.hour === h)?.status === "available",
     );
@@ -2327,23 +2334,89 @@ export async function discardChallengesWhoseHourWent(
     take: 200,
   });
 
-  // ONE availability computation per (court, day, hours), reused across every
-  // challenge and window in this run.
+  // ONE availability computation per (court, DAY), reused across every
+  // challenge, window and hour in this run.
   //
   // Running the cron for real showed this sweep taking up to 163 SECONDS on a
   // sixty-second schedule — so in production three runs would be in flight at
   // once, each redoing the same lookups, on the sweep whose job is to tell two
-  // captains their hour has gone. It asked per window per challenge, and a
-  // board of forty challenges asks the same question forty times.
-  const seen = new Map<string, boolean>();
+  // captains their hour has gone. The first memo keyed on the HOURS as well as
+  // the court and day, which is the wrong key: `getSlotAvailability` returns
+  // the whole day either way, so two windows on one court-day with different
+  // hours each paid for a fresh round trip. Measured again after that fix it
+  // was still 231 seconds on 53 live challenges — worse than the number the
+  // comment above admits — because the unpinned windows go through
+  // `freeCourtFor`, which asks per court config and had no memo at all. It
+  // takes this one now.
+  //
+  // Keyed on the day, the whole sweep costs one lookup per court-day it
+  // touches, however many challenges are asking about it.
+  const days = new Map<string, Promise<SlotAvailability[]>>();
+  const availFor = (courtId: string, on: Date) => {
+    const key = `${courtId}:${on.toISOString().slice(0, 10)}`;
+    // The PROMISE is cached, not its result: the loop below awaits, but
+    // caching after the await would let two asks for one court-day both miss.
+    let p = days.get(key);
+    if (!p) {
+      p = getSlotAvailability(courtId, on);
+      days.set(key, p);
+    }
+    return p;
+  };
   const isFree = async (courtId: string, date: Date, hrs: number[]) => {
-    const key = `${courtId}:${date.toISOString().slice(0, 10)}:${hrs.join(",")}`;
-    const hit = seen.get(key);
-    if (hit !== undefined) return hit;
-    const avail = await getSlotAvailability(courtId, date);
-    const free = hrs.every((h) => avail.find((sl) => sl.hour === h)?.status === "available");
-    seen.set(key, free);
-    return free;
+    const avail = await availFor(courtId, date);
+    return hrs.every((h) => avail.find((sl) => sl.hour === h)?.status === "available");
+  };
+
+  // WARM THE MEMO IN PARALLEL, before the loop below walks it serially.
+  //
+  // The memo removed the repeated lookups; it did not remove the waiting. Every
+  // remaining court-day was still asked for one at a time, and they do not
+  // depend on each other — a board of 53 challenges spent 69 seconds queueing
+  // ~28 independent reads on a sixty-second schedule. Asking in small parallel
+  // batches keeps the pool out of trouble while paying the latency once per
+  // batch rather than once per court-day.
+  //
+  // Only the PINNED courts are primed. An unpinned window searches every
+  // config for its sport through `freeCourtFor`, which now shares this same
+  // memo, so whatever it does look up is cached for everyone after it.
+  const wanted = new Map<string, { courtId: string; date: Date }>();
+  for (const c of live) {
+    const pin = c.payments.find((p) => p.quotedCourtConfigId)?.quotedCourtConfigId ?? null;
+    const decisive = c.agreedWindowId
+      ? c.windows.filter((w) => w.id === c.agreedWindowId)
+      : c.windows;
+    for (const w of decisive) {
+      const court = pin ?? w.courtConfigId;
+      if (!court) continue;
+      const key = `${court}:${w.date.toISOString().slice(0, 10)}`;
+      if (!wanted.has(key)) wanted.set(key, { courtId: court, date: w.date });
+    }
+  }
+  const toWarm = [...wanted.values()];
+  const BATCH = 8;
+  for (let i = 0; i < toWarm.length; i += BATCH) {
+    await Promise.all(
+      toWarm.slice(i, i + BATCH).map((x) => availFor(x.courtId, x.date).catch(() => [])),
+    );
+  }
+
+  // Read ONCE. This was inside the per-challenge loop, so a board of 200
+  // challenges read the venue's push templates 200 times.
+  const tpls = await db.challengeSettings.findFirst({
+    select: { slotLostPush: true },
+  });
+  const labels = new Map<string, string | null>();
+  const labelFor = async (courtId: string) => {
+    if (labels.has(courtId)) return labels.get(courtId) ?? null;
+    const l = (
+      await db.courtConfig.findUnique({
+        where: { id: courtId },
+        select: { label: true },
+      })
+    )?.label ?? null;
+    labels.set(courtId, l);
+    return l;
   };
 
 
@@ -2371,7 +2444,7 @@ export async function discardChallengesWhoseHourWent(
       // and that is the rarer case — anything with money in it has a pin.
       const free = want
         ? await isFree(want, w.date, hrs)
-        : !!(await freeCourtFor(c.sport, w.date, hrs, null));
+        : !!(await freeCourtFor(c.sport, w.date, hrs, null, db, availFor));
       if (free) alive.push(w);
     }
     if (alive.length > 0) continue;
@@ -2389,17 +2462,7 @@ export async function discardChallengesWhoseHourWent(
       : "the hour was booked by somebody else before both halves were in";
     const gone = decisive[0];
     const court = quotedCourt ?? gone.courtConfigId;
-    const label = court
-      ? (
-          await db.courtConfig.findUnique({
-            where: { id: court },
-            select: { label: true },
-          })
-        )?.label
-      : null;
-    const tpls = await db.challengeSettings.findFirst({
-      select: { slotLostPush: true },
-    });
+    const label = court ? await labelFor(court) : null;
     const ok = await discardForLostHour({
       challengeId: c.id,
       reason,
