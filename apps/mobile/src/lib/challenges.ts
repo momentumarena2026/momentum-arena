@@ -283,13 +283,13 @@ export function statusLabel(status: string): string {
     case "OPEN":
       return "looking for a match";
     case "COUNTERED":
-      return "another time suggested";
+      return "counter-offered";
     case "AGREED":
-      return "time agreed";
+      return "matched, both halves due";
     case "PART_PAID":
-      return "one half paid";
+      return "half paid, court held";
     case "CONFIRMED":
-      return "confirmed";
+      return "paid, court booked";
     case "SLOT_LOST":
       return "the hour went";
     case "WITHDRAWN":

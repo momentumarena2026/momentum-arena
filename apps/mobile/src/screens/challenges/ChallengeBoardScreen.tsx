@@ -14,6 +14,7 @@ import {
   withdrawChallenge,
   hourLabel,
   dayLabel,
+  statusLabel,
   trackChallenge,
   type Challenge,
 } from "../../lib/challenges";
@@ -251,10 +252,7 @@ function ChallengeCard({
             {/* Every live state is named. PART_PAID used to render
                 identically to an unanswered post, so a captain with money
                 already in and a half outstanding saw nothing about it. */}
-            {c.status === "COUNTERED" ? " · counter-offered" : ""}
-            {c.status === "AGREED" ? " · matched, both halves due" : ""}
-            {c.status === "PART_PAID" ? " · half paid, court held" : ""}
-            {c.status === "CONFIRMED" ? " · paid, court booked" : ""}
+            {c.status === "OPEN" ? "" : ` · ${statusLabel(c.status)}`}
             {c.status === "CONFIRMED" && mine && spinEnabled && !c.spin ? " · prize inside" : ""}
           </Text>
         </View>

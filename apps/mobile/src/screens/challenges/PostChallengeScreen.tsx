@@ -97,7 +97,13 @@ export function PostChallengeScreen() {
   const hours = allHours.filter(
     (h) => pickDay !== getTodayIST() || h >= earliestHourToday,
   );
+  // 7pm by default, but never an hour the arena can no longer take. Now that
+  // the strip can start TODAY, a captain opening the form at 9pm would
+  // otherwise arrive on a default the server refuses.
   const [pickHour, setPickHour] = useState<number>(18);
+  useEffect(() => {
+    if (hours.length > 0 && !hours.includes(pickHour)) setPickHour(hours[0]);
+  }, [hours, pickHour]);
   const [pickLen, setPickLen] = useState<number>(2);
 
   const addWindow = () => {
