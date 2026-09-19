@@ -110,6 +110,7 @@ const challengeForPay = {
       paidAt: true,
       placedAt: true,
       quotedAdvance: true,
+      quotedTotal: true,
     },
   },
 } as const;
@@ -370,6 +371,11 @@ export async function challengeQuote(
         paidSide: paidSides[0],
       });
     }
+    // And the COURT price from the same pin when the hour has gone. Without
+    // it, `freeCourtFor` returns nothing, `total` falls to 0, and the captain
+    // who has already paid ₹500 is shown "₹0 for the court" — a number that is
+    // not true of anything. What they agreed to is what they should see.
+    if (!courtId && first?.quotedTotal) total = first.quotedTotal;
   }
   // The lead-time gate applies to the payment that BUYS the court — which is
   // now the second one, not the first. The exemption in the spec was written
@@ -393,8 +399,16 @@ export async function challengeQuote(
   // The refusals `createChallengePaymentOrder` will apply belong HERE too,
   // or the app shows a Pay button the server always rejects — and in the ₹0
   // cases it showed one with no price and no reason at all.
-  const unpayable =
-    total <= 0
+  //
+  // Only when a court was actually FOUND. With the hour gone, `courtId` is
+  // null and `total` is 0 as a CONSEQUENCE — so checking the price first told
+  // the second captain "that court has no price set, the venue needs to fix
+  // that first", blaming the arena for a pricing mistake when the truth was
+  // that somebody had booked the hour. The price is only news when there is a
+  // court to price.
+  const unpayable = !courtId
+    ? null
+    : total <= 0
       ? "That court has no price set — the venue needs to fix that first."
       : advance <= 0
         ? "Challenges aren't taking payment right now. Please tell the arena."
@@ -1935,6 +1949,14 @@ async function placeClaimedPayment(args: {
     select: { payHalfPush: true, confirmedPush: true, slotLostPush: true },
   });
   const quoted = await challengeQuote(challengeId, userId).catch(() => null);
+  const quotedCourtLabel = slot.quotedCourtConfigId
+    ? (
+        await db.courtConfig.findUnique({
+          where: { id: slot.quotedCourtConfigId },
+          select: { label: true },
+        })
+      )?.label
+    : null;
   const pushVars = {
     // A placeholder only for the messages that go to nobody in particular.
     // Anything addressed to ONE captain must build its own vars with
@@ -1945,7 +1967,11 @@ async function placeClaimedPayment(args: {
     team: c.teamName ?? c.createdBy?.name ?? "the other side",
     hour: `${hourWord(win.startHour)}–${hourWord(win.endHour)}`,
     date: istDayLabel(win.date),
-    court: quoted?.courtLabel ?? "",
+    // The court the halves were QUOTED on, not whatever is free now. When the
+    // hour has gone `challengeQuote` finds no court and the label comes back
+    // null — which is exactly the moment these messages are sent, so the arena
+    // was told "Tue, 29 Sep 7pm–8pm on  was booked by somebody else".
+    court: quoted?.courtLabel ?? quotedCourtLabel ?? "",
     amount: slot.amount,
     total: quoted?.total ?? 0,
     balance: quoted?.venueBalance ?? 0,
