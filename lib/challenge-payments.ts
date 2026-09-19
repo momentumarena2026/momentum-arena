@@ -2675,9 +2675,25 @@ export async function discardChallengesWhoseHourWent(
       const hrs = windowHours(w.startHour, w.endHour);
       // A KNOWN court is one lookup. Only an unpinned window needs the search,
       // and that is the rarer case — anything with money in it has a pin.
-      const free = want
-        ? await isFree(want, w.date, hrs)
-        : !!(await freeCourtFor(c.sport, w.date, hrs, null, db, availFor));
+      // ONE BAD ROW MUST NOT STOP THE PASS.
+      //
+      // `getSlotAvailability` throws "Court config not found" for a court the
+      // venue has deleted, and that exception came straight out of this loop
+      // and aborted the whole sweep — so a single challenge pinned to a
+      // retired court stalled every challenge queued behind it, including
+      // trivially-discardable ones. This is the sweep that tells two captains
+      // their hour is gone and flags the money owed, so "it stops early" is
+      // money left unrepaired.
+      //
+      // A window whose court cannot be resolved is not free — it is gone,
+      // which is exactly what this sweep exists to act on.
+      const free = await (want
+        ? isFree(want, w.date, hrs)
+        : freeCourtFor(c.sport, w.date, hrs, null, db, availFor).then((x) => !!x)
+      ).catch((e) => {
+        console.error("[challenges] could not price a window, treating it as gone:", w.id, e);
+        return false;
+      });
       if (free) alive.push(w);
     }
     if (alive.length > 0) continue;
@@ -2760,6 +2776,17 @@ export async function resumeStalledPayments(now = new Date()): Promise<number> {
       razorpayPaymentId: true,
       razorpaySignature: true,
     },
+    // OLDEST FIRST. A cap with no order is a starvation bug, not a page: once
+    // the matching set passes 50 rows, Postgres may return the same arbitrary
+    // subset every tick and the rest are never scanned at all. Measured on a
+    // busy board: 94 rows matching this filter against a cap of 50, and
+    // captured money sat unrepaired through 17 consecutive passes with no
+    // booking and no refund flag — money in, nothing happening, indefinitely.
+    // Ordered, every row this sweep finishes leaves the set, so the queue
+    // drains instead of circling. `discardChallengesWhoseHourWent` was given
+    // this after an earlier incident; its two siblings in the same file were
+    // not.
+    orderBy: { paidAt: "asc" },
     take: 50,
   });
 
@@ -2798,6 +2825,10 @@ export async function resumeStalledPayments(now = new Date()): Promise<number> {
         },
       },
     },
+    // Oldest first, for the same reason: 82 rows matched this filter against
+    // the same cap of 50, and twelve challenges with BOTH halves paid sat
+    // without a court for the whole rehearsal.
+    orderBy: { placedAt: "asc" },
     take: 50,
   });
   const bothIn = unbought.filter(
