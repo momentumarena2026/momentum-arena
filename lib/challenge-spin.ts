@@ -192,6 +192,7 @@ export async function spinFor(
       offerId: string;
       expiresAt: Date;
       hour: string | null;
+      date: string | null;
       price: number | null;
       saving: number | null;
     }
@@ -273,7 +274,12 @@ export async function spinFor(
       challengeId,
       detail: `${pct}% · next hour already booked, no fallback`,
     });
-    return { ok: false, error: "The hour after your match is already taken." };
+    return {
+      ok: false,
+      error:
+        `You spun ${pct}% — but the hour after your match is already booked, and the ` +
+        `arena only offers this on the next hour. Nothing has been charged.`,
+    };
   }
 
   const kind = useAdjacent ? "ADJACENT" : "FALLBACK";
@@ -365,6 +371,11 @@ export async function spinFor(
     offerId: spin.offer!.id,
     expiresAt,
     hour: free ? hourRangeLabel(free.startHour) : null,
+    // The day, from the moment of the spin. The panel is shown before any
+    // refresh, so without this the captain was asked for ₹1,520 for "3pm–4pm"
+    // with nothing saying which day — while the push about the same offer
+    // named it correctly.
+    date: free ? istDayLabel(booking.date) : null,
     price: money?.price ?? null,
     saving: money?.saving ?? null,
   };
@@ -434,6 +445,12 @@ export async function sendOfferReminders(now = new Date()): Promise<number> {
     // notifications saying different numbers of minutes.
     const t = due[0];
     if (typeof t.title !== "string" || typeof t.body !== "string") continue;
+    // A FALLBACK offer has no hour, court or price until one is picked, so a
+    // template asking for them renders "₹0 for the hour" — the worst
+    // sentence in the set to send by accident. Skip a nudge whose copy needs
+    // something this offer cannot supply.
+    const needsHour = /\{(price|saving|hour|court|date)\}/.test(`${t.title} ${t.body}`);
+    if (needsHour && price <= 0) continue;
     const vars: PushVars = {
       minsLeft,
       pct: offer.discountPct,
@@ -808,6 +825,39 @@ export async function bookOfferHour(args: {
  * rest of its life. Every nudge deep-links to that same screen, which made
  * the whole reminder ladder point at a dead end.
  */
+/**
+ * What this poster's spin came to, spent or not.
+ *
+ * `liveOfferFor` only answers "is there an offer right now", which cannot
+ * distinguish never-spun from spun-and-redeemed — so the moment the prize
+ * was paid for, the screen forgot it existed and offered the spin again,
+ * and the server then refused with "you've already spun". A player finished
+ * the happy path holding a booking the app would not show them.
+ */
+export async function spinOutcomeFor(
+  challengeId: string,
+  userId: string,
+): Promise<{ pct: number; spentOn: string | null; hour: string | null; date: string | null } | null> {
+  const spin = await db.challengeSpin.findFirst({
+    where: { challengeId, userId },
+    select: {
+      wonPct: true,
+      offer: {
+        select: { bookingId: true, startHour: true, date: true, takenAt: true },
+      },
+    },
+  });
+  if (!spin) return null;
+  return {
+    pct: spin.wonPct,
+    spentOn: spin.offer?.bookingId ?? null,
+    hour: spin.offer?.startHour !== null && spin.offer?.startHour !== undefined
+      ? hourRangeLabel(spin.offer.startHour)
+      : null,
+    date: spin.offer?.date ? istDayLabel(spin.offer.date) : null,
+  };
+}
+
 export async function liveOfferFor(
   challengeId: string,
   userId: string,
@@ -854,7 +904,7 @@ export async function liveOfferFor(
     hour: o.startHour !== null ? hourRangeLabel(o.startHour) : null,
     price,
     saving,
-    date: o.date ? o.date.toISOString().slice(0, 10) : null,
+    date: o.date ? istDayLabel(o.date) : null,
   };
 }
 

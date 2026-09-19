@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Modal, Pressable, View, Vibration } from "react-native";
+import { Animated, Dimensions, Easing, Modal, Pressable, View, Vibration } from "react-native";
 import Svg, { G, Path, Circle, Text as SvgText, Polygon } from "react-native-svg";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
@@ -37,7 +37,9 @@ export type WheelSegment = { pct: number; weight: number };
  * Long enough to build something, short enough that nobody taps away.
  */
 
-const SIZE = 280;
+// Clamped to the narrowest phone rather than fixed: 280 plus the modal's
+// 2×24 padding overflows anything under 328pt wide.
+const SIZE = Math.min(280, Math.round(Dimensions.get("window").width - 72));
 const R = SIZE / 2;
 const CENTRE = R;
 
@@ -84,6 +86,15 @@ export function SpinWheel({
   const rotation = useRef(new Animated.Value(0)).current;
   const [settled, setSettled] = useState(false);
 
+  // Reopening after a spin used to draw the "unspun" screen in the previous
+  // spin's resting position, with its odds caption gone.
+  useEffect(() => {
+    if (!visible && landOn === null) {
+      rotation.setValue(0);
+      setSettled(false);
+    }
+  }, [visible, landOn, rotation]);
+
   // Slice geometry, derived once from the venue's real weights.
   const slices = useMemo(() => {
     const live = segments.filter((s) => s.weight > 0);
@@ -98,11 +109,27 @@ export function SpinWheel({
   }, [segments]);
 
   const maxPct = useMemo(() => Math.max(...slices.map((s) => s.pct), 0), [slices]);
+  // The odds, in words. The server computes these for the admin and the
+  // player was never shown a number.
+  const jackpotOdds = useMemo(() => {
+    const total = slices.reduce((t, x) => t + x.weight, 0) || 1;
+    const top = slices.find((x) => x.pct === maxPct);
+    const chance = top ? top.weight / total : 0;
+    return chance > 0 ? `1 in ${Math.round(1 / chance)}` : "never";
+  }, [slices, maxPct]);
 
   useEffect(() => {
     if (landOn === null) return;
-    const target = slices.find((s) => s.pct === landOn) ?? slices[0];
-    if (!target) return;
+    const target = slices.find((s) => s.pct === landOn);
+    if (!target) {
+      // The venue edited the wheel between this screen loading and the spin.
+      // Landing on slices[0] would point the needle at one number while the
+      // title announced another — for a feature whose whole premise is that
+      // a player eventually notices, that is the worst possible failure.
+      // Show the result without pretending to have spun to it.
+      setSettled(true);
+      return;
+    }
 
     // The needle sits at 12 o'clock, so the wheel has to turn BACKWARDS by
     // the winning slice's mid-angle to bring it under the needle.
@@ -220,9 +247,11 @@ export function SpinWheel({
 
         {/* The thin gold sliver is the point of the whole promo, so say what
             it is rather than leaving people to squint at it. */}
-        {!settled && maxPct > 0 && (
+        {maxPct > 0 && (
           <Text variant="tiny" color={colors.zinc500}>
-            The gold sliver is {maxPct}%. It is exactly as narrow as it looks.
+            {settled
+              ? `The gold sliver is ${maxPct}% — about ${jackpotOdds} of spins.`
+              : `The gold sliver is ${maxPct}%. It is exactly as narrow as it looks.`}
           </Text>
         )}
 
@@ -232,13 +261,14 @@ export function SpinWheel({
           ) : settled ? (
             <Button label="See what I can book" variant="primary" onPress={onClose} />
           ) : null}
-          {landOn === null && (
-            <Pressable onPress={onClose} style={{ alignSelf: "center", padding: 8 }}>
-              <Text variant="small" color={colors.zinc500}>
-                Not now
-              </Text>
-            </Pressable>
-          )}
+          {/* ALWAYS present. Hiding it during the spin left an iOS user with
+              no control at all if the animation's completion callback never
+              fired — a full-screen modal over a stopped wheel. */}
+          <Pressable onPress={onClose} style={{ alignSelf: "center", padding: 8 }}>
+            <Text variant="small" color={colors.zinc500}>
+              {landOn === null ? "Not now" : settled ? "Close" : "Skip the animation"}
+            </Text>
+          </Pressable>
         </View>
       </View>
     </Modal>

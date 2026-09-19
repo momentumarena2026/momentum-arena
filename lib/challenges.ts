@@ -106,6 +106,9 @@ const listSelect = {
   counterCountChallenger: true,
   counterCountAcceptor: true,
   bookingId: true,
+  // Whether the poster has already spun, so the board card can stop
+  // advertising "prize inside" on a prize that has been spent.
+  spin: { select: { id: true } },
   createdBy: { select: { id: true, name: true } },
   acceptedBy: { select: { id: true, name: true } },
   windows: {

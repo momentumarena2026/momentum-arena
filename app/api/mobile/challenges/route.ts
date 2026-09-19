@@ -26,6 +26,7 @@ import {
   offerQuote,
   offerSlots,
   liveOfferFor,
+  spinOutcomeFor,
   createOfferOrder,
   confirmOfferPayment,
   spinConfig,
@@ -101,6 +102,7 @@ export async function GET(request: NextRequest) {
       isParticipant ? undefined : offered[0]?.id,
     ).catch(() => null);
     const offer = await liveOfferFor(id, user.id).catch(() => null);
+    const spin = await spinOutcomeFor(id, user.id).catch(() => null);
     const liveSettings = await challengeSettings();
     return NextResponse.json({
       challenge: one,
@@ -111,6 +113,7 @@ export async function GET(request: NextRequest) {
       spinEnabled: liveSettings.spinEnabled,
       boardEnabled: liveSettings.enabled,
       offer,
+      spin,
       windowQuotes,
       // The counter picker needs the same real hours the post form does.
       hours: await getOperatingHours(),

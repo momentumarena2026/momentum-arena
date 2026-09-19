@@ -22,6 +22,7 @@ export type ChallengeWindow = {
 };
 
 export type Challenge = {
+  spin?: { id: string } | null;
   id: string;
   sport: string;
   teamName: string | null;
@@ -42,6 +43,7 @@ export type Challenge = {
 };
 
 export type ChallengeBoard = {
+  spinEnabled: boolean;
   enabled: boolean;
   viewerId: string;
   board: Challenge[];
@@ -137,6 +139,8 @@ export async function fetchChallenge(id: string): Promise<{
   /** Per-window price and refusal for a prospective taker. */
   windowQuotes: { windowId: string; share: number | null; refusal: string | null }[];
   hours: { start: number; end: number };
+  /** What the spin came to, spent or not. Null means never spun. */
+  spin: { pct: number; spentOn: string | null; hour: string | null; date: string | null } | null;
   /** A prize already won and not yet spent — survives an app restart. */
   offer: {
     offerId: string;
@@ -167,6 +171,7 @@ export type SpinResult = {
   offerId: string;
   expiresAt: string;
   hour: string | null;
+  date: string | null;
   price: number | null;
   saving: number | null;
 };

@@ -186,8 +186,37 @@ export function RootNavigator() {
             },
           });
           break;
-        case "in_app":
-          // In-app notification mirror — land on My Notifications.
+        case "in_app": {
+          // Land on the THING, not the list. `link` was written by the
+          // server, carried in every payload, and read by nothing — so a
+          // prize nudge on a thirty-minute clock arrived as "open the app,
+          // find the row, tap it". The list is the fallback, not the
+          // destination.
+          const link = typeof payload?.link === "string" ? payload.link : "";
+          const challenge = link.match(/^\/challenges\/([\w-]+)$/);
+          if (challenge) {
+            navigationRef.navigate("Main", {
+              screen: "Account",
+              params: {
+                screen: "ChallengeDetail",
+                params: { id: challenge[1] },
+                initial: false,
+              },
+            });
+            break;
+          }
+          const booking = link.match(/^\/bookings\/([\w-]+)$/);
+          if (booking) {
+            navigationRef.navigate("Main", {
+              screen: "Account",
+              params: {
+                screen: "BookingDetail",
+                params: { bookingId: booking[1] },
+                initial: false,
+              },
+            });
+            break;
+          }
           navigationRef.navigate("Main", {
             screen: "Account",
             params: {
@@ -196,6 +225,7 @@ export function RootNavigator() {
             },
           });
           break;
+        }
         case "slot_available":
           // Drop the user into their waitlist screen so they see EVERY
           // entry that's been notified (a single freeing event can

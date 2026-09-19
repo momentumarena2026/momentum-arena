@@ -59,6 +59,8 @@ export interface PushTapPayload {
   kind: PushKind;
   bookingId?: string;
   cafeOrderId?: string;
+  /** In-app destination the server chose, e.g. "/challenges/<id>". */
+  link?: string;
   raw: Record<string, string>;
 }
 
@@ -267,6 +269,7 @@ function parseTapPayload(
     kind,
     bookingId: data.bookingId,
     cafeOrderId: data.cafeOrderId,
+    link: data.link,
     raw: data,
   };
 }

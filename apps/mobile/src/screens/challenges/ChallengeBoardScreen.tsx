@@ -54,17 +54,23 @@ export function ChallengeBoardScreen() {
     [q.data?.mine],
   );
 
-  if (q.data && !q.data.enabled) {
+  // A switched-off board must not hide somebody's OWN live matches. A
+  // captain holding a part-paid match with money in and a court held was
+  // told the feature did not exist yet, and lost the only route to the
+  // screen where he could pay the rest. The wall is for people with nothing
+  // in flight.
+  const boardOff = !!q.data && !q.data.enabled;
+  if (boardOff && mineLive.length === 0) {
     return (
       <Screen>
         <View style={{ padding: 24, alignItems: "center", gap: 10 }}>
           <Swords size={28} color={colors.zinc600} />
           <Text variant="heading" color={colors.foreground}>
-            Challenges aren&apos;t open yet
+            Challenges aren&apos;t open right now
           </Text>
           <Text variant="small" color={colors.zinc500} style={{ textAlign: "center" }}>
-            The arena will switch this on soon. You&apos;ll be able to post a match
-            and let another team take it.
+            The arena has paused this. You&apos;ll be able to post a match and let
+            another team take it when it&apos;s back.
           </Text>
         </View>
       </Screen>
@@ -121,6 +127,22 @@ export function ChallengeBoardScreen() {
                 </Pressable>
               );
             })}
+          </View>
+        )}
+
+        {boardOff && (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.zinc800,
+              borderRadius: radius.md,
+              padding: 12,
+            }}
+          >
+            <Text variant="small" color={colors.zinc400}>
+              The arena has paused new challenges. Your matches below are unaffected —
+              finish paying and play them as normal.
+            </Text>
           </View>
         )}
 
@@ -181,6 +203,7 @@ export function ChallengeBoardScreen() {
                   key={c.id}
                   c={c}
                   viewerId={q.data?.viewerId ?? ""}
+                  spinEnabled={!!q.data?.spinEnabled}
                   onPress={() => nav.navigate("ChallengeDetail", { id: c.id })}
                 />
               ))
@@ -194,11 +217,13 @@ export function ChallengeBoardScreen() {
 function ChallengeCard({
   c,
   viewerId,
+  spinEnabled,
   onPress,
   onWithdraw,
 }: {
   c: Challenge;
   viewerId: string;
+  spinEnabled?: boolean;
   onPress: () => void;
   onWithdraw?: () => void;
 }) {
@@ -230,7 +255,7 @@ function ChallengeCard({
             {c.status === "AGREED" ? " · matched, both halves due" : ""}
             {c.status === "PART_PAID" ? " · half paid, court held" : ""}
             {c.status === "CONFIRMED" ? " · paid, court booked" : ""}
-            {c.status === "CONFIRMED" && mine ? " · prize inside" : ""}
+            {c.status === "CONFIRMED" && mine && spinEnabled && !c.spin ? " · prize inside" : ""}
           </Text>
         </View>
         <ChevronRight size={18} color={colors.zinc600} />

@@ -38,6 +38,20 @@ import { useAuth } from "../../providers/AuthProvider";
  * surfaces answering the same question separately is how the cricket
  * engines drifted, and there is no reason to repeat it here.
  */
+/**
+ * Razorpay rejects for two very different reasons down one channel: the
+ * user closed the sheet, or the payment failed. Only the first deserves
+ * silence.
+ */
+function isSheetDismissal(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code;
+  const desc = String((e as { description?: unknown } | null)?.description ?? "").toLowerCase();
+  // Razorpay's PAYMENT_CANCELLED is 0 (and 2 on some builds); the text is
+  // the fallback for versions that only populate the description.
+  if (code === 0 || code === 2 || code === "0") return true;
+  return desc.includes("cancel") || desc.includes("dismiss");
+}
+
 export function ChallengeDetailScreen() {
   const route = useRoute<RouteProp<AccountStackParamList, "ChallengeDetail">>();
   const nav = useNavigation();
@@ -112,6 +126,12 @@ export function ChallengeDetailScreen() {
   // lapsed offer kept its panel and its Book button alive indefinitely, and
   // a refresh could not correct it — the user tapped a live-looking button
   // and got "That offer has expired."
+  const spinOutcome = q.data?.spin ?? null;
+  // Once the server has answered, IT decides. Falling back to local state
+  // when the server says "no live offer" is how a lapsed prize kept a live
+  // Book button that refreshing could not clear — and how a SPENT prize
+  // disappeared entirely and the spin button came back.
+  const serverAnswered = q.isSuccess;
   const prize: SpinResult | null =
     (serverOffer
       ? {
@@ -120,10 +140,13 @@ export function ChallengeDetailScreen() {
           offerId: serverOffer.offerId,
           expiresAt: serverOffer.expiresAt,
           hour: serverOffer.hour,
+          date: serverOffer.date,
           price: serverOffer.price,
           saving: serverOffer.saving,
         }
-      : null) ?? spun;
+      : serverAnswered
+        ? null
+        : spun) ?? (serverAnswered ? null : spun);
   const mine = c.createdByUserId === me;
   const iAmIn = mine || c.acceptedByUserId === me;
   // A switched-off board must stop offering actions here too. This field was
@@ -170,8 +193,19 @@ export function ChallengeDetailScreen() {
           },
           theme: { color: colors.emerald500 },
         })) as typeof paid;
-      } catch {
-        return; // sheet dismissed — nothing was charged, say nothing
+      } catch (e) {
+        // A dismissed sheet and a FAILED payment arrive down the same path,
+        // and treating both as silence meant somebody who pressed a button
+        // in their bank and got nothing back had no idea whether money had
+        // left their account. Razorpay's cancellation carries its own code;
+        // anything else is a real failure and deserves a sentence.
+        if (!isSheetDismissal(e)) {
+          Alert.alert(
+            "That payment didn't go through",
+            "Nothing has been charged. You can try again — the time is still yours to take.",
+          );
+        }
+        return;
       }
       const res = await verifyChallengePayment({
         challengeId: id,
@@ -253,8 +287,14 @@ export function ChallengeDetailScreen() {
           },
           theme: { color: colors.emerald500 },
         })) as typeof paid;
-      } catch {
-        return; // sheet dismissed — the offer is still live
+      } catch (e) {
+        if (!isSheetDismissal(e)) {
+          Alert.alert(
+            "That payment didn't go through",
+            "Nothing has been charged. Your discount is still yours — try again before it expires.",
+          );
+        }
+        return;
       }
       await verifyOfferPayment({
         offerId: prize.offerId,
@@ -343,13 +383,50 @@ export function ChallengeDetailScreen() {
                 <Text variant="small" color={colors.zinc300}>
                   Both halves are in and the court is booked. See you there.
                 </Text>
-                {mine && !prize && spinEnabled && (
+                {mine && !prize && !spinOutcome && spinEnabled && (
                   <Button
                     label="Spin the wheel"
                     variant="primary"
                     onPress={() => setWheelOpen(true)}
                   />
                 )}
+                {!prize && spinOutcome && (
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.zinc800,
+                      borderRadius: radius.md,
+                      padding: 12,
+                      gap: 6,
+                    }}
+                  >
+                    <Text variant="bodyStrong" color={colors.emerald400}>
+                      You won {spinOutcome.pct}% off
+                    </Text>
+                    <Text variant="small" color={colors.zinc400}>
+                      {spinOutcome.spentOn
+                        ? `Used on ${spinOutcome.date ?? ""} ${spinOutcome.hour ?? "an extra hour"}.`.replace(
+                            /\s+/g,
+                            " ",
+                          )
+                        : "That offer has lapsed."}
+                    </Text>
+                    {spinOutcome.spentOn ? (
+                      <Button
+                        label="See that booking"
+                        variant="secondary"
+                        size="sm"
+                        onPress={() =>
+                          (nav as never as { navigate: (s: string, p: object) => void }).navigate(
+                            "BookingDetail",
+                            { bookingId: spinOutcome.spentOn },
+                          )
+                        }
+                      />
+                    ) : null}
+                  </View>
+                )}
+
                 {prize && (
                   <View
                     style={{
@@ -365,14 +442,22 @@ export function ChallengeDetailScreen() {
                     </Text>
                     <Text variant="small" color={colors.zinc300}>
                       {prize.kind === "ADJACENT" && prize.hour
-                        ? `${serverOffer?.date ? `${serverOffer.date}, ` : ""}${prize.hour} is free — ₹${prize.price} instead of ₹${(prize.price ?? 0) + (prize.saving ?? 0)}. Ask your side, then take it.`
+                        ? `${prize.date ? `${prize.date}, ` : ""}${prize.hour} is free — ₹${prize.price} instead of ₹${(prize.price ?? 0) + (prize.saving ?? 0)}. Ask your side, then take it.`
                         : `The hour after your match is taken. This is good on another hour of the same size of court you just played on — pick one below.`}
                     </Text>
                     <Text variant="tiny" color={colors.zinc500}>
-                      Expires {new Date(prize.expiresAt).toLocaleTimeString("en-IN", {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
+                      {(() => {
+                        // Minutes remaining, not a wall-clock time. "Expires
+                        // 12:39 PM" on a thirty-minute offer invites the
+                        // reading that the HOUR is this afternoon.
+                        const mins = Math.max(
+                          0,
+                          Math.ceil((new Date(prize.expiresAt).getTime() - Date.now()) / 60000),
+                        );
+                        return mins > 0
+                          ? `${mins} minute${mins === 1 ? "" : "s"} left to take it`
+                          : "This offer has expired.";
+                      })()}
                     </Text>
                     {prize.kind === "ADJACENT" ? (
                       <Button
@@ -527,9 +612,20 @@ export function ChallengeDetailScreen() {
                         // live button that failed with a sentence telling
                         // the user to do what the server had just refused.
                         const wq = windowQuotes.find((x) => x.windowId === w.id);
+                        // No quote means this window is not one a stranger
+                        // can buy into — an acceptor's counter-offer, say.
+                        // A bare "Take this match" with no price here was
+                        // always refused by the server.
+                        if (!wq) {
+                          return (
+                            <Text variant="tiny" color={colors.zinc600}>
+                              waiting on them
+                            </Text>
+                          );
+                        }
                         if (wq?.refusal) {
                           return (
-                            <Text variant="tiny" color={colors.zinc600} style={{ maxWidth: 150 }}>
+                            <Text variant="tiny" color={colors.zinc600} style={{ flexShrink: 1 }}>
                               {wq.refusal}
                             </Text>
                           );
@@ -570,7 +666,7 @@ export function ChallengeDetailScreen() {
             ) : !showCounter ? (
               <>
                 <Text variant="tiny" color={colors.zinc600}>
-                  None of those work? Suggest one of your own — one counter-offer each. It replaces any time you've already offered.
+                  None of those work? Suggest one of your own. It replaces any time you&apos;ve already offered.
                 </Text>
                 <Button
                   label="Suggest a different time"
@@ -697,7 +793,7 @@ export function ChallengeDetailScreen() {
         subtitle={
           spun
             ? spun.kind === "ADJACENT" && spun.hour
-              ? `${spun.hour} for ₹${spun.price} instead of ₹${(spun.price ?? 0) + (spun.saving ?? 0)}.`
+              ? `${spun.date ? `${spun.date}, ` : ""}${spun.hour} for ₹${spun.price} instead of ₹${(spun.price ?? 0) + (spun.saving ?? 0)}.`
               : "Good on another hour — pick one below."
             : null
         }

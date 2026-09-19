@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   ScrollView,
@@ -41,6 +41,14 @@ export function PostChallengeScreen() {
   const maxWindows = board.data?.limits.maxWindows ?? 3;
 
   const [sport, setSport] = useState<string>(sports[0] ?? "CRICKET");
+  // The sports list arrives with the board fetch, AFTER first render — so
+  // this was frozen on the hard-coded fallback. With `sports: ["FOOTBALL"]`
+  // the picker hid itself (one option) and every post still sent CRICKET,
+  // which the server refused, leaving the board unpostable with nothing the
+  // user could do about it.
+  useEffect(() => {
+    if (sports.length > 0 && !sports.includes(sport)) setSport(sports[0]);
+  }, [sports, sport]);
   const [teamName, setTeamName] = useState("");
   const [players, setPlayers] = useState("");
   const [notes, setNotes] = useState("");
