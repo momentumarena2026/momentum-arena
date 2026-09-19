@@ -34,6 +34,40 @@ export interface BowlingSlotPrice {
  */
 export function advisoryLockKey(configId: string, date: string, hour: number): number {
   const str = `${configId}:${date}:${hour}`;
+  return hashToLockKey(str);
+}
+
+/**
+ * The locks that actually exclude two bookings of the same ground.
+ *
+ * A court-hour lock keyed on the CONFIG serialises two people reaching for the
+ * same config — and nothing else. But whether two bookings conflict is decided
+ * by ZONE overlap: on this arena, Full Field covers [LEATHER_1, BOX_A, BOX_B,
+ * LEATHER_2] and Medium (Left Half) covers [LEATHER_1, BOX_A], so they clash —
+ * and their config ids hash to different keys, so neither waited for the other.
+ * Two customers were sold overlapping halves of the same ground for the same
+ * hour, reproduced end to end.
+ *
+ * Locking per (zone, date, hour) makes the exclusion match the conflict rule.
+ * Keys are returned SORTED so every caller acquires them in the same order,
+ * which is what stops two overlapping requests deadlocking against each other.
+ */
+export function courtHourLockKeys(
+  zones: string[],
+  configId: string,
+  date: string,
+  hours: number[],
+): number[] {
+  const keys = new Set<number>();
+  for (const hour of hours) {
+    // The config key stays, so nothing that relied on it loses its exclusion.
+    keys.add(hashToLockKey(`${configId}:${date}:${hour}`));
+    for (const zone of zones) keys.add(hashToLockKey(`zone:${zone}:${date}:${hour}`));
+  }
+  return [...keys].sort((a, b) => a - b);
+}
+
+function hashToLockKey(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
@@ -74,13 +108,32 @@ export async function createSlotHold(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + LOCK_TTL_MINUTES * 60 * 1000);
 
+  // The zones this config covers, read BEFORE the transaction so the locks can
+  // be taken on the thing that actually decides a conflict. Reading it inside
+  // would mean locking first and learning what to lock afterwards.
+  const zonesForLock =
+    (
+      await db.courtConfig.findUnique({
+        where: { id: courtConfigId },
+        select: { zones: true },
+      })
+    )?.zones ?? [];
+
   try {
     const holdId = await db.$transaction(
       async (tx) => {
-        // 1. Acquire advisory locks (sorted to prevent ordering edge-cases)
-        const sortedHours = [...hours].sort((a, b) => a - b);
-        for (const hour of sortedHours) {
-          const lockKey = advisoryLockKey(courtConfigId, dateStr, hour);
+        // 1. Acquire advisory locks — per ZONE as well as per config, sorted so
+        //    every caller takes them in the same order. Keyed on the config
+        //    alone, two overlapping configs of the same ground (Full Field and
+        //    Medium Left Half share LEATHER_1 and BOX_A) hashed to different
+        //    keys and neither waited for the other, so the same ground could be
+        //    sold twice for the same hour.
+        for (const lockKey of courtHourLockKeys(
+          zonesForLock as string[],
+          courtConfigId,
+          dateStr,
+          hours,
+        )) {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
         }
 

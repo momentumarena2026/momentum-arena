@@ -1,3 +1,4 @@
+import { courtHourLockKeys } from "../lib/slot-hold";
 /**
  * The rules of the challenge board.
  *
@@ -723,4 +724,29 @@ test("the SECOND half is the one that buys the court, so it is the one gated", (
   }
   assert.equal(gatedAtCapture(0), false, "the first half holds nothing");
   assert.equal(gatedAtCapture(1), true, "the second half buys the hour");
+});
+
+test("two bookings of the same ground take the same lock", () => {
+  // The advisory lock was keyed on the court CONFIG while conflicts are judged
+  // by ZONE overlap — so Full Field and Medium (Left Half), which share
+  // LEATHER_1 and BOX_A, hashed to different keys and neither waited for the
+  // other. Two customers were sold overlapping halves of the same ground for
+  // the same hour, reproduced end to end.
+  const full = ["LEATHER_1", "BOX_A", "BOX_B", "LEATHER_2"];
+  const left = ["LEATHER_1", "BOX_A"];
+  const right = ["BOX_B", "LEATHER_2"];
+  const at = (z: string[], id: string, day = "2026-11-21") =>
+    courtHourLockKeys(z, id, day, [8]);
+  const overlaps = (a: number[], b: number[]) => a.some((k) => b.includes(k));
+
+  assert.ok(overlaps(at(full, "cfg-full"), at(left, "cfg-left")), "full must block left");
+  assert.ok(overlaps(at(full, "cfg-full"), at(right, "cfg-right")), "full must block right");
+  // Halves that share no zone are genuinely independent and must NOT block.
+  assert.ok(!overlaps(at(left, "cfg-left"), at(right, "cfg-right")), "left and right are separate");
+  // Nor may a different day or hour collide.
+  assert.ok(!overlaps(at(full, "cfg-full"), at(full, "cfg-full", "2026-11-22")));
+  assert.ok(!overlaps(at(full, "cfg-full"), courtHourLockKeys(full, "cfg-full", "2026-11-21", [9])));
+  // Sorted, which is what stops two overlapping requests deadlocking.
+  const keys = at(full, "cfg-full");
+  assert.deepEqual(keys, [...keys].sort((a, b) => a - b));
 });

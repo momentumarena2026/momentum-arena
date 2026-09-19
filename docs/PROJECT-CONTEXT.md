@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in.
+**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone (gotcha 15).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -326,6 +326,25 @@ Anything else means main has drifted — stop and investigate, do not push.
     Dismissal labels degrade to the shortest *true* statement (`caught`, not
     `c — b —`) because matches scored before fielder capture have no fielder
     and never will.
+
+15. **A lock only excludes what its KEY says. Key it on the thing the conflict
+    rule actually uses.** `advisoryLockKey(configId, date, hour)` serialised two
+    people reaching for the same court *config* — but whether two bookings clash
+    is decided by **zone overlap**, and Full Field ([LEATHER_1, BOX_A, BOX_B,
+    LEATHER_2]) and Medium Left Half ([LEATHER_1, BOX_A]) are different configs.
+    Different configs, different hashes, neither request waited for the other,
+    and the same patch of ground was sold twice for the same hour — reproduced
+    end to end, not theorised. `courtHourLockKeys(zones, configId, date, hours)`
+    in `lib/slot-hold.ts` is now the only way to lock a court-hour: one key per
+    (zone, date, hour) plus the old config key, returned **sorted** so two
+    overlapping requests cannot deadlock by taking them in opposite orders.
+    Every path that creates a booking must use it — `createSlotHold` and the
+    challenges' `buyTheHour` both do. The same lesson in the other direction:
+    `placeMoney` stamps `placedAt` and then counts placed sides *inside* one
+    transaction, which under READ COMMITTED is **not** mutual exclusion — two
+    payers each saw one side and neither bought the hour. It takes a
+    per-challenge advisory lock (`challengeLockKey`, a band above 2^31 so it
+    cannot meet a court-hour key) so the second payer waits and then sees both.
 
 ---
 

@@ -65,7 +65,7 @@ import {
   DEFAULT_OWNER_REFUND_PUSH,
 } from "@/lib/challenge-push";
 import { istDayLabel } from "@/lib/challenge-spin";
-import { advisoryLockKey } from "@/lib/slot-hold";
+import { courtHourLockKeys } from "@/lib/slot-hold";
 import { logChallengeEvent } from "@/lib/challenges";
 import {
   leadTimeRefusal,
@@ -910,7 +910,10 @@ type Placement =
   | { kind: "slotLost" }
   // The placement could not be completed at all — distinct from slotLost,
   // which is a real answer about the hour.
-  | { kind: "lostRace" };
+  | { kind: "lostRace" }
+  // The transaction failed without writing anything. The money is claimed and
+  // safe; the repair sweep will finish it. Not an error to shout about.
+  | { kind: "deferred" };
 
 /**
  * Money captured that this system cannot honour. Always leaves a trail.
@@ -1097,6 +1100,21 @@ async function strandOrder(
     select: { id: true },
   });
   if (honoured) return null;
+  // ALREADY ON THE QUEUE IS NOT STRANDED EITHER.
+  //
+  // The two refund worklists are joined on nothing: the payment-row queue asks
+  // `refundOwedAt is not null`, the order queue asks `strandedAt is not null
+  // AND settledAt is null`, and the only thing keeping one capture off both is
+  // that stamp. A refused placement — the hour went while somebody was paying,
+  // which is the case this module was rebuilt around — stamps `refundOwedAt`
+  // and never settles the order, so a later webhook replay of that same capture
+  // stranded it and the venue saw ₹500 owed to one person on two rows, and a
+  // Mark-refunded button on each.
+  const alreadyOwed = await db.challengePayment.findFirst({
+    where: { razorpayOrderId: order.razorpayOrderId, refundOwedAt: { not: null } },
+    select: { id: true },
+  });
+  if (alreadyOwed) return null;
   const claimed = await db.challengeOrder.updateMany({
     // `settledAt: null` in the predicate too, so a settle landing between the
     // read and the write cannot be overtaken by a strand.
@@ -1324,7 +1342,34 @@ async function claimSlot(args: {
   // completed payment. Reporting success for it stranded the money
   // permanently: the retry said ok, the pay button said "already paid", and
   // the admin's stranded panel could not see it either.
-  if (row.paidAt) return row.placedAt ? settled() : resume();
+  //
+  // PLACED IS NOT FINISHED EITHER. The same reasoning was never applied one
+  // stage further on: a crash between the `placedAt` stamp and the booking
+  // attach leaves both halves placed with no court bought, and the retry then
+  // returned `{ok:true, PART_PAID}` without calling the placement path at all —
+  // 7 times out of 7, across the whole back half of the request. Placement is
+  // finished when the money is on a court or the challenge is genuinely
+  // waiting on the other half, so ask that instead of asking one column.
+  if (row.paidAt) {
+    if (!row.placedAt) return resume();
+    const c = await db.challenge.findUnique({
+      where: { id: challengeId },
+      select: {
+        bookingId: true,
+        status: true,
+        payments: {
+          where: { paidAt: { not: null }, placedAt: { not: null } },
+          select: { side: true },
+        },
+      },
+    });
+    const bothPlaced = new Set(c?.payments.map((p) => p.side)).size >= 2;
+    // Both halves in and still no court: the work stopped halfway. Anything
+    // else — a court bought, or a challenge legitimately half-paid, or one
+    // already closed — really is done.
+    const unfinished = !c?.bookingId && bothPlaced && !["SLOT_LOST", "WITHDRAWN", "EXPIRED"].includes(c?.status ?? "");
+    return unfinished ? resume() : settled();
+  }
 
   const claimed = await db.challengePayment.updateMany({
     where: { id: row.id, paidAt: null },
@@ -1410,6 +1455,20 @@ async function placeMoney(ctx: {
   // otherwise two halves landing together both read "I am the first" and
   // neither buys the court.
   const placed = await db.$transaction(async (tx) => {
+    // SERIALISE ON THE CHALLENGE.
+    //
+    // The stamp-then-read was inside a transaction, and that is not the same
+    // thing: under READ COMMITTED neither concurrent payer can see the other's
+    // uncommitted `placedAt`, so both counted one side, both took the
+    // "half paid" branch, and NEITHER bought the hour. ₹800 captured, both
+    // halves placed, no booking, nothing flagged, both captains pushed "pay
+    // your half" about a half the other had already paid — 2 trials in 4. The
+    // repair sweep does fix it, but only after its grace period, and the hour
+    // stays on sale the whole time.
+    //
+    // One advisory lock per challenge makes the second payer wait for the
+    // first to commit, and then see both halves.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${challengeLockKey(ctx.challengeId)}::bigint)`;
     await tx.challengePayment.updateMany({
       where: { id: ctx.slot.rowId, placedAt: null },
       data: { placedAt: new Date() },
@@ -2028,6 +2087,9 @@ async function buyTheHour(
   const [first, second] = placed;
 
   const dateStr = ctx.win.date.toISOString().slice(0, 10);
+  const courtZones = (
+    await db.courtConfig.findUnique({ where: { id: courtId }, select: { zones: true } })
+  )?.zones;
   const bought = await db
     .$transaction(
       async (tx) => {
@@ -2044,8 +2106,18 @@ async function buyTheHour(
         // was keeping a second, unlocked copy of the question. It now takes the
         // same locks, then asks again — because the whole point of the lock is
         // that the answer may have changed.
-        for (const h of [...hours].sort((a, b) => a - b)) {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(courtId, dateStr, h)}::bigint)`;
+        // Per ZONE as well as per config, in the same sorted order the ordinary
+        // booking path uses — otherwise a challenge buying Full Field and a
+        // walk-in buying Medium (Left Half) take different keys for the same
+        // patch of ground and neither waits for the other. That was reproduced
+        // end to end: two bookings, overlapping zones, same hour.
+        for (const lockKey of courtHourLockKeys(
+          (courtZones ?? []) as string[],
+          courtId,
+          dateStr,
+          hours,
+        )) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
         }
         // ONE COURT, on the TRANSACTION's client.
         //
@@ -2130,8 +2202,21 @@ async function buyTheHour(
     .catch((e) => {
       if (e instanceof LostRace) return null;
       if (e instanceof HourGone) return "gone" as const;
+      // A transaction that timed out or lost its connection wrote NOTHING —
+      // the money is captured and claimed, and the repair sweep finishes it
+      // within its grace period. Rethrowing turned that into a 500 on a
+      // payment that had in fact succeeded, and a customer staring at an
+      // error with money gone. Prisma's P2028 is the interactive-transaction
+      // timeout; a Neon cold start plus contention is the realistic route to it.
+      const code = (e as { code?: string } | null)?.code;
+      if (code === "P2028" || code === "P2024" || code === "P1017") {
+        console.error("[challenges] placement transaction failed, leaving it to the sweep:", e);
+        return "deferred" as const;
+      }
       throw e;
     });
+
+  if (bought === "deferred") return { kind: "deferred" };
 
   if (bought === "gone") {
     // WHOSE booking took the hour?
@@ -2158,6 +2243,24 @@ async function buyTheHour(
   }
   if (!bought) return { kind: "lostRace" };
   return { kind: "booked", bookingId: bought.bookingId, status: "CONFIRMED" };
+}
+
+/**
+ * A lock key for one challenge, in the same 32-bit space `slot-hold.ts` uses
+ * for court-hours. Deliberately a different derivation so the two families
+ * cannot collide: this one serialises payers of the SAME challenge against
+ * each other, which is a different question from who holds an hour.
+ */
+function challengeLockKey(challengeId: string): number {
+  let hash = 0;
+  for (let i = 0; i < challengeId.length; i++) {
+    hash = ((hash << 5) - hash + challengeId.charCodeAt(i)) | 0;
+  }
+  // Offset clear of the court-hour keys, which are 32-bit and so never exceed
+  // 2_147_483_648. Overlapping the two bands would not corrupt anything — it
+  // would just make an unrelated challenge wait on an unrelated hour — but the
+  // whole value of a named band is that you can reason about it.
+  return Math.abs(hash) % 1_000_000_007 + 4_000_000_000;
 }
 
 /** Thrown to roll back a booking whose challenge was claimed by somebody else. */
@@ -2701,6 +2804,13 @@ async function placeClaimedPayment(args: {
     razorpaySignature: args.razorpaySignature,
     platform: args.platform,
   });
+
+  if (placement.kind === "deferred") {
+    return {
+      ok: false,
+      error: "We're still finishing your payment. Give it a minute, then pull to refresh.",
+    };
+  }
 
   if (placement.kind === "lostRace") {
     // Reachable only if the winning booking vanished between the attach and

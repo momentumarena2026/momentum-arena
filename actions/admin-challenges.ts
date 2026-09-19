@@ -1019,12 +1019,27 @@ export async function adminWithdrawChallenge(
   // Taking it down IS the venue deciding to unwind it, so the action does the
   // unwinding: flag every capture as owed, tell each payer, and tell the arena
   // whose money it is. Nothing is held, so there is no court to release.
-  if (held > 0) {
-    const { flagChallengeRefunds } = await import("@/lib/challenge-payments");
-    await flagChallengeRefunds(id, `the arena took this challenge down: ${reason.trim().slice(0, 120)}`);
-  }
-  await db.challenge.update({
-    where: { id },
+  const heldToFlag = held > 0;
+
+  // CLAIM THE CHALLENGE FIRST, AND CONDITIONALLY.
+  //
+  // This read the challenge once, decided from that snapshot, flagged every
+  // capture for refund, and only then wrote WITHDRAWN with no predicate at
+  // all. So a take-down landing while the second captain's payment was between
+  // its own guard-read and its booking attach produced the worst outcome this
+  // module has: a CONFIRMED booking holding the hour, the challenge WITHDRAWN
+  // and therefore off every worklist, BOTH halves flagged for refund, and both
+  // captains sent "match confirmed" and "we owe you a refund". Four times out
+  // of four. The venue reaches for take-down exactly when a challenge is
+  // half-paid and stalling — which is when the second captain is paying.
+  //
+  // `discardForLostHour` was given this predicate; this was not.
+  const claimed = await db.challenge.updateMany({
+    where: {
+      id,
+      bookingId: null,
+      status: { notIn: ["WITHDRAWN", "EXPIRED", "CONFIRMED"] },
+    },
     data: {
       status: "WITHDRAWN",
       withdrawnAt: new Date(),
@@ -1032,6 +1047,20 @@ export async function adminWithdrawChallenge(
       withdrawReason: reason.trim().slice(0, 200),
     },
   });
+  if (claimed.count === 0) {
+    return {
+      ok: false,
+      error:
+        "Somebody paid for this match while you were looking at it — it's booked now. Cancel the booking instead.",
+    };
+  }
+  // Only once the challenge is ours does the money move. Flagging before the
+  // claim meant a match that confirmed in the meantime had both its halves
+  // marked as refunds owed anyway.
+  if (heldToFlag) {
+    const { flagChallengeRefunds } = await import("@/lib/challenge-payments");
+    await flagChallengeRefunds(id, `the arena took this challenge down: ${reason.trim().slice(0, 120)}`);
+  }
   const { logChallengeEvent } = await import("@/lib/challenges");
   await logChallengeEvent({
     type: "ADMIN_TOOK_DOWN",
