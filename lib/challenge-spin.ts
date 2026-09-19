@@ -893,6 +893,8 @@ export async function liveOfferFor(
   offerId: string;
   pct: number;
   kind: "ADJACENT" | "FALLBACK";
+  /** The specific hour has been booked by somebody else since the spin. */
+  gone: boolean;
   expiresAt: Date;
   minsLeft: number;
   hour: string | null;
@@ -918,12 +920,21 @@ export async function liveOfferFor(
 
   let price: number | null = null;
   let saving: number | null = null;
+  // IS THE HOUR STILL THERE? This only ever checked the offer's clock, so a
+  // prize hour sold to somebody else went on reading "9pm–10pm is free — ₹1900
+  // instead of ₹2000" with a live Book button and a running countdown, for the
+  // rest of the window. The button was correctly refused on tap, but the panel
+  // kept promising an hour that was gone and offered no alternative.
+  let gone = false;
   if (o.courtConfigId && o.date && o.startHour !== null) {
+    const avail = await getSlotAvailability(o.courtConfigId, o.date);
+    gone = avail.find((s) => s.hour === o.startHour)?.status !== "available";
     const prices = await getSlotPricesForDate(o.courtConfigId, o.date);
     const full = prices.find((p) => p.hour === o.startHour)?.price ?? 0;
     if (full > 0) ({ price, saving } = discounted(full, o.discountPct));
   }
   return {
+    gone,
     offerId: o.id,
     pct: o.discountPct,
     kind: o.kind as "ADJACENT" | "FALLBACK",

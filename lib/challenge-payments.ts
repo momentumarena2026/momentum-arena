@@ -357,7 +357,19 @@ export async function challengeQuote(
     shares =
       paidSides.length === 1
         ? sharesAgainstBooking({ advanceAmount: advance, settled, paidSide: paidSides[0] })
-        : shares;
+        : // BOTH PAID: each side's share is what that side actually paid.
+          //
+          // This fell through to `splitShare(round(total × the CURRENT
+          // advancePct))`, a live recomputation — so a venue editing the
+          // percentage after a match confirmed gave both captains a receipt
+          // that contradicted itself: "₹2000 online, split ₹800/₹800", on a
+          // match where each had paid ₹1000.
+          (c.payments
+            .filter((p) => p.paidAt && p.placedAt)
+            .reduce(
+              (acc, p) => ({ ...acc, [p.side as ChallengeSide]: p.amount }),
+              { ...shares },
+            ) as typeof shares);
   } else if (paidSides.length === 1) {
     // ── NO BOOKING YET, BUT ONE HALF IS PAID ──
     //

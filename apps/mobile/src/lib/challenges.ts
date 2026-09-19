@@ -163,6 +163,8 @@ export async function fetchChallenge(id: string): Promise<{
     offerId: string;
     pct: number;
     kind: "ADJACENT" | "FALLBACK";
+    /** That specific hour has been sold since the spin. */
+    gone?: boolean;
     expiresAt: string;
     minsLeft: number;
     hour: string | null;
@@ -185,6 +187,8 @@ export async function createChallengePayOrder(
 export type SpinResult = {
   pct: number;
   kind: "ADJACENT" | "FALLBACK";
+  /** That specific hour has been sold since the spin. */
+  gone?: boolean;
   offerId: string;
   expiresAt: string;
   hour: string | null;

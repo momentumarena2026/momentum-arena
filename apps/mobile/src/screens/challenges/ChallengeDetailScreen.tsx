@@ -62,6 +62,10 @@ export function ChallengeDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [showCounter, setShowCounter] = useState(false);
   const [paying, setPaying] = useState(false);
+  // WHICH window is being paid for. One shared boolean spun every "Take it"
+  // button on the screen at once, so a captain tapping one time saw all three
+  // go busy and could not tell which one they had chosen.
+  const [payingWindowId, setPayingWindowId] = useState<string | null>(null);
   const [spinning, setSpinning] = useState(false);
   const [spun, setSpun] = useState<SpinResult | null>(null);
   const [slots, setSlots] = useState<OfferSlots | null>(null);
@@ -208,6 +212,7 @@ export function ChallengeDetailScreen() {
    */
   const pay = async (acceptWindowId?: string) => {
     setPaying(true);
+    setPayingWindowId(acceptWindowId ?? null);
     try {
       const order = await createChallengePayOrder(id, acceptWindowId);
       let paid: {
@@ -236,6 +241,10 @@ export function ChallengeDetailScreen() {
         // in their bank and got nothing back had no idea whether money had
         // left their account. Razorpay's cancellation carries its own code;
         // anything else is a real failure and deserves a sentence.
+        // Re-read before showing the error: the reason a capture fails is
+        // usually that the world moved, and the panel behind the alert was
+        // still telling the captain to pay for a court that had gone.
+        void refresh();
         if (!isSheetDismissal(e)) {
           Alert.alert(
             "That payment didn't go through",
@@ -266,6 +275,7 @@ export function ChallengeDetailScreen() {
       Alert.alert("Payment problem", challengeErrorMessage(e));
     } finally {
       setPaying(false);
+      setPayingWindowId(null);
     }
   };
 
@@ -350,6 +360,7 @@ export function ChallengeDetailScreen() {
       Alert.alert("Couldn't book it", challengeErrorMessage(e));
     } finally {
       setPaying(false);
+      setPayingWindowId(null);
     }
   };
 
@@ -385,7 +396,15 @@ export function ChallengeDetailScreen() {
           ) : null}
         </View>
 
-        {(c.status === "AGREED" || c.status === "PART_PAID" || c.status === "CONFIRMED") &&
+        {/* SLOT_LOST belongs here too. Without it, a captain who had paid
+            ₹1000 into an hour that was then sold opened the challenge and saw
+            a status line and nothing else — no mention of his money, no
+            mention of the refund, no next step — in a system where no refund
+            happens by itself. */}
+        {(c.status === "SLOT_LOST" ||
+          c.status === "AGREED" ||
+          c.status === "PART_PAID" ||
+          c.status === "CONFIRMED") &&
         quote ? (
           <View
             style={{
@@ -397,15 +416,29 @@ export function ChallengeDetailScreen() {
               gap: 10,
             }}
           >
-            <Text variant="bodyStrong" color={colors.emerald400}>
-              {c.status === "CONFIRMED"
-                ? "Match confirmed"
-                : c.status === "PART_PAID"
-                  ? quote.youHavePaid
-                    ? "Your half is in"
-                    : "Your half is due — the hour isn't held yet"
-                  : "Match agreed"}
+            <Text
+              variant="bodyStrong"
+              color={c.status === "SLOT_LOST" ? colors.zinc300 : colors.emerald400}
+            >
+              {c.status === "SLOT_LOST"
+                ? quote.youHavePaid
+                  ? "That hour went — your money is coming back"
+                  : "That hour went"
+                : c.status === "CONFIRMED"
+                  ? "Match confirmed"
+                  : c.status === "PART_PAID"
+                    ? quote.youHavePaid
+                      ? "Your half is in"
+                      : "Your half is due — the hour isn't held yet"
+                    : "Match agreed"}
             </Text>
+            {c.status === "SLOT_LOST" && (
+              <Text variant="small" color={colors.zinc300}>
+                {quote.youHavePaid
+                  ? `Somebody else booked it before both halves were in. The ₹${quote.yourShare ?? 0} you paid is being refunded in full — the arena does it by hand, so give them a day or two.`
+                  : "Somebody else booked it before both halves were in. Nothing was charged to you."}
+              </Text>
+            )}
 
             {/* Say the whole shape of the money, not just what is due now.
                 Somebody who pays ₹500 and then meets a ₹1,000 bill at the
@@ -480,7 +513,9 @@ export function ChallengeDetailScreen() {
                       {prize.pct}% off the next hour
                     </Text>
                     <Text variant="small" color={colors.zinc300}>
-                      {prize.kind === "ADJACENT" && prize.hour
+                      {prize.kind === "ADJACENT" && prize.hour && prize.gone
+                        ? `${prize.date ? `${prize.date}, ` : ""}${prize.hour} has been booked by somebody else.`
+                        : prize.kind === "ADJACENT" && prize.hour
                         ? `${prize.date ? `${prize.date}, ` : ""}${prize.hour} is free — ₹${prize.price} instead of ₹${(prize.price ?? 0) + (prize.saving ?? 0)}. Ask your side, then take it.`
                         : `The hour after your match is taken. This is good on another hour of the same size of court you just played on — pick one below.`}
                     </Text>
@@ -498,7 +533,9 @@ export function ChallengeDetailScreen() {
                           : "This offer has expired.";
                       })()}
                     </Text>
-                    {prize.kind === "ADJACENT" ? (
+                    {prize.kind === "ADJACENT" &&
+                    !prize.gone &&
+                    Math.ceil((new Date(prize.expiresAt).getTime() - Date.now()) / 60000) > 0 ? (
                       <Button
                         label={`Book it — ₹${prize.price}`}
                         variant="primary"
@@ -506,6 +543,15 @@ export function ChallengeDetailScreen() {
                         disabled={paying}
                         onPress={() => takeOffer()}
                       />
+                    ) : prize.kind === "ADJACENT" ? (
+                      /* A button that is certain to be refused is not an
+                         affordance. The hour has been sold, or the clock has
+                         run out — say which, and stop offering it. */
+                      <Text variant="small" color={colors.zinc400}>
+                        {prize.gone
+                          ? "Somebody else booked that hour. Nothing has been charged — this prize can't be used on it."
+                          : "That offer has expired."}
+                      </Text>
                     ) : slots ? (
                       // Shown as evenings rather than a flat list: "any hour
                       // in the next day" is a choice made by looking at a
@@ -700,10 +746,11 @@ export function ChallengeDetailScreen() {
                             label={wq?.share ? `Take it — pay ₹${wq.share}` : "Take this match"}
                             variant="primary"
                             size="sm"
-                            loading={paying}
+                            loading={paying && payingWindowId === w.id}
                             disabled={paying}
                             onPress={() => {
                               trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
+                              setPayingWindowId(w.id);
                               void pay(w.id);
                             }}
                           />
@@ -722,7 +769,12 @@ export function ChallengeDetailScreen() {
             own. The server enforces the cap and says so if it is spent. */}
         {live && (
           <View style={{ gap: 8 }}>
-            {counterBlock && c.status !== "AGREED" && c.status !== "PART_PAID" ? (
+            {/* A matched challenge cannot be countered — the server refuses
+                with "that challenge has already been matched". The status
+                exclusions below were suppressing the EXPLANATION and then
+                falling through to the button, so the one state where
+                countering is impossible was the one that offered it. */}
+            {c.status === "AGREED" || c.status === "PART_PAID" ? null : counterBlock ? (
               // The server already told us this viewer's counter is spent (or
               // otherwise not theirs to make), so say so instead of offering a
               // button whose only outcome is that same sentence in an alert.

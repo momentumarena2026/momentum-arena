@@ -50,7 +50,14 @@ export function ChallengeBoardScreen() {
         // CONFIRMED belongs here. It used to drop out of every list the moment
         // both halves landed — which is exactly when the poster earns their
         // spin, so the prize had no route in at all.
-        ["OPEN", "COUNTERED", "AGREED", "PART_PAID", "CONFIRMED"].includes(c.status),
+        // SLOT_LOST belongs here too, for as long as money is owed on it. A
+        // captain whose hour was sold, and who is owed a refund the arena
+        // makes by hand, had no route back to the challenge at all except the
+        // notification — so the one place that states what they are owed was
+        // unreachable the moment the push scrolled away.
+        ["OPEN", "COUNTERED", "AGREED", "PART_PAID", "CONFIRMED", "SLOT_LOST"].includes(
+          c.status,
+        ),
       ),
     [q.data?.mine],
   );
@@ -159,6 +166,11 @@ export function ChallengeBoardScreen() {
                 key={c.id}
                 c={c}
                 viewerId={q.data?.viewerId ?? ""}
+                // The "· prize inside" hint is gated on this, and it was only
+                // ever passed to the OPEN-board cards — which exclude your own
+                // challenges by construction, so the one nudge toward the
+                // wheel could never appear to the person who earned it.
+                spinEnabled={q.data?.spinEnabled ?? false}
                 onPress={() => nav.navigate("ChallengeDetail", { id: c.id })}
                 onWithdraw={() => {
                   Alert.alert("Withdraw this challenge?", "It comes off the board.", [
@@ -199,7 +211,11 @@ export function ChallengeBoardScreen() {
                     you just posted reads as your post having failed. Your own
                     challenge is listed above, in its own section; this section
                     is about everybody ELSE, so say that when you have one. */}
-                {(q.data?.mine ?? []).length > 0
+                {/* Counting `mine` counted DEAD ones too, so a captain whose
+                    only challenge had lost its hour was told "Yours is up". */}
+                {mineLive.some((c) =>
+                  ["OPEN", "COUNTERED", "AGREED", "PART_PAID"].includes(c.status),
+                )
                   ? "No other teams have put up a match yet. Yours is up — we'll tell you the moment somebody takes it."
                   : q.data?.copy.empty ||
                     "Nobody has put up a match yet. Post one and it'll show up for every other player."}
