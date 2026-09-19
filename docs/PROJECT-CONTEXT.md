@@ -709,6 +709,58 @@ each is the kind that reads as fine in a diff:
 4. **The lead-time gate runs at capture, not only at order.** Otherwise a
    captain opens the sheet at T−4h01m and presses pay at T−5m.
 
+**Two rules about the admin screen that testing kept re-teaching.**
+
+1. **GATE ONLY WHAT THIS SAVE TOUCHES.** The form saves one field per blur,
+   so any cross-field validation run against the merged settings refuses
+   *every* save while one stored pair is inconsistent — including
+   `enabled: false`. Twice now that has meant the venue could not switch off
+   a wheel because the band describing it was out of range: a kill switch the
+   thing it kills can disable is not a kill switch. Every guard in
+   `saveChallengeSettings` is now conditioned on `input.<field> !== undefined`.
+2. **A worklist must be a server query, and it must count what it means.**
+   The half-paid panel tested `!payments.every(paid)` — but `ChallengePayment`
+   rows are created LAZILY, one per side, when that side first opens a payment
+   sheet. The canonical half-paid state therefore has exactly ONE row,
+   `every()` over it is vacuously true, and the panel built for that case was
+   the one case it excluded. Count DISTINCT SIDES. And both money panels are
+   asked for directly (uncapped) rather than derived from the 200-row list the
+   board renders: a list of things the venue owes must not silently truncate.
+
+**Anything the screen tells the venue to do, the screen must be able to do.**
+The refunds panel said "mark it refunded on the payment" for weeks while
+nothing in the product could write `refundedAt` — so the queue only grew, and
+because the take-down guard counted flagged money as still held, those
+challenges could not be closed either. `markChallengePaymentRefunded` records
+the arena's own act (the refund itself is made by hand in Razorpay or in
+cash), and take-down now excludes flagged money.
+
+**The form must re-read the database after a save.** `router.refresh()`
+re-renders the server component but cannot re-seed `useState`, so the screen
+showed what was TYPED rather than what was STORED — a 238-character board
+title displayed in full while the app served it cut at 200, and a saved
+custom wheel left the banner insisting the built-in one was live. Every
+editor on that page needs its own re-sync effect keyed on the prop, including
+each child editor: the page-level rollback cannot reach into them.
+
+**`PART_PAID` is not a challenge "on the board".** It is matched, off the
+board, unwithdrawable by rule and never swept, so counting it in the
+one-live-challenge-per-person gate locked out the captain who paid FIRST when
+their opponent never paid — while telling them to withdraw something no
+surface lets them withdraw. The person who did everything right was the one
+punished.
+
+**The match's own copy is the venue's too** (`DEFAULT_LIFECYCLE_PUSHES` in
+`lib/challenge-push.ts`). A time is agreed, your half is due, match
+confirmed, the hour went, a refund is owed — five stored templates with their
+own variable set. Deliberately unlike the promo nudges, an empty value is NOT
+"off" for these: a captain whose court is held and who is never told has lost
+money to silence, so only the words are configurable. Corollary, learned the
+hard way twice: **never ship a setting the runtime does not read** —
+`pushAudience` and `pushDailyCap` were saved, validated and bounded while no
+broadcast existed to consume them, and their help text described behaviour
+the product did not have.
+
 **Captured money that cannot be honoured is flagged, not just narrated.**
 `refundOwed` stamps `ChallengePayment.refundOwedAt`/`refundOwedReason` as well
 as writing the event, because the admin's stranded-money panel is a query and
