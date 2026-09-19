@@ -15,6 +15,22 @@ import { db } from "@/lib/db";
 import { Prisma, Sport } from "@prisma/client";
 import { AnalyticsCategory, logServerAction, resolveRequestPlatform } from "@/lib/server-log";
 
+// The arena's longest possible day is open-to-close; nothing legitimate asks
+// for more, and the field had NO bound at all — `JSON.parse` of the request
+// body went straight into the lock path, so one request could ask for an
+// arbitrary number of hours. Batched locking makes a whole day cheap, which
+// is the fix for the real customer booking the whole ground; this is the
+// separate question of what the endpoint will accept at all.
+const MAX_HOURS_PER_HOLD = 24;
+
+function badHours(hours: unknown): string | null {
+  if (!Array.isArray(hours) || hours.length === 0) return "Invalid data";
+  if (hours.length > MAX_HOURS_PER_HOLD) return "That's more hours than the arena's day.";
+  if (!hours.every((h) => Number.isInteger(h) && h >= 0 && h <= 30)) return "Invalid data";
+  if (new Set(hours).size !== hours.length) return "Invalid data";
+  return null;
+}
+
 /**
  * Snapshot the customer's equipment picks onto the just-created hold.
  * Mirror of the web lock route's helper — soft-fail keeps the slot
@@ -200,8 +216,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   }
 
-  if (!date || !Array.isArray(hours) || hours.length === 0) {
-    return NextResponse.json({ error: "Invalid data" }, { status: 400 });
+  const hoursProblem = badHours(hours);
+  if (!date || !Array.isArray(hours) || hoursProblem) {
+    return NextResponse.json({ error: hoursProblem ?? "Invalid data" }, { status: 400 });
   }
 
   const bookingDate = new Date(date);
