@@ -47,8 +47,9 @@ import {
   RAZORPAY_KEY_ID,
 } from "@/lib/razorpay";
 import { logChallengeEvent } from "@/lib/challenges";
-import { DEFAULT_WHEEL, spinWheel, type WheelSegment } from "@/lib/challenge-rules";
+import { resolveWheel, spinWheel, type WheelSegment } from "@/lib/challenge-rules";
 import {
+  resolvePushes,
   renderPush,
   DEFAULT_WON_PUSH,
   DEFAULT_ADJACENT_PUSHES,
@@ -78,10 +79,7 @@ export type SpinConfig = {
  * unreachable configuration and handed the wording back to constants in the
  * code — which is the one thing this module was asked not to do.
  */
-function asTemplates(v: unknown, fallback: PushTemplate[]): PushTemplate[] {
-  if (Array.isArray(v)) return v as PushTemplate[];
-  return fallback;
-}
+
 
 /**
  * A push template that will not throw.
@@ -102,18 +100,18 @@ function safeTemplate(v: unknown, fallback: PushTemplate): PushTemplate {
 /** The venue's wheel, with the shipped defaults standing in for anything unset. */
 export async function spinConfig(): Promise<SpinConfig> {
   const s = await db.challengeSettings.findFirst();
-  const segs = Array.isArray(s?.spinSegments) ? (s.spinSegments as WheelSegment[]) : DEFAULT_WHEEL;
+  const segs = resolveWheel(s?.spinSegments);
   return {
     enabled: !!s?.spinEnabled,
-    segments: segs.length > 0 ? segs : DEFAULT_WHEEL,
+    segments: segs,
     adjacentWindowMins: s?.spinAdjacentWindowMins ?? 30,
     fallbackWindowMins: s?.spinFallbackWindowMins ?? 120,
     fallbackDays: s?.spinFallbackDays ?? 1,
     adjacentOnly: !!s?.spinAdjacentOnly,
     sameSizeOnly: s?.spinSameSizeOnly ?? true,
     wonPush: safeTemplate(s?.spinWonPush, DEFAULT_WON_PUSH),
-    adjacentPushes: asTemplates(s?.spinAdjacentPushes, DEFAULT_ADJACENT_PUSHES),
-    fallbackPushes: asTemplates(s?.spinFallbackPushes, DEFAULT_FALLBACK_PUSHES),
+    adjacentPushes: resolvePushes(s?.spinAdjacentPushes, DEFAULT_ADJACENT_PUSHES),
+    fallbackPushes: resolvePushes(s?.spinFallbackPushes, DEFAULT_FALLBACK_PUSHES),
     perPosterCap: s?.spinsPerPosterCap ?? 0,
     perPosterDays: s?.spinsPerPosterPerDays ?? 0,
   };
@@ -298,6 +296,10 @@ export async function spinFor(
             userId,
             discountPct: pct,
             expiresAt,
+            // The CLAMPED length, not the configured window. A spin ten
+            // minutes before the hour gets a ten-minute offer however long
+            // the setting says, and the nudge filter needs the real number.
+            windowMins: Math.max(1, Math.round((expiresAt.getTime() - Date.now()) / 60000)),
             ...(free
               ? {
                   courtConfigId: booking.courtConfigId,

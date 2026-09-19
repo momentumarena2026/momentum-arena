@@ -515,3 +515,15 @@ export function leadTimeRefusal(
   const window = h > 0 ? `${h}h${m ? ` ${m}m` : ""}` : `${m}m`;
   return `Challenges have to be settled at least ${window} before the slot.`;
 }
+
+/**
+ * The wheel that will ACTUALLY spin, given whatever is stored.
+ *
+ * Shared by the runtime and the save-time validator for the same reason as
+ * `resolvePushes`: a null or empty column is not "no wheel", it is the
+ * built-in wheel, and that is what pays out. Validating the column instead
+ * of this let a 0–1% band save against a live 17.75% wheel.
+ */
+export function resolveWheel(stored: unknown): WheelSegment[] {
+  return Array.isArray(stored) && stored.length > 0 ? (stored as WheelSegment[]) : DEFAULT_WHEEL;
+}

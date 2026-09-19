@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
-import { wheelRefusal, DEFAULT_WHEEL } from "@/lib/challenge-rules";
+import { wheelRefusal, resolveWheel, KNOWN_SPORTS } from "@/lib/challenge-rules";
 import {
   pushScheduleRefusal,
+  resolvePushes,
   DEFAULT_ADJACENT_PUSHES,
   DEFAULT_FALLBACK_PUSHES,
 } from "@/lib/challenge-push";
@@ -141,13 +142,19 @@ async function promoStats(since: Date) {
         discountPct: true,
         kind: true,
         takenAt: true,
+        lapsedAt: true,
+        bookingId: true,
         expiresAt: true,
         booking: { select: { totalAmount: true, originalAmount: true, discountAmount: true } },
       },
     }),
   ]);
 
-  const taken = offers.filter((o) => o.takenAt);
+  // TAKEN means a booking exists. An offer can carry `takenAt` and no
+  // booking — a claim whose process died — and counting those as prizes
+  // taken overstated take-up while contributing nothing, and left them out
+  // of lapses too. Both numbers are the point of this panel.
+  const taken = offers.filter((o) => o.takenAt && o.bookingId);
   const discounted = taken.reduce((sum, o) => sum + (o.booking?.discountAmount ?? 0), 0);
   const collected = taken.reduce((sum, o) => sum + (o.booking?.totalAmount ?? 0), 0);
   // TWO different averages, because they answer two different questions and
@@ -169,7 +176,9 @@ async function promoStats(since: Date) {
     spins: spins.length,
     offersMade: offers.length,
     offersTaken: taken.length,
-    offersLapsed: offers.filter((o) => !o.takenAt && o.expiresAt <= new Date()).length,
+    offersLapsed: offers.filter(
+      (o) => !o.bookingId && (o.lapsedAt !== null || o.expiresAt <= new Date()),
+    ).length,
     adjacentMade: offers.filter((o) => o.kind === "ADJACENT").length,
     adjacentTaken: taken.filter((o) => o.kind === "ADJACENT").length,
     fallbackMade: offers.filter((o) => o.kind === "FALLBACK").length,
@@ -323,6 +332,18 @@ export async function saveChallengeSettings(
 
     };
 
+    // Json columns are typed `unknown` at the edge, so a string or an object
+    // reaches Prisma happily, stores, and is then silently ignored at
+    // runtime — a "Saved." that changed nothing.
+    for (const key of ["spinSegments", "spinAdjacentPushes", "spinFallbackPushes"] as const) {
+      const v = input[key];
+      if (v === undefined) continue;
+      if (!Array.isArray(v)) return { ok: false, error: "That has to be a list." };
+      if (v.some((x) => x === null || typeof x !== "object")) {
+        return { ok: false, error: "Every entry in that list has to be filled in." };
+      }
+    }
+
     if (input.spinSegments) Object.assign(data, { spinSegments: input.spinSegments as never });
     if (input.spinAdjacentPushes) {
       Object.assign(data, {
@@ -368,17 +389,6 @@ export async function saveChallengeSettings(
       };
     }
 
-    // Json columns are typed `unknown` at the edge, so a string or an object
-    // reaches Prisma happily, stores, and is then silently ignored at
-    // runtime — a "Saved." that changed nothing.
-    for (const key of ["spinSegments", "spinAdjacentPushes", "spinFallbackPushes"] as const) {
-      const v = input[key];
-      if (v === undefined) continue;
-      if (!Array.isArray(v)) return { ok: false, error: "That has to be a list." };
-      if (v.some((x) => x === null || typeof x !== "object")) {
-        return { ok: false, error: "Every entry in that list has to be filled in." };
-      }
-    }
 
     // Validate the EFFECTIVE configuration, not the stored column.
     //
@@ -389,11 +399,28 @@ export async function saveChallengeSettings(
     // a live wheel averaging 17.8%, and a 3-minute offer window saved
     // against live nudges at 15 and 5 minutes. Resolve exactly as
     // spinConfig() does, then judge that.
-    const effSegs =
-      Array.isArray(next.spinSegments) && (next.spinSegments as unknown[]).length > 0
-        ? (next.spinSegments as { pct: number; weight: number }[])
-        : DEFAULT_WHEEL;
-    const badWheel = wheelRefusal(effSegs, n("spinAvgMinPct", 15), n("spinAvgMaxPct", 25));
+    // GATE ONLY WHAT THIS SAVE TOUCHES.
+    //
+    // Running the wheel and nudge guards on every save meant one
+    // out-of-range stored value bricked the whole settings screen — and
+    // most perversely, the switch that would STOP a 90% wheel was refused
+    // *because* the wheel pays 90%. A kill switch that can be disabled by
+    // the thing it kills is not a kill switch.
+    const touchesWheel =
+      input.spinSegments !== undefined ||
+      input.spinAvgMinPct !== undefined ||
+      input.spinAvgMaxPct !== undefined;
+    const touchesAdjacent =
+      input.spinAdjacentPushes !== undefined || input.spinAdjacentWindowMins !== undefined;
+    const touchesFallback =
+      input.spinFallbackPushes !== undefined || input.spinFallbackWindowMins !== undefined;
+
+    // The SAME resolver the runtime uses. Two copies of this rule have now
+    // disagreed twice; there is one.
+    const effSegs = resolveWheel(next.spinSegments);
+    const badWheel = touchesWheel
+      ? wheelRefusal(effSegs, n("spinAvgMinPct", 15), n("spinAvgMaxPct", 25))
+      : null;
     if (badWheel) {
       return {
         ok: false,
@@ -403,17 +430,20 @@ export async function saveChallengeSettings(
       };
     }
 
-    for (const [key, winKey, winDefault, fallbackList] of [
-      ["spinAdjacentPushes", "spinAdjacentWindowMins", 30, DEFAULT_ADJACENT_PUSHES],
-      ["spinFallbackPushes", "spinFallbackWindowMins", 120, DEFAULT_FALLBACK_PUSHES],
+    for (const [key, winKey, winDefault, fallbackList, touched] of [
+      ["spinAdjacentPushes", "spinAdjacentWindowMins", 30, DEFAULT_ADJACENT_PUSHES, touchesAdjacent],
+      ["spinFallbackPushes", "spinFallbackWindowMins", 120, DEFAULT_FALLBACK_PUSHES, touchesFallback],
     ] as const) {
+      if (!touched) continue;
       const stored = next[key];
       // An EMPTY list is a real choice ("no nudges") and needs no check. A
       // missing one means the built-in schedule is what fires.
       if (Array.isArray(stored) && stored.length === 0) continue;
-      const eff = Array.isArray(stored)
-        ? (stored as { minsLeft: number; title: string; body: string }[])
-        : fallbackList;
+      const eff = resolvePushes(stored, fallbackList) as {
+        minsLeft: number;
+        title: string;
+        body: string;
+      }[];
       const bad = pushScheduleRefusal(eff, n(winKey, winDefault));
       if (bad) {
         return {
@@ -449,6 +479,23 @@ export async function saveChallengeSettings(
       Object.assign(data, {
         spinWonPush: capCopy({ title: w.title, body: w.body }) as never,
       });
+    }
+
+    // A cap needs a window and a window needs a cap: `spinFor` requires both
+    // above zero, so one alone reads as configured and guards nothing — and
+    // this is the only anti-collusion defence there is.
+    const capN = n("spinsPerPosterCap", 0);
+    const capDays = n("spinsPerPosterPerDays", 0);
+    if ((capN > 0) !== (capDays > 0)) {
+      return {
+        ok: false,
+        error: "A spin cap needs both a number and a window — one without the other does nothing.",
+      };
+    }
+
+    // F11: validated here rather than cast into the Prisma enum.
+    if (input.sports?.some((x) => !KNOWN_SPORTS.includes(x))) {
+      return { ok: false, error: "That isn't a sport the arena runs." };
     }
 
     if (input.pushAudience && !["ALL", "SPORT", "RECENT"].includes(input.pushAudience)) {
@@ -494,8 +541,23 @@ export async function adminWithdrawChallenge(
   if (!reason.trim()) return { ok: false, error: "Give a reason — the poster sees it." };
   const c = await db.challenge.findUnique({ where: { id }, select: { status: true } });
   if (!c) return { ok: false, error: "That challenge is gone." };
-  if (c.status === "CONFIRMED") {
-    return { ok: false, error: "That match is booked — cancel the booking instead." };
+  // PART_PAID is money in the bank against a court this system is holding.
+  // Taking it down wrote the Challenge row and NOTHING else: the PENDING
+  // booking kept the hour off the board for ever, the captain's payment was
+  // neither refunded nor flagged, the second half became permanently
+  // unpayable, and the case dropped out of the "half paid — needs a
+  // decision" panel, which filters on PART_PAID. One click lost the money,
+  // the court and the worklist entry at once — and the panel's own copy
+  // says to cancel the booking and refund, which is not what the button
+  // next to it did.
+  if (c.status === "CONFIRMED" || c.status === "PART_PAID") {
+    return {
+      ok: false,
+      error:
+        c.status === "PART_PAID"
+          ? "Somebody has paid for this and the court is held. Cancel the booking and refund them first — that releases the hour."
+          : "That match is booked — cancel the booking instead.",
+    };
   }
   await db.challenge.update({
     where: { id },

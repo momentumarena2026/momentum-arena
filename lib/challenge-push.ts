@@ -173,3 +173,17 @@ export function pushScheduleRefusal(
   }
   return null;
 }
+
+/**
+ * The nudge schedule that will ACTUALLY send, given whatever is stored.
+ *
+ * One function, used by the runtime and by the save-time validator, because
+ * they have to agree and twice now they have not: a null column meant
+ * "nothing to check" to the validator while the runtime substituted the
+ * built-in schedule and sent it. The distinction that matters is between
+ * ABSENT (fall back) and EMPTY (the venue turned nudges off) — collapsing
+ * those two is what made "no nudges" unconfigurable.
+ */
+export function resolvePushes(stored: unknown, fallback: PushTemplate[]): PushTemplate[] {
+  return Array.isArray(stored) ? (stored as PushTemplate[]) : fallback;
+}

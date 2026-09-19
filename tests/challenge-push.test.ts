@@ -19,6 +19,7 @@ import {
   DEFAULT_WON_PUSH,
   PUSH_VARIABLES,
   type PushVars,
+  resolvePushes,
 } from "../lib/challenge-push";
 
 const vars: PushVars = {
@@ -175,4 +176,27 @@ test("a nudge ladder is trimmed to the offer's REAL window", () => {
     pushesDue({ templates: trimmed, minsLeft: 5, alreadySent: [] }).map((t) => t.minsLeft),
     [5],
   );
+});
+
+test("ABSENT means the built-in schedule; EMPTY means the venue turned nudges off", () => {
+  // Collapsing these two made "no nudges" an unreachable configuration and
+  // handed the venue's copy back to constants in the code — the one thing
+  // this module was asked not to do.
+  assert.deepEqual(resolvePushes(null, DEFAULT_ADJACENT_PUSHES), DEFAULT_ADJACENT_PUSHES);
+  assert.deepEqual(resolvePushes(undefined, DEFAULT_ADJACENT_PUSHES), DEFAULT_ADJACENT_PUSHES);
+  assert.deepEqual(resolvePushes("junk", DEFAULT_ADJACENT_PUSHES), DEFAULT_ADJACENT_PUSHES);
+  assert.deepEqual(resolvePushes([], DEFAULT_ADJACENT_PUSHES), []);
+  const custom = [{ minsLeft: 3, title: "t", body: "b" }];
+  assert.deepEqual(resolvePushes(custom, DEFAULT_ADJACENT_PUSHES), custom);
+});
+
+test("the window is judged against the schedule that SENDS, whatever is stored", () => {
+  for (const stored of [null, undefined, "junk"]) {
+    assert.ok(
+      pushScheduleRefusal(resolvePushes(stored, DEFAULT_ADJACENT_PUSHES), 3),
+      `a 3-minute window must refuse the effective schedule for ${JSON.stringify(stored)}`,
+    );
+  }
+  // An empty schedule fits any window — there is nothing to fire.
+  assert.equal(pushScheduleRefusal(resolvePushes([], DEFAULT_ADJACENT_PUSHES), 1), null);
 });

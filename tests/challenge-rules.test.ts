@@ -31,6 +31,7 @@ import {
   leadTimeRefusal,
   DEFAULT_WHEEL,
   windowStart,
+  resolveWheel,
 } from "../lib/challenge-rules";
 
 const NOW = new Date("2026-09-17T06:00:00+05:30");
@@ -486,4 +487,27 @@ test("a prize is worth what the match that earned it was worth", () => {
   assert.ok(unbounded > cashToConfirm, "the farm is profitable while unbounded");
   const bounded = (CHEAPEST_COURT * wheelAveragePct(DEFAULT_WHEEL)) / 100;
   assert.ok(bounded < cashToConfirm, "same-size bounds the prize below the cost of earning it");
+});
+
+test("a null or empty wheel resolves to the built-in one, which is what pays out", () => {
+  // The bug this guards has now shipped twice: the validator treated a null
+  // column as "nothing to check" while the runtime substituted the built-in
+  // wheel and ran it. A 0–1% band saved happily against a live 17.75% wheel.
+  // One resolver, used by both, is the fix — this asserts it.
+  assert.deepEqual(resolveWheel(null), DEFAULT_WHEEL);
+  assert.deepEqual(resolveWheel(undefined), DEFAULT_WHEEL);
+  assert.deepEqual(resolveWheel([]), DEFAULT_WHEEL);
+  assert.deepEqual(resolveWheel("junk"), DEFAULT_WHEEL);
+  assert.deepEqual(resolveWheel({}), DEFAULT_WHEEL);
+  const custom = [{ pct: 20, weight: 1 }];
+  assert.deepEqual(resolveWheel(custom), custom);
+});
+
+test("the band is judged against the wheel that RUNS, whatever is stored", () => {
+  for (const stored of [null, undefined, [], "junk", {}]) {
+    assert.ok(
+      wheelRefusal(resolveWheel(stored), 0, 1),
+      `a 0–1% band must refuse the effective wheel for ${JSON.stringify(stored)}`,
+    );
+  }
 });

@@ -150,16 +150,34 @@ export function ChallengesAdmin({
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  /**
+   * Save, and ROLL BACK what the screen shows if the server says no.
+   *
+   * Every control applies its value optimistically before calling this, so
+   * a refused save used to leave the rejected number on screen for ever:
+   * `router.refresh()` only runs on success, and the re-sync effect saw the
+   * prop arrive already equal to the rejected value. Worse, derived UI —
+   * the wheel's in-band banner, its Save button — was then computed from a
+   * band the database had rejected. The snapshot is taken before the write
+   * and restored on failure, so the form always shows what is stored.
+   *
+   * The server also normalises (titles truncated, sports deduped), so a
+   * refresh follows a success too — "Saved." must not mean "and exactly
+   * what you typed".
+   */
   const save = (patch: ChallengeSettingsInput) => {
     setErr(null);
     setMsg(null);
+    const before = s;
     start(async () => {
       const res = await saveChallengeSettings(patch).catch(() => ({
         ok: false as const,
         error: "Couldn't reach the server.",
       }));
-      if (!res.ok) setErr(res.error);
-      else {
+      if (!res.ok) {
+        setErr(res.error);
+        setS(before);
+      } else {
         setMsg("Saved.");
         router.refresh();
       }
@@ -416,7 +434,7 @@ export function ChallengesAdmin({
             desc="Stored now, used when payments land. Both captains pay half the advance each."
           >
             <div className="grid gap-4 sm:grid-cols-2">
-              <Num label="Advance %" value={s.advancePct} onSave={(v) => { setS({ ...s, advancePct: v }); save({ advancePct: v }); }} hint="50 on a ₹2,000 slot = ₹500 from each side, ₹1,000 at the venue." />
+              <Num label="Advance %" value={s.advancePct} onSave={(v) => { setS({ ...s, advancePct: v }); save({ advancePct: v }); }} hint="50 on a ₹2,000 slot = ₹500 from each side, ₹1,000 at the venue. Zero switches challenge payments off entirely — nobody can take a challenge." />
               <Num label="Payment window (minutes)" value={s.paymentWindowMins} onSave={(v) => { setS({ ...s, paymentWindowMins: v }); save({ paymentWindowMins: v }); }} hint="How long they have to pay after agreeing, before it lapses." />
             </div>
           </Panel>
@@ -668,7 +686,9 @@ export function ChallengesAdmin({
                     <p className="mt-2 text-xs text-amber-400">Taken down: {c.withdrawReason}</p>
                   )}
                 </div>
-                {!["CONFIRMED", "WITHDRAWN", "EXPIRED"].includes(c.status) && (
+                {/* PART_PAID is excluded: money is in and a PENDING booking holds the
+                    hour, so this has to go through the booking, not the board. */}
+                {!["CONFIRMED", "PART_PAID", "WITHDRAWN", "EXPIRED"].includes(c.status) && (
                   <button
                     disabled={pending}
                     onClick={() => {
@@ -812,9 +832,16 @@ function PromoTab({
   save: (patch: Record<string, unknown>) => void;
   pending: boolean;
 }) {
-  const segs: { pct: number; weight: number }[] = Array.isArray(s.spinSegments)
-    ? (s.spinSegments as { pct: number; weight: number }[])
-    : DEFAULT_SEGMENTS;
+  // An EMPTY list resolves to the built-in wheel in both the validator and
+  // the runtime, so the editor has to show that too. Rendering zero
+  // segments told the venue the wheel averaged 0% and "won't save" while a
+  // 17.75% wheel was live.
+  const segs: { pct: number; weight: number }[] =
+    Array.isArray(s.spinSegments) && (s.spinSegments as unknown[]).length > 0
+      ? (s.spinSegments as { pct: number; weight: number }[])
+      : DEFAULT_SEGMENTS;
+  const usingBuiltInWheel =
+    !Array.isArray(s.spinSegments) || (s.spinSegments as unknown[]).length === 0;
   const total = segs.reduce((t, x) => t + Math.max(0, x.weight), 0);
   const avg = total > 0 ? segs.reduce((t, x) => t + x.pct * Math.max(0, x.weight), 0) / total : 0;
   const inBand = avg >= s.spinAvgMinPct && avg <= s.spinAvgMaxPct;
@@ -847,6 +874,12 @@ function PromoTab({
         title="Segments and weights"
         desc="Edit these; the average is what follows from them. A higher weight means that slice wins more often."
       >
+        {usingBuiltInWheel && (
+          <p className="mb-3 rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
+            You haven&apos;t saved your own wheel yet — these are the built-in segments, and
+            they are what is running right now.
+          </p>
+        )}
         <div className="space-y-2">
           {segs.map((seg, i) => {
             const chance = total > 0 ? (Math.max(0, seg.weight) / total) * 100 : 0;
