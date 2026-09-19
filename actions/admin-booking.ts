@@ -858,10 +858,12 @@ export async function refundBooking(
   // first" — done) while mark-refunded refused ("take the challenge down" —
   // refused), with nothing in the product able to break the loop.
   //
-  // `true`: the money has already gone back with the booking's own Payment,
-  // so the halves are marked refunded rather than put on the venue's queue
-  // as still owed.
-  await unwindChallengesForCancelledBooking(bookingId, reason, true).catch((err: unknown) =>
+  // The AMOUNT actually returned, not a boolean. This function works out its
+  // own `isPartialRefund` and used to throw that away, so refunding ₹500 of a
+  // ₹1000 challenge court wrote off both captains' halves — one of them with
+  // no cash behind it, and off every worklist. Only what genuinely went back
+  // is written off; the rest stays owed and stays queued.
+  await unwindChallengesForCancelledBooking(bookingId, reason, actualRefundAmount).catch((err: unknown) =>
     console.error("[challenges] could not unwind for refunded booking", bookingId, err),
   );
 
@@ -2622,14 +2624,68 @@ export async function adminCreateBooking(data: {
       // the lock is per whole hour because that is the ground, but the CHECK
       // must be at the granularity the thing is sold at. Comparing
       // `startHour` alone made a bowling 14:30 clash with an existing 14:00.
-      const clash = findSlotClashes(
-        taken,
-        usingBowling
-          ? { kind: "halfHours" as const, slots: data.bowlingSlots! }
-          : { kind: "hours" as const, hours: data.hours },
-      );
+      const asking = usingBowling
+        ? { kind: "halfHours" as const, slots: data.bowlingSlots! }
+        : { kind: "hours" as const, hours: data.hours };
+      const clash = findSlotClashes(taken, asking);
       if (clash.length > 0) {
         throw new Error(`Slots already booked: ${clash.join(", ")}`);
+      }
+      // A LIVE HOLD IS SOMEBODY MID-CHECKOUT.
+      //
+      // This re-check asked only about bookings. So an admin at the counter
+      // wrote straight over a customer who was on the payment screen — not a
+      // race, every single time — and the customer then paid for an hour that
+      // had already been sold. `createSlotHold` treats another user's live
+      // hold as occupying; this has to as well, or the hold means nothing
+      // against the one path that can ignore it.
+      const heldByOthers = await tx.slotHold.findMany({
+        where: {
+          date: dateOnly,
+          expiresAt: { gt: new Date() },
+          userId: { not: data.userId },
+          courtConfig: { zones: { hasSome: config.zones } },
+        },
+        select: { hours: true, startMinutes: true },
+      });
+      const heldClash = findSlotClashes(
+        heldByOthers.map((h) => ({
+          slots: h.hours.map((hr, i) => ({
+            startHour: hr,
+            startMinute: h.startMinutes[i] ?? 0,
+            durationMinutes: h.startMinutes.length > 0 ? 30 : 60,
+          })),
+        })),
+        asking,
+      );
+      if (heldClash.length > 0) {
+        throw new Error(
+          `Somebody is paying for these right now: ${heldClash.join(", ")}. Try again in a few minutes.`,
+        );
+      }
+      // AND A BLOCK PLACED WHILE THIS WAS BEING PRICED.
+      //
+      // The unlocked check three hundred lines above does ask about blocks —
+      // but coupon, equipment and pass computation sit in between, which is a
+      // real window for a colleague to block the hour for maintenance. A
+      // booking was written against a blocked hour, 1 trial in 1.
+      const blocks = await tx.slotBlock.findMany({
+        where: {
+          date: dateOnly,
+          OR: [
+            { courtConfigId: data.courtConfigId },
+            { sport: config.sport },
+            { courtConfigId: null, sport: null },
+            { courtConfig: { zones: { hasSome: config.zones } } },
+          ],
+        },
+        select: { startHour: true },
+      });
+      for (const b of blocks) {
+        if (b.startHour === null) throw new Error("This court is blocked for the entire day");
+        if (lockHours.includes(b.startHour)) {
+          throw new Error(`Slot at hour ${b.startHour} is blocked`);
+        }
       }
 
       // Create booking. When the admin negotiated a different total, we

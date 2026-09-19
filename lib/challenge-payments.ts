@@ -58,6 +58,7 @@ import {
   RAZORPAY_KEY_ID,
 } from "@/lib/razorpay";
 import { notifyUser } from "@/lib/user-notifications";
+import { sendToUser } from "@/lib/push";
 import {
   renderPush,
   resolveTemplate,
@@ -1554,17 +1555,63 @@ export async function unwindChallengesForCancelledBooking(
   bookingId: string,
   reason: string,
   /**
-   * The venue has ALREADY given the money back — the refund path, as opposed
-   * to a plain cancellation.
+   * How much money the venue has ALREADY given back through the booking's own
+   * Payment row — the refund path, as opposed to a plain cancellation.
    *
-   * It matters which: a plain cancel leaves two captures owed and they belong
-   * on the refunds queue; a refund has already returned them through the
-   * booking's own Payment row, and putting them on the queue would ask the
-   * venue to pay the same money a second time. Same unwinding either way,
-   * different ledger ending.
+   * `false` (a plain cancel) leaves both captures OWED and puts them on the
+   * refunds queue. A number is the rupees actually returned, and only that
+   * much gets written off; anything beyond it is still owed and still queued.
+   *
+   * It started as a boolean, which was wrong in a way that costs real money:
+   * `refundBooking` works out its own `isPartialRefund` and never passed it
+   * on, so refunding ₹500 of a ₹1000 challenge court marked BOTH captains'
+   * halves as refunded. One captain's ₹500 was written off with no cash
+   * behind it and, because writing off skips the queue, it appeared on no
+   * worklist at all — money simply gone.
    */
-  alreadyRefunded = false,
+  refundedAmount: number | false = false,
 ): Promise<number> {
+  // RECONCILE WHAT A CANCELLATION ALREADY QUEUED.
+  //
+  // The two admin paths can be used in sequence: cancel the booking (which
+  // queues both halves as OWED and detaches the challenge), then actually
+  // refund it. The second call found nothing — the challenge is already
+  // WITHDRAWN with `bookingId` cleared — and silently did nothing, so both
+  // halves stayed on the venue's refunds queue as still-owed after the money
+  // had gone back digitally. The venue pays the same captains a second time
+  // in cash. Reproduced.
+  //
+  // So when money has genuinely been returned, settle the rows this booking's
+  // payments left behind, whatever state their challenge is in now.
+  if (refundedAmount !== false) {
+    const stranded = await db.challengePayment.findMany({
+      where: {
+        refundOwedAt: { not: null },
+        refundedAt: null,
+        // Either still attached, or carrying this booking's id in the reason
+        // a previous cancellation stamped there.
+        OR: [
+          { challenge: { bookingId } },
+          { refundOwedReason: { contains: `[booking ${bookingId}]` } },
+        ],
+      },
+      select: { id: true, amount: true },
+      orderBy: { paidAt: "asc" },
+    });
+    let budget = refundedAmount;
+    for (const row of stranded) {
+      if (row.amount > budget) break;
+      budget -= row.amount;
+      await db.challengePayment.updateMany({
+        where: { id: row.id, refundedAt: null },
+        data: {
+          refundedAt: new Date(),
+          refundNote: `refunded with the booking: ${reason}`.slice(0, 200),
+        },
+      });
+    }
+  }
+
   const affected = await db.challenge.findMany({
     where: { bookingId, status: { notIn: ["WITHDRAWN", "EXPIRED"] } },
     select: { id: true },
@@ -1593,26 +1640,60 @@ export async function unwindChallengesForCancelledBooking(
       challengeId: c.id,
       detail: `booking cancelled by the arena: ${reason}`.slice(0, 200),
     });
-    if (alreadyRefunded) {
-      // Closed out, not owed. The money left the venue with the booking's
-      // refund; the challenge ledger records that it happened rather than
-      // asking for it again.
-      await db.challengePayment.updateMany({
+    if (refundedAmount !== false) {
+      // Write off only what actually went back, oldest half first, and queue
+      // whatever the refund did not cover. A partial refund is a real thing
+      // the admin screen offers, and treating it as "all of it" loses the
+      // difference off every worklist.
+      const halves = await db.challengePayment.findMany({
         where: { challengeId: c.id, paidAt: { not: null }, refundedAt: null },
-        data: {
-          refundedAt: new Date(),
-          refundNote: `refunded with the booking: ${reason}`.slice(0, 200),
-        },
+        select: { id: true, amount: true },
+        orderBy: { paidAt: "asc" },
       });
+      let left = refundedAmount;
+      const covered: string[] = [];
+      for (const h of halves) {
+        if (h.amount > left) break;
+        left -= h.amount;
+        covered.push(h.id);
+      }
+      if (covered.length > 0) {
+        await db.challengePayment.updateMany({
+          where: { id: { in: covered }, refundedAt: null },
+          data: {
+            refundedAt: new Date(),
+            refundNote: `refunded with the booking: ${reason}`.slice(0, 200),
+          },
+        });
+      }
+      const short = halves.filter((h) => !covered.includes(h.id));
+      if (short.length > 0) {
+        // Still owed. It goes on the venue's queue exactly as a cancellation
+        // would put it there, because from the captain's side nothing has
+        // come back yet.
+        await flagChallengeRefunds(
+          c.id,
+          `the arena refunded only part of the court: ${reason}`.slice(0, 200),
+        );
+      }
       await logChallengeEvent({
         type: "REFUNDED",
         challengeId: c.id,
-        detail: `both halves refunded with the booking: ${reason}`.slice(0, 200),
+        detail: (short.length === 0
+          ? `both halves refunded with the booking: ${reason}`
+          : `₹${refundedAmount} refunded with the booking, ${short.length} half(s) still owed: ${reason}`
+        ).slice(0, 200),
       });
     } else {
+      // The booking id travels IN the reason. Unwinding detaches the
+      // challenge (`bookingId: null`), so once this row is queued there is no
+      // longer any link back to the booking it came from — and the refund
+      // path below needs exactly that link to settle these rows when the
+      // money does eventually go back. The id is useful in the audit text
+      // regardless of who reads it.
       await flagChallengeRefunds(
         c.id,
-        `the arena cancelled the court: ${reason}`.slice(0, 200),
+        `the arena cancelled the court: ${reason} [booking ${bookingId}]`.slice(0, 200),
       );
     }
   }
@@ -2357,6 +2438,10 @@ export async function renotifyUntoldHalves(now = new Date()): Promise<number> {
       acceptedBy: { select: { id: true, name: true } },
       payments: { where: { placedAt: { not: null } }, select: { side: true, amount: true, quotedAdvance: true } },
     },
+    // OLDEST FIRST. Unordered, a backlog past this page could return the same
+    // 50 rows every tick while the rest were never serviced at all — and the
+    // whole point of this sweep is the captain nobody has told.
+    orderBy: { createdAt: "asc" },
     take: 50,
   });
 
@@ -2371,16 +2456,20 @@ export async function renotifyUntoldHalves(now = new Date()): Promise<number> {
     const owes = owingIsChallenger ? c.createdBy : c.acceptedBy;
     if (!owes) continue;
 
-    const told = await db.userNotification.findFirst({
-      where: {
-        userId: owes.id,
-        type: "CHALLENGE_PAY_YOUR_HALF",
-        link: `/challenges/${c.id}`,
-      },
-      select: { id: true },
-    });
-    if (told) continue;
-
+    // CHECK AND WRITE UNDER ONE LOCK, PER CHALLENGE.
+    //
+    // "Does a notification row exist" followed by "write one" is a plain
+    // read-then-write with nothing in between, and two overlapping cron
+    // passes both read "not told" and both told: 29 of 58 captains got the
+    // nudge twice, about 200ms apart. Written to fix a double-push, it
+    // double-pushed.
+    //
+    // The lock is TRANSACTION-scoped, not session-scoped. A session-level
+    // `pg_try_advisory_lock` looked simpler and was wrong in a way worth
+    // recording: with a connection pool the unlock can land on a different
+    // connection than the lock, so the lock leaks and the sweep disables
+    // itself for good. An xact lock is released by the commit, whichever
+    // connection it was on.
     const paid = c.payments[0];
     const vars = {
       name: "The other captain",
@@ -2392,12 +2481,43 @@ export async function renotifyUntoldHalves(now = new Date()): Promise<number> {
       total: 0,
       balance: 0,
     };
-    await notifyUser(owes.id, {
-      type: "CHALLENGE_PAY_YOUR_HALF",
-      title: renderPush(half.title, vars),
-      body: renderPush(half.body, vars),
-      link: `/challenges/${c.id}`,
+    const title = renderPush(half.title, vars);
+    const body = renderPush(half.body, vars);
+
+    const claimed = await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${challengeLockKey(c.id)}::bigint)`;
+      const told = await tx.userNotification.findFirst({
+        where: {
+          userId: owes.id,
+          type: "CHALLENGE_PAY_YOUR_HALF",
+          link: `/challenges/${c.id}`,
+        },
+        select: { id: true },
+      });
+      if (told) return false;
+      // The row IS the claim — written here, under the lock, so the other
+      // pass sees it. The push itself follows outside the transaction.
+      await tx.userNotification.create({
+        data: {
+          userId: owes.id,
+          type: "CHALLENGE_PAY_YOUR_HALF",
+          title,
+          body,
+          link: `/challenges/${c.id}`,
+        },
+      });
+      return true;
     });
+    if (!claimed) continue;
+
+    // The row is already written — the claim above IS the notification. Only
+    // the push is left, and it is best-effort: a failed send must not undo a
+    // claim that has been committed, or the next pass would send again.
+    void sendToUser(owes.id, {
+      title,
+      body,
+      data: { kind: "in_app", link: `/challenges/${c.id}` },
+    }).catch((e: unknown) => console.error("[challenges] re-nudge push failed:", e));
     await logChallengeEvent({
       type: "MONEY_NOTE",
       challengeId: c.id,
