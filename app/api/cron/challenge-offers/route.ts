@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { sendOfferReminders, expireOffers } from "@/lib/challenge-spin";
-import { resumeStalledPayments, discardChallengesWhoseHourWent } from "@/lib/challenge-payments";
+import {
+  resumeStalledPayments,
+  discardChallengesWhoseHourWent,
+  renotifyUntoldHalves,
+} from "@/lib/challenge-payments";
 
 /**
  * Cron worker — nudges live discount offers and closes out dead ones.
@@ -42,6 +46,14 @@ async function handle(request: Request) {
     console.error("[challenge-offers] lost-hour sweep failed:", e);
     return 0;
   });
+  // A captain who was never told they owe a half cannot pay it. The claim
+  // that stops two sweeps nudging twice stamps before it sends, so a process
+  // dying in between consumes the only attempt — this is what notices, by
+  // asking whether the notification row exists rather than trusting the flag.
+  const renotified = await renotifyUntoldHalves(now).catch((e) => {
+    console.error("[challenge-offers] re-nudge sweep failed:", e);
+    return 0;
+  });
   // Nudge BEFORE expiring, so an offer in its final minute still gets its
   // last call rather than being closed out in the same tick.
   const nudged = await sendOfferReminders(now).catch((e) => {
@@ -53,7 +65,7 @@ async function handle(request: Request) {
     return 0;
   });
 
-  return NextResponse.json({ ok: true, finished, discarded, nudged, lapsed });
+  return NextResponse.json({ ok: true, finished, discarded, renotified, nudged, lapsed });
 }
 
 export const GET = handle;

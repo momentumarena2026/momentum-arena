@@ -65,7 +65,7 @@ import {
   DEFAULT_OWNER_REFUND_PUSH,
 } from "@/lib/challenge-push";
 import { istDayLabel } from "@/lib/challenge-spin";
-import { courtHourLockKeys } from "@/lib/slot-hold";
+import { lockCourtHours } from "@/lib/slot-hold";
 import { logChallengeEvent } from "@/lib/challenges";
 import {
   leadTimeRefusal,
@@ -2147,14 +2147,17 @@ async function buyTheHour(
         // walk-in buying Medium (Left Half) take different keys for the same
         // patch of ground and neither waits for the other. That was reproduced
         // end to end: two bookings, overlapping zones, same hour.
-        for (const lockKey of courtHourLockKeys(
-          (courtZones ?? []) as string[],
-          courtId,
+        // THE shared function, not a copy of its contents. This kept its own
+        // loop when `lockCourtHours` was introduced, which meant one round
+        // trip per key inside a transaction that also holds a pooled
+        // connection — the cost the batching existed to remove — and made the
+        // documented rule "every site calls it" untrue the day it was written.
+        await lockCourtHours(
+          tx,
+          [{ configId: courtId, zones: (courtZones ?? []) as string[] }],
           dateStr,
           hours,
-        )) {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
-        }
+        );
         // ONE COURT, on the TRANSACTION's client.
         //
         // This called `freeCourtFor`, which loops EVERY active court of the sport
@@ -2324,6 +2327,87 @@ class HourGone extends Error {}
  * when there is nothing left to play: the agreed hour has gone, or every
  * offered hour has.
  */
+/**
+ * Re-send a "pay your half" nudge that was claimed but never delivered.
+ *
+ * The claim on `notifiedAt` stamps BEFORE telling, which is the only way two
+ * overlapping sweeps can be stopped from both telling — but it means a
+ * process that dies in between has consumed the only attempt, permanently and
+ * silently. That is a worse failure than the duplicate it replaced: a captain
+ * gets no nudge at all, the match dies at expiry, and unlike every other
+ * stuck state in this module it lands on no worklist.
+ *
+ * Rather than a second column to mark "actually sent", this asks the thing
+ * that actually knows: `notifyUser` writes the notification row before it
+ * pushes, so a half-paid challenge whose other captain has NO such row is one
+ * where the telling did not happen. Evidence beats a flag.
+ */
+export async function renotifyUntoldHalves(now = new Date()): Promise<number> {
+  const stuck = await db.challenge.findMany({
+    where: {
+      status: "PART_PAID",
+      bookingId: null,
+      // A grace period, so this never races the request that is mid-telling.
+      payments: { some: { placedAt: { not: null, lt: new Date(now.getTime() - 5 * 60000) } } },
+    },
+    select: {
+      id: true,
+      teamName: true,
+      createdBy: { select: { id: true, name: true } },
+      acceptedBy: { select: { id: true, name: true } },
+      payments: { where: { placedAt: { not: null } }, select: { side: true, amount: true, quotedAdvance: true } },
+    },
+    take: 50,
+  });
+
+  const tpls = await db.challengeSettings.findFirst({ select: { payHalfPush: true } });
+  const half = resolveTemplate(tpls?.payHalfPush, DEFAULT_LIFECYCLE_PUSHES.payHalf);
+
+  let sent = 0;
+  for (const c of stuck) {
+    const paidSides = new Set(c.payments.map((p) => p.side));
+    if (paidSides.size !== 1) continue;
+    const owingIsChallenger = !paidSides.has("CHALLENGER");
+    const owes = owingIsChallenger ? c.createdBy : c.acceptedBy;
+    if (!owes) continue;
+
+    const told = await db.userNotification.findFirst({
+      where: {
+        userId: owes.id,
+        type: "CHALLENGE_PAY_YOUR_HALF",
+        link: `/challenges/${c.id}`,
+      },
+      select: { id: true },
+    });
+    if (told) continue;
+
+    const paid = c.payments[0];
+    const vars = {
+      name: "The other captain",
+      team: c.teamName ?? "the other side",
+      amount: Math.max(0, (paid.quotedAdvance ?? 0) - paid.amount) || paid.amount,
+      hour: "",
+      date: "",
+      court: "",
+      total: 0,
+      balance: 0,
+    };
+    await notifyUser(owes.id, {
+      type: "CHALLENGE_PAY_YOUR_HALF",
+      title: renderPush(half.title, vars),
+      body: renderPush(half.body, vars),
+      link: `/challenges/${c.id}`,
+    });
+    await logChallengeEvent({
+      type: "MONEY_NOTE",
+      challengeId: c.id,
+      detail: "re-sent the pay-your-half nudge; the first attempt was claimed but never delivered",
+    });
+    sent += 1;
+  }
+  return sent;
+}
+
 export async function discardChallengesWhoseHourWent(
   now = new Date(),
 ): Promise<number> {
