@@ -311,3 +311,35 @@ test("the arena's own message can say why, because the cause is not always the s
   // And it no longer asserts a cause of its own.
   assert.ok(!DEFAULT_OWNER_REFUND_PUSH.body.includes("booked by somebody else"));
 });
+
+test("a message is blank unless something in it can be SEEN", () => {
+  // Written as a denylist of invisible characters, this was beaten in three
+  // consecutive rounds — U+200B, then U+2800 and U+00AD, then U+3164, which
+  // renders as an ordinary space and survives proofreading in the editor's own
+  // preview. The rule is now "contains a letter, number, punctuation mark or
+  // symbol", which cannot be beaten by finding another invisible character.
+  const invisible = [
+    "​", "‌", "‍", "‎", "‏", "﻿", " ",
+    "­", "⠀", "　", "⁠", "᠎", " ", " ",
+    " ", " ", " ", " ", " ", "ㅤ", "ﾠ",
+    "ᅟ", "ᅠ", "͏", "឴", "឵", "⁥", "￼",
+    " ", "\t", "\n", "ㅤ​­", "",
+  ];
+  for (const g of invisible) {
+    assert.match(
+      templateRefusal({ title: g, body: "b" }) ?? "",
+      /title and a body/,
+      `${JSON.stringify(g)} must not pass as a title`,
+    );
+    assert.deepEqual(
+      resolveTemplate({ title: g, body: "b" }, DEFAULT_LIFECYCLE_PUSHES.payHalf),
+      DEFAULT_LIFECYCLE_PUSHES.payHalf,
+      `${JSON.stringify(g)} must fall back at runtime too`,
+    );
+  }
+  // Anything with something visible in it is fine — including emoji-only copy,
+  // and including copy that merely CONTAINS an invisible character.
+  for (const ok of ["Your half is due", "🏏", "₹500", "!", "Match­confirmed", "5"]) {
+    assert.equal(templateRefusal({ title: ok, body: ok }), null, `${ok} must be allowed`);
+  }
+});

@@ -192,7 +192,7 @@ export function SpinWheel({
             {settled && subtitle
               ? subtitle
               : landOn === null
-                ? "One spin for winning your match. Up to 50% off the next hour."
+                ? "One spin for getting your match confirmed. Up to 50% off the next hour."
                 : " "}
           </Text>
         </View>

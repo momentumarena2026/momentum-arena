@@ -450,7 +450,8 @@ export function ChallengesAdmin({
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
               <h2 className="text-sm font-semibold text-amber-200">Why people were refused</h2>
               <p className="mb-3 text-xs text-amber-200/60">
-                The exact words they saw. If one of these dominates, it is usually a
+                The exact words they saw — the module's own money bookkeeping is logged
+                separately and does not appear here. If one of these dominates, it is usually a
                 setting on the Settings tab rather than a bug.
               </p>
               <div className="space-y-1.5">
@@ -733,10 +734,12 @@ export function ChallengesAdmin({
                 Half paid — money in, hour NOT held
               </p>
               <p className="mt-0.5 text-xs text-zinc-400">
-                One side has paid and the court is still on sale, because it is only taken off
-                sale once both halves are in. Chase the other captain, or refund what was paid.
-                If somebody else books the hour first, the challenge is discarded automatically
-                and you will be told whose money to return.
+                Money is in and the court is still on sale, because it is only taken off sale
+                once both halves are in. Chase the captain who still owes — or, to give the
+                money back, use <strong>Take down</strong> on the challenge's own card below:
+                that is what flags the refund and tells everyone. If somebody else books the
+                hour first the challenge is discarded automatically and you are told whose
+                money to return.
               </p>
               <div className="mt-3 space-y-2">
                 {initial.halfPaid.map((c) => (
@@ -773,7 +776,11 @@ export function ChallengesAdmin({
                         {c.owes.phone ? ` · ${c.owes.phone}` : ""}
                       </span>
                     ) : (
-                      <span className="text-zinc-500">nobody has taken the other half yet</span>
+                      <span className="text-zinc-500">
+                        {c.stuck > 0
+                          ? "both captains have paid — one capture never reached a booking"
+                          : "nobody has taken the other half yet"}
+                      </span>
                     )}
                     {c.bookingId && (
                       <a

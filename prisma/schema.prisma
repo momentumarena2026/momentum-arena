@@ -4145,6 +4145,14 @@ model Challenge {
   /// When the "match confirmed" push went out. Claimed with a conditional
   /// update so two halves landing in the same instant announce the match
   /// once, rather than telling each captain twice.
+  /// Set once when a court turned out to be priced BELOW what was already
+  /// collected online for it — a rate-card edit landing between the two halves.
+  /// The overage is owed back and has no half of its own to flag, so it is
+  /// recorded here: the conditional write is also what stops the arena being
+  /// told about it once per retry.
+  overCollectedAt     DateTime?
+  overCollectedAmount Int?
+
   confirmedNotifiedAt DateTime?
 
   bookingId String?
@@ -4605,9 +4613,14 @@ enum ChallengeEventType {
   /// They didn't, and it expired. The most diagnostic row in the promo.
   OFFER_LAPSED
   /// The arena marked a captured payment refunded. The counterpart to the
-  /// REFUSED lines that say a refund is owed — without it the audit trail
+  /// money notes that say a refund is owed — without it the audit trail
   /// records the debt and never its settlement.
   REFUNDED
+  /// The module's own bookkeeping: money owed back, a slot reassigned, a
+  /// capture that matched nothing. Distinct from REFUSED because that type
+  /// feeds the admin's "why people were refused" panel, which is captioned
+  /// "the exact words they saw" — and no customer ever saw any of these.
+  MONEY_NOTE
 }
 
 model ChallengeEvent {

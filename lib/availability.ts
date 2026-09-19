@@ -133,7 +133,7 @@ export async function getSlotAvailability(
    * exhausted by the very code meant to serialise access. Defaults to the
    * global client, so every existing call site is unchanged.
    */
-  client: Pick<typeof db, "courtConfig" | "booking" | "slotHold"> = db
+  client: Pick<typeof db, "courtConfig" | "booking" | "slotHold" | "slotBlock"> = db
 ): Promise<SlotAvailability[]> {
   const config = await client.courtConfig.findUnique({
     where: { id: courtConfigId },
@@ -226,7 +226,7 @@ export async function getSlotAvailability(
   }
 
   // Check admin slot blocks
-  const slotBlocks = await db.slotBlock.findMany({
+  const slotBlocks = await client.slotBlock.findMany({
     where: {
       date: dateOnly,
       OR: [
@@ -249,7 +249,7 @@ export async function getSlotAvailability(
 
   // Also check if any overlapping configs have zone-level blocks
   // by checking blocks on configs that share zones
-  const overlappingConfigBlocks = await db.slotBlock.findMany({
+  const overlappingConfigBlocks = await client.slotBlock.findMany({
     where: {
       date: dateOnly,
       courtConfigId: { not: null },
@@ -359,7 +359,7 @@ export async function getSlotAvailability(
   // `blockedHours`; this one indexes hours blocked at the
   // courtConfig level so we don't surface a sibling whose admin
   // explicitly blocked the hour, even if its zones look free.
-  const siblingAdminBlocks = await db.slotBlock.findMany({
+  const siblingAdminBlocks = await client.slotBlock.findMany({
     where: {
       date: dateOnly,
       courtConfigId: { in: siblingConfigs.map((c) => c.id) },

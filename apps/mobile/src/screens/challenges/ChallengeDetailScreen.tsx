@@ -603,7 +603,7 @@ export function ChallengeDetailScreen() {
                   </View>
                 )}
               </>
-            ) : quote.youHavePaid ? (
+            ) : c.status === "SLOT_LOST" ? null : quote.youHavePaid ? (
               <Text variant="small" color={colors.zinc300}>
                 {/* "The hour is held either way" was true under the old rule and
                     is the single most dangerous thing this screen could now

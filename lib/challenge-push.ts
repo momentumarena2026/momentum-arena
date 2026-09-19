@@ -303,23 +303,32 @@ export function resolveTemplate(stored: unknown, fallback: PushTemplate): PushTe
 
 /** Why this single message cannot be saved — or null. */
 /**
- * Is this string actually blank once invisible characters are removed?
+ * Does this string contain anything a reader can actually SEE?
  *
- * `String.trim()` does not strip U+200B and friends, so `{title:"\u200b"}`
- * saved happily — which made "there is no way to switch a lifecycle message
- * off" false, by the one route nobody would think to check. A captain then
- * receives an empty notification instead of "your half is due".
+ * Asked the other way round on purpose. Three rounds running, this was a
+ * denylist of invisible characters and three rounds running an agent found one
+ * that was not on it — U+200B, then U+2800 and U+00AD, then U+3164, which
+ * renders as an ordinary space and so survives proofreading in the editor's own
+ * preview. A denylist of things that look like nothing can never be finished.
+ *
+ * So: a title or body is blank unless it holds at least one letter, number,
+ * punctuation mark or symbol. Emoji are symbols, so "🏏" is a valid title;
+ * Hangul filler, braille blanks, soft hyphens, bidi marks and every space are
+ * not, whatever block they live in.
  */
 function blank(v: string | undefined): boolean {
-  // Every Unicode FORMAT character (\p{Cf} — soft hyphen, zero-widths, bidi
-  // marks) plus the blanks that are not whitespace to `\s`: braille blank and
-  // the rest of the space block. Enumerating them one by one let U+2800 and
-  // U+00AD through, which is the same "there is no off switch" claim failing
-  // by two characters instead of one.
-  return (
-    !v ||
-    v.replace(/[\s\p{Cf}\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u2800\u3000]/gu, "") === ""
+  // A handful of characters draw nothing and are NOT filed under a category
+  // that says so, which is how an allowlist can still be beaten: the braille
+  // blank is a Symbol, the Hangul fillers are Letters, and the combining marks
+  // are marks. They are enumerable and they are stable — unlike the set of all
+  // invisible characters, which is what three previous denylists tried to be.
+  // Strip these, plus whitespace and the format category, then ask whether
+  // anything a reader can see is left.
+  const visible = (v ?? "").replace(
+    /[\s\p{Cf}\p{Mn}\u2800\u3164\u115f\u1160\uffa0\ufffc\u2065]/gu,
+    "",
   );
+  return !/[\p{L}\p{N}\p{P}\p{S}]/u.test(visible);
 }
 
 export function templateRefusal(t: unknown): string | null {

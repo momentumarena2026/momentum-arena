@@ -487,6 +487,7 @@ export async function createChallengePaymentOrder(
   if (!quote) return { ok: false, error: "That challenge is gone." };
   if (quote.refusal) {
     await logChallengeEvent({
+      // This one IS the sentence the customer saw, so it belongs in the panel.
       type: "REFUSED",
       userId,
       challengeId,
@@ -598,7 +599,7 @@ export async function createChallengePaymentOrder(
       }
       if (current.razorpayOrderId) {
         await logChallengeEvent({
-          type: "REFUSED",
+          type: "MONEY_NOTE",
           userId: current.userId,
           challengeId,
           // No longer "refund owed if they paid" — that wrote a speculative
@@ -872,7 +873,7 @@ async function refundOwed(args: {
     if (!first) return { ok: false, error: args.error };
   }
   await logChallengeEvent({
-    type: "REFUSED",
+    type: "MONEY_NOTE",
     userId: args.userId,
     challengeId: args.challengeId,
     detail: args.detail,
@@ -929,10 +930,10 @@ async function markRefundOwed(rowId: string, reason: string): Promise<boolean> {
  */
 async function logOnce(challengeId: string, userId: string, detail: string): Promise<void> {
   const seen = await db.challengeEvent
-    .findFirst({ where: { challengeId, type: "REFUSED", detail }, select: { id: true } })
+    .findFirst({ where: { challengeId, type: "MONEY_NOTE", detail }, select: { id: true } })
     .catch(() => null);
   if (seen) return;
-  await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail });
+  await logChallengeEvent({ type: "MONEY_NOTE", userId, challengeId, detail });
 }
 
 /** The sides that have actually paid, read fresh. Never inferred. */
@@ -963,7 +964,15 @@ async function strandOrder(
 ): Promise<{ userId: string; challengeId: string; amount: number; side: string } | null> {
   const order = await db.challengeOrder.findUnique({
     where: { razorpayOrderId },
-    select: { id: true, userId: true, challengeId: true, amount: true, side: true, settledAt: true },
+    select: {
+      id: true,
+      userId: true,
+      challengeId: true,
+      amount: true,
+      side: true,
+      settledAt: true,
+      razorpayOrderId: true,
+    },
   });
   if (!order) return null;
   // ALREADY HONOURED IS NOT STRANDED.
@@ -976,21 +985,31 @@ async function strandOrder(
   // captain's capture triple readable from a booking they could both see, that
   // was a way to be paid twice.
   if (order.settledAt) return null;
-  // And ask the money, not only the order. `settledAt` is the last write of a
-  // successful placement, so a crash in that final window leaves it null on a
-  // capture that IS placed and booked — and nothing repairs it, because both
-  // sweeps skip placed rows. Without this, replaying that triple turned a
-  // live, court-holding half into a refund debt the venue would pay.
-  const live = await db.challengePayment.findFirst({
+  // Ask whether THIS ORDER'S money is honoured — not whether anything on that
+  // side is.
+  //
+  // The first version keyed on `challengeId + side + placedAt`, which says
+  // nothing about WHOSE money it found. After a takeover the live placed row
+  // belongs to the NEW holder, so the previous payer's genuine capture — the
+  // late-resolving UPI collect this module calls the ordinary case — was
+  // refused a ledger entry, and vanished from both worklists with the customer
+  // already pushed "the arena will refund you in full". It also defeated the
+  // debt-transfer on release, because the row being wiped was the row it found.
+  //
+  // Matching the ORDER ID answers the real question, and the extra conditions
+  // make "honoured" mean what it says: placed, not written off, not already
+  // refunded, and on a challenge that actually has a court.
+  const honoured = await db.challengePayment.findFirst({
     where: {
-      challengeId: order.challengeId,
-      side: order.side,
+      razorpayOrderId: order.razorpayOrderId,
       placedAt: { not: null },
+      refundOwedAt: null,
       refundedAt: null,
+      challenge: { bookingId: { not: null } },
     },
     select: { id: true },
   });
-  if (live) return null;
+  if (honoured) return null;
   const claimed = await db.challengeOrder.updateMany({
     // `settledAt: null` in the predicate too, so a settle landing between the
     // read and the write cannot be overtaken by a strand.
@@ -1022,7 +1041,7 @@ async function claimSlot(args: {
 
   if (!verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, args.razorpaySignature)) {
     await logChallengeEvent({
-      type: "REFUSED",
+      type: "MONEY_NOTE",
       userId,
       challengeId,
       detail: "Payment signature did not verify.",
@@ -1068,7 +1087,7 @@ async function claimSlot(args: {
     );
     if (ours) {
       await logChallengeEvent({
-        type: "REFUSED",
+        type: "MONEY_NOTE",
         userId: ours.userId,
         // Against the challenge the ORDER names. If that challenge is gone
         // the write fails and is swallowed — which is exactly why the ledger
@@ -1143,7 +1162,7 @@ async function claimSlot(args: {
       // sent "we owe you a refund" to whoever replayed the triple rather than
       // to whoever paid.
       await logChallengeEvent({
-        type: "REFUSED",
+        type: "MONEY_NOTE",
         userId: stranded.userId,
         challengeId,
         detail: `paid ₹${stranded.amount} into a slot that had been reassigned (${razorpayPaymentId}) — refund owed`,
@@ -1279,6 +1298,8 @@ async function placeMoney(ctx: {
         amount: true,
         userId: true,
         razorpayPaymentId: true,
+        razorpayOrderId: true,
+        razorpaySignature: true,
         quotedCourtConfigId: true,
         quotedTotal: true,
       },
@@ -1349,7 +1370,7 @@ export async function flagChallengeRefunds(
     if (!(await markRefundOwed(row.id, reason))) continue;
     flagged += 1;
     await logChallengeEvent({
-      type: "REFUSED",
+      type: "MONEY_NOTE",
       userId: row.user.id,
       challengeId,
       detail: `paid ₹${row.amount} as ${row.side.toLowerCase()} — refund owed, ${reason}`,
@@ -1431,17 +1452,20 @@ async function discardForLostHour(args: {
     const first = await markRefundOwed(row.id, args.reason);
     if (!first) continue;
     await logChallengeEvent({
-      type: "REFUSED",
+      type: "MONEY_NOTE",
       userId: row.user.id,
       challengeId: args.challengeId,
       detail: `paid ₹${row.amount} as ${row.side.toLowerCase()} — refund owed, ${args.reason}`,
     });
-    await notifyUser(row.user.id, {
-      type: "CHALLENGE_REFUND_OWED",
+    // Through the venue's own template, like every other refund notice. This
+    // path hard-coded its text — and it is the path that produces most refunds,
+    // so the control the admin screen advertises applied to everything except
+    // the case it names. Its old wording also carried the false cause above.
+    await notifyRefundOwed(row.user.id, args.challengeId, {
       title: "We owe you a refund",
-      body: `₹${row.amount} for that hour is coming back to you in full. It was booked by somebody else before both halves were in.`,
-      link: `/challenges/${args.challengeId}`,
-    }).catch(() => undefined);
+      body: `₹${row.amount} for that hour is coming back to you in full — ${args.reason}.`,
+      amount: row.amount,
+    });
     await tellTheArenaAboutARefund({
       name: row.user.name ?? "A captain",
       phone: row.user.phone ?? "",
@@ -1656,6 +1680,8 @@ async function buyTheHour(
     amount: number;
     userId: string;
     razorpayPaymentId: string | null;
+    razorpayOrderId: string | null;
+    razorpaySignature: string | null;
     quotedCourtConfigId: string | null;
     quotedTotal: number | null;
   }[],
@@ -1721,25 +1747,36 @@ async function buyTheHour(
   // must not be silent, because nothing else in the system would notice.
   if (advance > total) {
     const over = advance - total;
-    await logChallengeEvent({
-      type: "REFUSED",
-      challengeId: ctx.challengeId,
-      detail: `collected ₹${advance} online for a court now priced ₹${total} — ₹${over} owed back`,
+    // ONCE. `buyTheHour` is re-entered on every retry, and the repair sweep
+    // re-runs it once per placed row, so this block fired three times for one
+    // overage: three identical audit lines and SIX admin pushes for ₹200 owed.
+    // A venue working its push inbox would have refunded ₹600. The conditional
+    // stamp is the claim, exactly as it is everywhere else money is announced.
+    const firstTime = await db.challenge.updateMany({
+      where: { id: ctx.challengeId, overCollectedAt: null },
+      data: { overCollectedAt: new Date(), overCollectedAmount: over },
     });
+    if (firstTime.count > 0) {
+      await logChallengeEvent({
+        type: "MONEY_NOTE",
+        challengeId: ctx.challengeId,
+        detail: `collected ₹${advance} online for a court now priced ₹${total} — ₹${over} owed back`,
+      });
     // AND tell the arena. A line in the activity feed is exactly the "money
     // discoverable only by reading prose" that `refundOwedAt` was added to end;
     // this overage has no half of its own to flag, so the notification is the
     // whole of the trail. It is split across the two captains, because that is
     // who over-paid.
-    for (const p of placed) {
-      const share = Math.round((over * p.amount) / Math.max(1, advance));
-      if (share > 0) {
-        await tellTheArenaAboutARefundFor(
-          p.userId,
-          share,
-          ctx.challengeId,
-          `the court was re-priced to ₹${total} after ₹${advance} had been collected online`,
-        );
+      for (const p of placed) {
+        const share = Math.round((over * p.amount) / Math.max(1, advance));
+        if (share > 0) {
+          await tellTheArenaAboutARefundFor(
+            p.userId,
+            share,
+            ctx.challengeId,
+            `the court was re-priced to ₹${total} after ₹${advance} had been collected online`,
+          );
+        }
       }
     }
   }
@@ -1801,9 +1838,15 @@ async function buyTheHour(
               advanceAmount: advance,
               remainingAmount: gateBalance,
               confirmedAt: new Date(),
-              razorpayOrderId: ctx.razorpayOrderId,
+              // ONE COHERENT TRIPLE. These were assembled from two different
+              // captures — the second half's order id and signature with the
+              // FIRST half's payment id — so the row held a combination that
+              // verifies against nothing, and any reconciliation or
+              // re-verification against it fails. All three now come from the
+              // first half, with the second half's capture recorded beside it.
+              razorpayOrderId: first?.razorpayOrderId ?? ctx.razorpayOrderId,
               razorpayPaymentId: first?.razorpayPaymentId ?? ctx.razorpayPaymentId,
-              razorpaySignature: ctx.razorpaySignature,
+              razorpaySignature: first?.razorpaySignature ?? ctx.razorpaySignature,
               secondRazorpayPaymentId: second?.razorpayPaymentId ?? null,
             },
           },
@@ -1927,6 +1970,17 @@ export async function discardChallengesWhoseHourWent(now = new Date()): Promise<
     }
     if (alive.length > 0) continue;
 
+    // WHY it is dead decides what everyone is told. A window is dropped from
+    // `alive` both when somebody booked it AND when it simply went by, and the
+    // reason was hard-coded to the first — so a challenge nobody paid for in
+    // time told two captains a stranger had outbid them, and told the arena the
+    // same thing on the one message it has to act on.
+    const allElapsed = decisive.every(
+      (w) => slotStart(w.date, w.startHour).getTime() <= now.getTime(),
+    );
+    const reason = allElapsed
+      ? "the time passed before both halves were in"
+      : "the hour was booked by somebody else before both halves were in";
     const gone = decisive[0];
     const court = quotedCourt ?? gone.courtConfigId;
     const label = court
@@ -1935,7 +1989,7 @@ export async function discardChallengesWhoseHourWent(now = new Date()): Promise<
     const tpls = await db.challengeSettings.findFirst({ select: { slotLostPush: true } });
     const ok = await discardForLostHour({
       challengeId: c.id,
-      reason: "the hour was booked by somebody else before both halves were in",
+      reason,
       captains: [c.createdBy, c.acceptedBy],
       pushVars: {
         name: "The other captain",

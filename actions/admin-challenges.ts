@@ -213,8 +213,19 @@ export async function getChallengeAdmin() {
       // missing from `paid`. Deriving it from `paid` alone named the captain
       // whose capture was stuck as the one to chase, on the same row that said
       // their money was captured.
+      // NOBODY owes when both sides have put money in. The previous test asked
+      // "does the challenger have money?" and named the acceptor if so — which
+      // on a challenge where BOTH have paid named the captain whose capture is
+      // stuck as the one to chase, on the very row that says their money was
+      // captured. That is the venue ringing a customer to demand money it is
+      // already holding.
       const withMoney = new Set([...paid, ...stuck].map((p) => p.side));
-      const owingSide = withMoney.has("CHALLENGER") ? "ACCEPTOR" : "CHALLENGER";
+      const owingSide =
+        withMoney.size >= 2
+          ? null
+          : withMoney.has("CHALLENGER")
+            ? "ACCEPTOR"
+            : "CHALLENGER";
       return {
         id: c.id,
         status: c.status,
@@ -226,7 +237,12 @@ export async function getChallengeAdmin() {
         stuck: stuck.reduce((sum, p) => sum + p.amount, 0),
         // Whoever has NOT paid is who the venue rings. Derived from the side
         // that is missing, not from an unpaid row — there may not be one.
-        owes: owingSide === "CHALLENGER" ? c.createdBy : c.acceptedBy,
+        owes:
+          owingSide === null
+            ? null
+            : owingSide === "CHALLENGER"
+              ? c.createdBy
+              : c.acceptedBy,
         window: c.windows[0] ?? null,
       };
     })
