@@ -224,15 +224,23 @@ export async function spinFor(
   // A cap of zero is uncapped, which is what the venue asked for — but the
   // knob exists because a colluding pair posting at each other is the one
   // way this promo can be farmed.
-  if (cfg.perPosterCap > 0 && cfg.perPosterDays > 0) {
-    const since = new Date(Date.now() - cfg.perPosterDays * 86400000);
-    const used = await db.challengeSpin.count({ where: { userId, createdAt: { gte: since } } });
+  // A cap of zero is no cap. A WINDOW of zero means "ever" — so the two
+  // numbers are independently meaningful and the admin can set either one
+  // on its own, which a form that saves one field per blur requires.
+  if (cfg.perPosterCap > 0) {
+    const since =
+      cfg.perPosterDays > 0 ? new Date(Date.now() - cfg.perPosterDays * 86400000) : undefined;
+    const used = await db.challengeSpin.count({
+      where: { userId, ...(since ? { createdAt: { gte: since } } : {}) },
+    });
     if (used >= cfg.perPosterCap) {
       return {
         ok: false,
         error:
-          `You've had ${cfg.perPosterCap} spin${cfg.perPosterCap === 1 ? "" : "s"} in the last ` +
-          `${cfg.perPosterDays} day${cfg.perPosterDays === 1 ? "" : "s"}. Another one soon.`,
+          cfg.perPosterDays > 0
+            ? `You've had ${cfg.perPosterCap} spin${cfg.perPosterCap === 1 ? "" : "s"} in the last ` +
+              `${cfg.perPosterDays} day${cfg.perPosterDays === 1 ? "" : "s"}. Another one soon.`
+            : `You've had all ${cfg.perPosterCap} of your spins.`,
       };
     }
   }
@@ -324,7 +332,12 @@ export async function spinFor(
   }
 
   const vars: PushVars = {
-    minsLeft: windowMins,
+    // The offer's REAL life, not the setting. Expiry is clamped to the hour
+    // being sold, so a spin ten minutes before it produced a ten-minute
+    // offer whose "you won" push promised thirty. The nudges already
+    // recompute this; the one push the venue is most likely to proofread
+    // did not.
+    minsLeft: Math.max(1, Math.round((expiresAt.getTime() - Date.now()) / 60000)),
     pct,
     price: money?.price ?? 0,
     saving: money?.saving ?? 0,

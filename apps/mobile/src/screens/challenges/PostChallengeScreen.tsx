@@ -56,9 +56,13 @@ export function PostChallengeScreen() {
       : null;
 
   // The next seven days, which is as far ahead as anyone plans a pickup game.
+  // Start far enough out that the venue's notice period is already met.
+  // Offering tomorrow regardless meant any minLeadMins above about a day
+  // produced days whose every hour the server refused on submit.
+  const leadDays = Math.ceil((board.data?.limits?.minLeadMins ?? 240) / (60 * 24));
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
-    d.setDate(d.getDate() + i + 1);
+    d.setDate(d.getDate() + i + Math.max(1, leadDays));
     return d.toISOString().slice(0, 10);
   });
   // The arena's real hours, not a hard-coded 5–25. When the venue moved its

@@ -154,6 +154,10 @@ export async function GET(request: NextRequest) {
       // the real setting, happily offered it.
       openHour: hours.start,
       closeHour: hours.end,
+      // The notice the venue needs. Without it the post picker offered the
+      // next seven days from tomorrow regardless, so any setting above
+      // roughly a day produced slots the server refused on submit.
+      minLeadMins: settings.minLeadMins,
     },
     copy: {
       title: settings.boardTitle,

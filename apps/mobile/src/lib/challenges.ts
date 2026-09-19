@@ -54,6 +54,7 @@ export type ChallengeBoard = {
     maxCountersPerSide: number;
     openHour: number;
     closeHour: number;
+    minLeadMins: number;
   };
   copy: { title: string | null; subtitle: string | null; empty: string | null };
   homeCard: {

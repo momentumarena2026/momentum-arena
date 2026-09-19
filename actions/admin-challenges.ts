@@ -481,17 +481,17 @@ export async function saveChallengeSettings(
       });
     }
 
-    // A cap needs a window and a window needs a cap: `spinFor` requires both
-    // above zero, so one alone reads as configured and guards nothing — and
-    // this is the only anti-collusion defence there is.
-    const capN = n("spinsPerPosterCap", 0);
-    const capDays = n("spinsPerPosterPerDays", 0);
-    if ((capN > 0) !== (capDays > 0)) {
-      return {
-        ok: false,
-        error: "A spin cap needs both a number and a window — one without the other does nothing.",
-      };
-    }
+    // NO cross-field rule here, deliberately. Requiring both halves together
+    // made the cap unreachable: this screen blur-saves ONE field per event,
+    // so `{cap: 5}` and `{days: 7}` each arrived alone and each was refused,
+    // in every order — the only anti-collusion defence there is could not be
+    // switched on at all. Worse, an inconsistent stored pair then refused
+    // every unrelated save including both kill switches, which is exactly
+    // the pattern the other guards had just been narrowed to avoid.
+    //
+    // Instead `days = 0` now MEANS "ever" at the runtime (see spinFor), so
+    // every combination of these two numbers is meaningful on its own and
+    // there is nothing left to police.
 
     // F11: validated here rather than cast into the Prisma enum.
     if (input.sports?.some((x) => !KNOWN_SPORTS.includes(x))) {
@@ -539,8 +539,21 @@ export async function adminWithdrawChallenge(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const admin = await gate();
   if (!reason.trim()) return { ok: false, error: "Give a reason — the poster sees it." };
-  const c = await db.challenge.findUnique({ where: { id }, select: { status: true } });
+  const c = await db.challenge.findUnique({
+    where: { id },
+    select: {
+      status: true,
+      payments: { where: { paidAt: { not: null }, refundedAt: null }, select: { amount: true } },
+    },
+  });
   if (!c) return { ok: false, error: "That challenge is gone." };
+
+  // Already closed. Every "use server" export is a public POST endpoint, so
+  // hiding the button is not the same as refusing the action — this used to
+  // overwrite the original takedown reason and log a second event.
+  if (["WITHDRAWN", "EXPIRED"].includes(c.status)) {
+    return { ok: false, error: "That one is already closed." };
+  }
   // PART_PAID is money in the bank against a court this system is holding.
   // Taking it down wrote the Challenge row and NOTHING else: the PENDING
   // booking kept the hour off the board for ever, the captain's payment was
@@ -550,14 +563,21 @@ export async function adminWithdrawChallenge(
   // the court and the worklist entry at once — and the panel's own copy
   // says to cancel the booking and refund, which is not what the button
   // next to it did.
-  if (c.status === "CONFIRMED" || c.status === "PART_PAID") {
+  // GUARD THE MONEY, NOT THE STATUS. Keying on PART_PAID missed the case it
+  // was written for: a capture is claimed before the challenge's status is
+  // written, so a process that dies in between leaves an AGREED challenge
+  // holding a real paid half — invisible to the "half paid" panel, which
+  // also filters on PART_PAID, and still offering this button. SLOT_LOST is
+  // the same shape, and its own event copy says a refund is owed.
+  const held = c.payments.reduce((sum, p) => sum + p.amount, 0);
+  if (held > 0) {
     return {
       ok: false,
-      error:
-        c.status === "PART_PAID"
-          ? "Somebody has paid for this and the court is held. Cancel the booking and refund them first — that releases the hour."
-          : "That match is booked — cancel the booking instead.",
+      error: `₹${held} has been paid on this one and the court may be held. Cancel the booking and refund first — that releases the hour.`,
     };
+  }
+  if (c.status === "CONFIRMED") {
+    return { ok: false, error: "That match is booked — cancel the booking instead." };
   }
   await db.challenge.update({
     where: { id },

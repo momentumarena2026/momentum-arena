@@ -4,12 +4,13 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Swords, Settings2 } from "lucide-react";
 import {
+  resolvePushes,
   PUSH_VARIABLES,
   DEFAULT_WON_PUSH,
   DEFAULT_ADJACENT_PUSHES,
   DEFAULT_FALLBACK_PUSHES,
 } from "@/lib/challenge-push";
-import { DEFAULT_WHEEL } from "@/lib/challenge-rules";
+import { DEFAULT_WHEEL, wheelRefusal, resolveWheel } from "@/lib/challenge-rules";
 import {
   saveChallengeSettings,
   adminWithdrawChallenge,
@@ -435,7 +436,7 @@ export function ChallengesAdmin({
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <Num label="Advance %" value={s.advancePct} onSave={(v) => { setS({ ...s, advancePct: v }); save({ advancePct: v }); }} hint="50 on a ₹2,000 slot = ₹500 from each side, ₹1,000 at the venue. Zero switches challenge payments off entirely — nobody can take a challenge." />
-              <Num label="Payment window (minutes)" value={s.paymentWindowMins} onSave={(v) => { setS({ ...s, paymentWindowMins: v }); save({ paymentWindowMins: v }); }} hint="How long they have to pay after agreeing, before it lapses." />
+              <Num label="Payment window (minutes)" value={s.paymentWindowMins} onSave={(v) => { setS({ ...s, paymentWindowMins: v }); save({ paymentWindowMins: v }); }} hint="How long a payment slot is held for whoever opened it. After this a rival can take the slot. It does NOT expire the challenge — that happens at the match time or the TTL." />
             </div>
           </Panel>
 
@@ -545,8 +546,15 @@ export function ChallengesAdmin({
               deliberately: auto-cancelling would release a court the venue
               may already have promised on the phone. */}
           {(() => {
+            // MONEY, not status. A capture is claimed before the status is
+            // written, so a half-paid match can sit at AGREED — or at
+            // SLOT_LOST, whose own event copy says a refund is owed — and
+            // the panel that exists to catch exactly this filtered it out.
             const stranded = initial.challenges.filter(
-              (c) => c.status === "PART_PAID" && c.payments.some((p) => p.paidAt && !p.refundedAt),
+              (c) =>
+                !["CONFIRMED", "WITHDRAWN", "EXPIRED"].includes(c.status) &&
+                c.payments.some((p) => p.paidAt && !p.refundedAt) &&
+                !c.payments.every((p) => p.paidAt && !p.refundedAt),
             );
             if (stranded.length === 0) return null;
             return (
@@ -688,7 +696,8 @@ export function ChallengesAdmin({
                 </div>
                 {/* PART_PAID is excluded: money is in and a PENDING booking holds the
                     hour, so this has to go through the booking, not the board. */}
-                {!["CONFIRMED", "PART_PAID", "WITHDRAWN", "EXPIRED"].includes(c.status) && (
+                {!["CONFIRMED", "WITHDRAWN", "EXPIRED"].includes(c.status) &&
+                  !c.payments.some((p) => p.paidAt && !p.refundedAt) && (
                   <button
                     disabled={pending}
                     onClick={() => {
@@ -836,23 +845,39 @@ function PromoTab({
   // the runtime, so the editor has to show that too. Rendering zero
   // segments told the venue the wheel averaged 0% and "won't save" while a
   // 17.75% wheel was live.
-  const segs: { pct: number; weight: number }[] =
-    Array.isArray(s.spinSegments) && (s.spinSegments as unknown[]).length > 0
-      ? (s.spinSegments as { pct: number; weight: number }[])
-      : DEFAULT_SEGMENTS;
-  const usingBuiltInWheel =
-    !Array.isArray(s.spinSegments) || (s.spinSegments as unknown[]).length === 0;
+  // DRAFT state, local to this editor.
+  //
+  // Segment edits happen keystroke by keystroke and are saved in a LATER
+  // event, so writing them straight into `s` defeated the snapshot rollback
+  // entirely: by the time Save ran, the snapshot already contained the
+  // rejected values. A refused wheel then stayed on screen for ever and kept
+  // driving the average, the in-band banner and the Save button — which is
+  // precisely the failure that rollback was added to prevent.
+  const stored = Array.isArray(s.spinSegments)
+    ? (s.spinSegments as { pct: number; weight: number }[])
+    : null;
+  const usingBuiltInWheel = !stored || stored.length === 0;
+  const serverSegs = resolveWheel(s.spinSegments);
+  const [draft, setDraft] = useState<{ pct: number; weight: number }[]>(serverSegs);
+  // Re-sync when the SERVER's wheel changes — after a successful save, or a
+  // refusal that leaves it untouched.
+  useEffect(() => setDraft(serverSegs), [JSON.stringify(serverSegs)]);
+  const segs = draft;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(serverSegs);
   const total = segs.reduce((t, x) => t + Math.max(0, x.weight), 0);
   const avg = total > 0 ? segs.reduce((t, x) => t + x.pct * Math.max(0, x.weight), 0) / total : 0;
-  const inBand = avg >= s.spinAvgMinPct && avg <= s.spinAvgMaxPct;
+  // The SAME rule the server applies, not a weaker local approximation.
+  // Gating on the band alone let 20.5% through — inside 15–25 — and the
+  // server then refused it for being fractional, with nothing to roll back
+  // to because the draft was already in `s`.
+  const wheelProblem = wheelRefusal(draft, s.spinAvgMinPct, s.spinAvgMaxPct);
+  const inBand = !wheelProblem;
   const p = initial.promo;
   // A representative hour, so "what does this cost" is a rupee figure the
   // venue can argue with rather than a percentage they have to translate.
   const SAMPLE_HOUR = 2000;
 
-  const setSegs = (next: { pct: number; weight: number }[]) => {
-    setS({ ...s, spinSegments: next });
-  };
+  const setSegs = (next: { pct: number; weight: number }[]) => setDraft(next);
 
   return (
     <div className="mt-5 space-y-5">
@@ -943,7 +968,7 @@ function PromoTab({
             This wheel averages <strong>{avg.toFixed(1)}%</strong>
             {inBand
               ? ` — inside your ${s.spinAvgMinPct}–${s.spinAvgMaxPct}% band.`
-              : ` — OUTSIDE your ${s.spinAvgMinPct}–${s.spinAvgMaxPct}% band. It won't save.`}
+              : ` — ${wheelProblem}`}
           </p>
           <p className="mt-1 text-xs text-zinc-400">
             On a ₹{SAMPLE_HOUR.toLocaleString("en-IN")} hour, 100 spins all taken up would
@@ -961,8 +986,8 @@ function PromoTab({
 
         <div className="mt-3 flex items-center gap-3">
           <button
-            disabled={pending || !inBand}
-            onClick={() => save({ spinSegments: segs })}
+            disabled={pending || !inBand || !dirty}
+            onClick={() => save({ spinSegments: draft })}
             className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
           >
             Save the wheel
@@ -1035,16 +1060,16 @@ function PromoTab({
               setS({ ...s, spinsPerPosterCap: v });
               save({ spinsPerPosterCap: v });
             }}
-            hint="The only defence against two friends posting at each other to farm the wheel. Needs a window below to take effect."
+            hint="The only defence against two friends posting at each other to farm the wheel. Zero means no cap."
           />
           <Num
-            label="…in how many days (0 = no cap)"
+            label="…in how many days (0 = ever)"
             value={s.spinsPerPosterPerDays}
             onSave={(v) => {
               setS({ ...s, spinsPerPosterPerDays: v });
               save({ spinsPerPosterPerDays: v });
             }}
-            hint="Both must be above zero for the cap to apply."
+            hint="Zero means the cap counts every spin ever, not a rolling window."
           />
         </div>
         <div className="mt-3">
@@ -1218,10 +1243,17 @@ const DEFAULT_SEGMENTS = DEFAULT_WHEEL;
  * nudges were configured while the runtime sent none — and any later Save
  * on that panel silently re-instated the defaults they had removed.
  */
+/**
+ * The SAME resolver the runtime and the validator use, with one extra case:
+ * `spinWonPush` is stored as a single object, not a list. Re-implementing
+ * this was how the rule ended up in three places, and it had already
+ * disagreed twice when it was only in two.
+ */
 function asPushList(v: unknown, fallback: Push[]): Push[] {
-  if (Array.isArray(v)) return v as Push[];
-  if (v && typeof v === "object" && "title" in (v as object)) return [v as Push];
-  return fallback;
+  if (v && !Array.isArray(v) && typeof v === "object" && "title" in (v as object)) {
+    return [v as Push];
+  }
+  return resolvePushes(v, fallback) as Push[];
 }
 
 /**
