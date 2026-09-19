@@ -823,3 +823,37 @@ test("a bowling half-hour does not clash with the other half of its hour", () =>
   // Nothing taken, nothing clashes.
   assert.deepEqual(findSlotClashes([], { kind: "hours", hours: [14, 15] }), []);
 });
+
+test("a slot occupies its real span, whatever shape it is", () => {
+  // The first version guessed the span from `durationMinutes` alone and never
+  // read `startMinute`, so a 90-minute booking at 14:00 reported nothing at
+  // 15:00 — a missed clash is the same ground sold twice — while a 60-minute
+  // booking at 14:30 claimed 14:00 and missed 15:00. Nothing writes those
+  // shapes today; the next feature that sells a 90-minute session would.
+  const slot = (startHour: number, startMinute: number, durationMinutes: number) => ({
+    slots: [{ startHour, startMinute, durationMinutes }],
+  });
+
+  // 90 minutes from 14:00 runs to 15:30 — it covers 15:00, and not 15:30.
+  assert.deepEqual(findSlotClashes([slot(14, 0, 90)], { kind: "halfHours", slots: [{ hour: 15, minute: 0 }] }), ["15:00"]);
+  assert.deepEqual(findSlotClashes([slot(14, 0, 90)], { kind: "halfHours", slots: [{ hour: 15, minute: 30 }] }), []);
+  assert.deepEqual(findSlotClashes([slot(14, 0, 90)], { kind: "hours", hours: [15] }), ["15"]);
+
+  // An hour that starts at half past spills into the next hour, and leaves
+  // the first half of its own hour free.
+  assert.deepEqual(findSlotClashes([slot(14, 30, 60)], { kind: "halfHours", slots: [{ hour: 15, minute: 0 }] }), ["15:00"]);
+  assert.deepEqual(findSlotClashes([slot(14, 30, 60)], { kind: "halfHours", slots: [{ hour: 14, minute: 0 }] }), []);
+
+  // Two hours from 14:00 covers both 14 and 15, and stops there.
+  assert.deepEqual(findSlotClashes([slot(14, 0, 120)], { kind: "hours", hours: [14] }), ["14"]);
+  assert.deepEqual(findSlotClashes([slot(14, 0, 120)], { kind: "hours", hours: [15] }), ["15"]);
+  assert.deepEqual(findSlotClashes([slot(14, 0, 120)], { kind: "hours", hours: [16] }), []);
+
+  // The shapes the app actually writes today still behave exactly as before.
+  assert.deepEqual(findSlotClashes([slot(14, 0, 30)], { kind: "halfHours", slots: [{ hour: 14, minute: 30 }] }), []);
+  assert.deepEqual(findSlotClashes([slot(14, 0, 60)], { kind: "halfHours", slots: [{ hour: 14, minute: 30 }] }), ["14:30"]);
+  // Late-night hours are stored as 24/25 and must not wrap round to 0/1.
+  assert.deepEqual(findSlotClashes([slot(24, 0, 60)], { kind: "hours", hours: [24] }), ["24"]);
+  assert.deepEqual(findSlotClashes([slot(24, 0, 60)], { kind: "hours", hours: [25] }), []);
+  assert.deepEqual(findSlotClashes([slot(25, 0, 60)], { kind: "hours", hours: [25] }), ["25"]);
+});

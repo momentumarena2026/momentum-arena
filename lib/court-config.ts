@@ -101,7 +101,13 @@ export const COURT_CONFIGS: CourtConfigDef[] = [
 // for sync UI code where a one-render fallback is acceptable.
 export const OPERATING_HOURS = {
   start: 5,
-  end: 25, // exclusive — last slot starts at hour 24 (12 AM)
+  // Exclusive. The arena's real setting is 26 — it sells the 12–1am slot
+  // (hour 25) — and this default had drifted a slot behind it. That only
+  // shows when the settings read FAILS and this fallback takes over, and the
+  // symptom is a customer being refused a legitimate late-night hour during a
+  // transient database blip. Reproduced by pointing the connection at an
+  // unreachable host: `badHours([25])` answered "the arena isn't open".
+  end: 26,
 };
 
 export const SLOT_DURATION_HOURS = 1;

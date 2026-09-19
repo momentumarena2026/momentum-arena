@@ -232,13 +232,28 @@ export function findSlotClashes(
     | { kind: "hours"; hours: number[] }
     | { kind: "halfHours"; slots: { hour: number; minute: number }[] },
 ): string[] {
+  // EXPAND BY THE REAL SPAN, not by a guess from `durationMinutes`.
+  //
+  // The first version asked "is this 30 minutes? then it is that half hour;
+  // otherwise it is both halves of `startHour`" — which ignores `startMinute`
+  // entirely and cannot see a booking that runs past its own hour. Given a
+  // 90-minute slot at 14:00 it reported no clash at 15:00, and given a
+  // 60-minute slot at 14:30 it claimed 14:00 while missing 15:00. Four
+  // adversarial shapes, four wrong answers: three missed clashes, which is
+  // the same ground sold twice, and one free half-hour refused.
+  //
+  // Nothing in the app writes those shapes today — every path writes 30 at
+  // :00/:30 or 60 at :00 — so this was latent rather than live. It is also
+  // the shared answer to "is that slot taken", and the next feature that
+  // sells a 90-minute session would have made it live silently. Deriving the
+  // buckets from start-to-end is both simpler and true for any span.
   const busy = new Set<string>();
   for (const b of taken) {
     for (const sl of b.slots) {
-      if (sl.durationMinutes === 30) busy.add(`${sl.startHour}:${sl.startMinute}`);
-      else {
-        busy.add(`${sl.startHour}:0`);
-        busy.add(`${sl.startHour}:30`);
+      const startsAt = sl.startHour * 60 + sl.startMinute;
+      const endsAt = startsAt + Math.max(30, sl.durationMinutes);
+      for (let m = Math.floor(startsAt / 30) * 30; m < endsAt; m += 30) {
+        busy.add(`${Math.floor(m / 60)}:${m % 60}`);
       }
     }
   }
