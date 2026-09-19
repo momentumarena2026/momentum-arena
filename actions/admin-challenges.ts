@@ -1004,7 +1004,15 @@ export async function adminWithdrawChallenge(
   const held = c.payments.reduce((sum, p) => sum + p.amount, 0);
   // A BOOKED court is the booking's business — cancelling it there is what
   // releases the hour and moves the money.
-  if (held > 0 && c.bookingId) {
+  //
+  // A LIVE booking, though. The guard above learned that a CANCELLED booking
+  // is not a booking; this one still asked only whether `bookingId` was set,
+  // so a challenge whose court had been cancelled or refunded was told to
+  // "cancel the booking and refund first" — the thing the venue had just
+  // done — while mark-refunded refused in the other direction. A closed loop
+  // with no way out of it in the product. Both guards ask the same question
+  // now.
+  if (held > 0 && c.bookingId && c.booking?.status !== "CANCELLED") {
     return {
       ok: false,
       error: `₹${held} has been paid on this one and the court is booked. Cancel the booking and refund first — that releases the hour.`,

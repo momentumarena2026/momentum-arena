@@ -1553,6 +1553,17 @@ async function placeMoney(ctx: {
 export async function unwindChallengesForCancelledBooking(
   bookingId: string,
   reason: string,
+  /**
+   * The venue has ALREADY given the money back — the refund path, as opposed
+   * to a plain cancellation.
+   *
+   * It matters which: a plain cancel leaves two captures owed and they belong
+   * on the refunds queue; a refund has already returned them through the
+   * booking's own Payment row, and putting them on the queue would ask the
+   * venue to pay the same money a second time. Same unwinding either way,
+   * different ledger ending.
+   */
+  alreadyRefunded = false,
 ): Promise<number> {
   const affected = await db.challenge.findMany({
     where: { bookingId, status: { notIn: ["WITHDRAWN", "EXPIRED"] } },
@@ -1582,10 +1593,28 @@ export async function unwindChallengesForCancelledBooking(
       challengeId: c.id,
       detail: `booking cancelled by the arena: ${reason}`.slice(0, 200),
     });
-    await flagChallengeRefunds(
-      c.id,
-      `the arena cancelled the court: ${reason}`.slice(0, 200),
-    );
+    if (alreadyRefunded) {
+      // Closed out, not owed. The money left the venue with the booking's
+      // refund; the challenge ledger records that it happened rather than
+      // asking for it again.
+      await db.challengePayment.updateMany({
+        where: { challengeId: c.id, paidAt: { not: null }, refundedAt: null },
+        data: {
+          refundedAt: new Date(),
+          refundNote: `refunded with the booking: ${reason}`.slice(0, 200),
+        },
+      });
+      await logChallengeEvent({
+        type: "REFUNDED",
+        challengeId: c.id,
+        detail: `both halves refunded with the booking: ${reason}`.slice(0, 200),
+      });
+    } else {
+      await flagChallengeRefunds(
+        c.id,
+        `the arena cancelled the court: ${reason}`.slice(0, 200),
+      );
+    }
   }
   return unwound;
 }

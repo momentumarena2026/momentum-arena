@@ -847,6 +847,23 @@ export async function refundBooking(
     }),
   ]);
 
+  // A CHALLENGE court is two customers' money, and refunding it is the venue
+  // unwinding the match just as surely as cancelling it. `cancelBooking` was
+  // given this in round eight, with a comment describing the exact deadlock
+  // it prevents — and its sibling was not, so the same trap stayed open
+  // through the door an admin is MORE likely to use when money is actually
+  // going back. The challenge stayed CONFIRMED pointing at a cancelled
+  // booking, and then take-down refused ("cancel the booking and refund
+  // first" — done) while mark-refunded refused ("take the challenge down" —
+  // refused), with nothing in the product able to break the loop.
+  //
+  // `true`: the money has already gone back with the booking's own Payment,
+  // so the halves are marked refunded rather than put on the venue's queue
+  // as still owed.
+  await unwindChallengesForCancelledBooking(bookingId, reason, true).catch((err: unknown) =>
+    console.error("[challenges] could not unwind for refunded booking", bookingId, err),
+  );
+
   await revalidateBookingPaths(bookingId);
 
   // after() for the same reason as cancelBooking — a bare fire-and-forget
