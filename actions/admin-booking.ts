@@ -54,7 +54,7 @@ import {
   type RazorpayPaymentRecord,
 } from "@/lib/razorpay";
 import { createBookingFromHold as _createBookingFromHold } from "@/actions/booking";
-import { lockCourtHours } from "@/lib/slot-hold";
+import { lockCourtHours, findSlotClashes } from "@/lib/slot-hold";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -2618,8 +2618,16 @@ export async function adminCreateBooking(data: {
         },
         include: { slots: true },
       });
-      const busy = new Set(taken.flatMap((b) => b.slots.map((sl) => sl.startHour)));
-      const clash = lockHours.filter((h) => busy.has(h));
+      // ONE definition of "is that slot taken", shared with the hold path —
+      // the lock is per whole hour because that is the ground, but the CHECK
+      // must be at the granularity the thing is sold at. Comparing
+      // `startHour` alone made a bowling 14:30 clash with an existing 14:00.
+      const clash = findSlotClashes(
+        taken,
+        usingBowling
+          ? { kind: "halfHours" as const, slots: data.bowlingSlots! }
+          : { kind: "hours" as const, hours: data.hours },
+      );
       if (clash.length > 0) {
         throw new Error(`Slots already booked: ${clash.join(", ")}`);
       }

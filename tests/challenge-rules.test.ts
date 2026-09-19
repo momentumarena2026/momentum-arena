@@ -1,4 +1,4 @@
-import { courtHourLockKeys } from "../lib/slot-hold";
+import { courtHourLockKeys, findSlotClashes } from "../lib/slot-hold";
 /**
  * The rules of the challenge board.
  *
@@ -790,4 +790,36 @@ test("the jackpot caption states the chance the draw actually gives", () => {
       `caption ${caption(w)} vs measured ${measured(w)} for ${JSON.stringify(w)}`,
     );
   }
+});
+
+test("a bowling half-hour does not clash with the other half of its hour", () => {
+  // The admin booking path locks per whole HOUR, because that is the patch of
+  // ground — but the conflict CHECK has to be at the granularity the thing is
+  // sold at. Comparing startHour alone refused the venue a 14:30 bowling slot
+  // because 14:00 was sold, which is a free half-hour turned away at the
+  // counter. Reproduced against the real path before this existed.
+  const at = (startHour: number, startMinute: number, durationMinutes: number) => ({
+    slots: [{ startHour, startMinute, durationMinutes }],
+  });
+
+  // Two halves of one hour are different slots.
+  assert.deepEqual(
+    findSlotClashes([at(14, 0, 30)], { kind: "halfHours", slots: [{ hour: 14, minute: 30 }] }),
+    [],
+  );
+  // The same half is the same slot.
+  assert.deepEqual(
+    findSlotClashes([at(14, 0, 30)], { kind: "halfHours", slots: [{ hour: 14, minute: 0 }] }),
+    ["14:00"],
+  );
+  // A full-hour booking blocks BOTH halves — the span expands, not the key.
+  assert.deepEqual(
+    findSlotClashes([at(14, 0, 60)], { kind: "halfHours", slots: [{ hour: 14, minute: 30 }] }),
+    ["14:30"],
+  );
+  // And an hourly request collides with either half already sold.
+  assert.deepEqual(findSlotClashes([at(14, 30, 30)], { kind: "hours", hours: [14] }), ["14"]);
+  assert.deepEqual(findSlotClashes([at(15, 0, 60)], { kind: "hours", hours: [14] }), []);
+  // Nothing taken, nothing clashes.
+  assert.deepEqual(findSlotClashes([], { kind: "hours", hours: [14, 15] }), []);
 });

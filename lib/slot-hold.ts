@@ -211,6 +211,50 @@ const CUSTOMER_SAFE_REFUSALS: string[] = [
   "Failed to reserve slots",
 ];
 
+/**
+ * Which of the requested slots are already taken.
+ *
+ * Exported because the admin booking path needs exactly this question
+ * answered under its advisory lock, and the alternative — a copy of the rule
+ * inlined there — is how two rules become two different rules. That is not
+ * hypothetical here: the first version of that re-check compared `startHour`
+ * alone, so a bowling machine's 14:30 clashed with an existing 14:00 and the
+ * venue was refused a half-hour that was genuinely free.
+ *
+ * The granularity is the thing's own: a 30-minute slot occupies its half
+ * hour, a 60-minute booking occupies both halves of its hour. Labels come
+ * back in the shape the caller asked in, so the error names what the admin
+ * typed.
+ */
+export function findSlotClashes(
+  taken: { slots: { startHour: number; startMinute: number; durationMinutes: number }[] }[],
+  wanted:
+    | { kind: "hours"; hours: number[] }
+    | { kind: "halfHours"; slots: { hour: number; minute: number }[] },
+): string[] {
+  const busy = new Set<string>();
+  for (const b of taken) {
+    for (const sl of b.slots) {
+      if (sl.durationMinutes === 30) busy.add(`${sl.startHour}:${sl.startMinute}`);
+      else {
+        busy.add(`${sl.startHour}:0`);
+        busy.add(`${sl.startHour}:30`);
+      }
+    }
+  }
+  const asked =
+    wanted.kind === "halfHours"
+      ? wanted.slots.map((sl) => ({
+          key: `${sl.hour}:${sl.minute}`,
+          label: `${sl.hour}:${String(sl.minute).padStart(2, "0")}`,
+        }))
+      : wanted.hours.flatMap((h) => [
+          { key: `${h}:0`, label: String(h) },
+          { key: `${h}:30`, label: String(h) },
+        ]);
+  return [...new Set(asked.filter((a) => busy.has(a.key)).map((a) => a.label))];
+}
+
 export async function createSlotHold(
   userId: string,
   courtConfigId: string,
