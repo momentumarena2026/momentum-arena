@@ -22,6 +22,7 @@ import {
   type ChallengeView,
   type ProposedWindow,
   splitShare,
+  sharesAgainstBooking,
   payRefusal,
   statusAfterPayment,
   wheelAveragePct,
@@ -520,4 +521,46 @@ test("one side paying twice can never confirm a match", () => {
   assert.equal(statusAfterPayment(["CHALLENGER", "CHALLENGER"]), "PART_PAID");
   assert.equal(statusAfterPayment(["CHALLENGER", "ACCEPTOR"]), "CONFIRMED");
   assert.equal(statusAfterPayment(["ACCEPTOR", "CHALLENGER", "ACCEPTOR"]), "CONFIRMED");
+});
+
+test("once the court is sold, the two halves add to the BOOKING's advance", () => {
+  // The bug: the second captain was charged from a live quote while the
+  // ledger moved by the booking's outstanding. Any edit to advancePct or to
+  // the hour's price between the two halves made those two numbers differ —
+  // ₹2250 collected for a ₹2000 court in one direction, ₹250 of revenue
+  // nobody paid in the other.
+  for (const advance of [0, 1, 500, 999, 1000, 1500, 2000]) {
+    for (const settled of [0, 1, 250, 500, 750, 2000, 99999]) {
+      for (const paidSide of ["CHALLENGER", "ACCEPTOR"] as const) {
+        const s = sharesAgainstBooking({ advanceAmount: advance, settled, paidSide });
+        assert.equal(
+          s.CHALLENGER + s.ACCEPTOR,
+          advance,
+          `halves must add to the advance (adv ${advance}, settled ${settled})`,
+        );
+        assert.ok(s.CHALLENGER >= 0 && s.ACCEPTOR >= 0);
+      }
+    }
+  }
+});
+
+test("the paid side is credited what it actually paid, not half of a new price", () => {
+  // advancePct moved 50 → 75 after the challenger paid ₹500 of a ₹1000
+  // advance. The acceptor owes the remaining ₹500 of the advance the booking
+  // was sold at — not ₹750 of an advance that was raised after the sale.
+  const s = sharesAgainstBooking({ advanceAmount: 1000, settled: 500, paidSide: "CHALLENGER" });
+  assert.deepEqual(s, { CHALLENGER: 500, ACCEPTOR: 500 });
+  // And with an odd advance, whoever paid keeps their real number.
+  const odd = sharesAgainstBooking({ advanceAmount: 999, settled: 500, paidSide: "ACCEPTOR" });
+  assert.deepEqual(odd, { CHALLENGER: 499, ACCEPTOR: 500 });
+});
+
+test("a half that was claimed but never placed cannot confirm a match", () => {
+  // `paidSides` counts PLACED halves. Before that, a capture whose placement
+  // died mid-flight wrote CONFIRMED off money that never reached the
+  // booking, and `alreadyDone` then short-circuited every retry.
+  assert.equal(statusAfterPayment(["CHALLENGER"]), "PART_PAID");
+  assert.equal(statusAfterPayment(["CHALLENGER", "ACCEPTOR"]), "CONFIRMED");
+  // The same side twice is still one side.
+  assert.equal(statusAfterPayment(["ACCEPTOR", "ACCEPTOR"]), "PART_PAID");
 });

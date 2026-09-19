@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-18 · accurate as of `main` = `48b83d0d` (app 1.0.7).
+**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -679,6 +679,44 @@ admin board has a "half paid" panel listing exactly these. **Do not add a
 timer that releases the court**: it would drop a slot the venue may already
 have sold on the phone, and it would take money for something it then
 un-booked.
+
+**Four invariants in `confirmChallengePayment` that testing paid for.** Each
+of these was a real defect found by a zero-context agent against staging, and
+each is the kind that reads as fine in a diff:
+
+1. **`placedAt`, not `paidAt`, is what counts as paid.** `claimSlot` stamps
+   `paidAt` before any money is placed, so counting it let a half whose
+   placement died mid-flight write CONFIRMED — and `alreadyDone` then
+   short-circuited every retry, permanently. `paidSides()` filters on BOTH,
+   and both placement paths stamp `placedAt` inside the same transaction that
+   moves the money. Never widen that filter back to `paidAt`. (The
+   *withdraw* and *expiry* guards in `lib/challenges.ts` correctly use the
+   looser `paidAt` — there a claimed capture is still real money that must
+   block the sweep.)
+2. **Create-and-attach is one transaction.** As two statements it left a
+   window where a PENDING booking occupied the hour while `challenge.bookingId`
+   was still null; a second captain paying inside it was told the hour was
+   gone and promised a refund on a match that was booked and confirmed. A
+   crash in that window also orphaned a booking that held the hour for ever,
+   after which every later payment read as `SLOT_LOST`.
+3. **Once the court is sold, every number comes off the BOOKING.** The
+   second half's charge, the quote the app shows, and the ledger move must be
+   one number. Re-quoting live meant an `advancePct` edit between the halves
+   charged ₹750 against a ₹500 ledger move (customer pays ₹2250 for a ₹2000
+   court) or ₹250 against ₹500 (₹250 of revenue nobody paid).
+   `sharesAgainstBooking` in `lib/challenge-rules.ts` holds the invariant and
+   is property-tested: the two halves always add to the booking's advance.
+4. **The lead-time gate runs at capture, not only at order.** Otherwise a
+   captain opens the sheet at T−4h01m and presses pay at T−5m.
+
+**Captured money that cannot be honoured is flagged, not just narrated.**
+`refundOwed` stamps `ChallengePayment.refundOwedAt`/`refundOwedReason` as well
+as writing the event, because the admin's stranded-money panel is a query and
+a sentence in the activity feed is not. The two *pre-claim* refusals are
+deliberately different: a capture that matches no challenge row is somebody
+replaying an ordinary booking receipt at this endpoint, so it is logged once
+per payment id and claims no refund — without that dedupe the audit trail was
+an open write endpoint.
 
 It charges `ChallengeSettings.advancePct` (default 50) of the court, not the
 whole court — the rest is collected at the gate like any advance booking. The

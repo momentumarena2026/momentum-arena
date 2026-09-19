@@ -58,7 +58,16 @@ export async function getChallengeAdmin() {
           orderBy: { createdAt: "asc" },
         },
         payments: {
-          select: { side: true, amount: true, paidAt: true, refundedAt: true },
+          select: {
+            side: true,
+            amount: true,
+            paidAt: true,
+            placedAt: true,
+            refundedAt: true,
+            refundOwedAt: true,
+            refundOwedReason: true,
+            user: { select: { name: true, phone: true } },
+          },
         },
       },
       orderBy: { createdAt: "desc" },

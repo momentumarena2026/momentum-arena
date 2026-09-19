@@ -109,7 +109,16 @@ type Row = {
     status: string;
   }[];
   bookingId: string | null;
-  payments: { side: string; amount: number; paidAt: string | null; refundedAt: string | null }[];
+  payments: {
+    side: string;
+    amount: number;
+    paidAt: string | null;
+    placedAt: string | null;
+    refundedAt: string | null;
+    refundOwedAt: string | null;
+    refundOwedReason: string | null;
+    user: { name: string | null; phone: string | null } | null;
+  }[];
 };
 
 const SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
@@ -538,6 +547,52 @@ export function ChallengesAdmin({
             )}
           </div>
 
+          {/* Money the arena has taken and cannot honour. Every branch of
+              the payment code that refuses a CAPTURED payment stamps
+              `refundOwedAt`, so this panel is a query rather than a reading
+              of the activity feed — which is how these used to be found,
+              i.e. when the customer rang up. */}
+          {(() => {
+            const owed = initial.challenges.flatMap((c) =>
+              c.payments
+                .filter((p) => p.refundOwedAt && !p.refundedAt)
+                .map((p) => ({ c, p })),
+            );
+            if (owed.length === 0) return null;
+            const total = owed.reduce((sum, x) => sum + x.p.amount, 0);
+            return (
+              <div className="rounded-xl border border-rose-500/40 bg-rose-500/5 p-4">
+                <p className="text-sm font-medium text-rose-300">
+                  Refunds owed — ₹{total} taken and not honoured
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-400">
+                  These captures arrived after the match could no longer be held. Each payer
+                  has already been told a refund is coming. Refund in Razorpay, then mark it
+                  refunded on the payment.
+                </p>
+                <div className="mt-3 space-y-2">
+                  {owed.map(({ c, p }) => (
+                    <div
+                      key={`${c.id}-${p.side}`}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300"
+                    >
+                      <span className="font-medium text-zinc-100">
+                        {p.user?.name ?? "A captain"}
+                        {p.user?.phone ? ` · ${p.user.phone}` : ""}
+                      </span>
+                      <span className="text-rose-300">₹{p.amount}</span>
+                      <span className="text-zinc-400">{p.side.toLowerCase()}</span>
+                      <span className="text-zinc-500">{p.refundOwedReason}</span>
+                      <span className="text-zinc-600">
+                        {new Date(p.refundOwedAt!).toISOString().slice(0, 16).replace("T", " ")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* The consequence of "block the court on the first payment". One
               captain's money is in, the hour is off the board, and the other
               half may never arrive — so the venue has a real decision to
@@ -553,7 +608,7 @@ export function ChallengesAdmin({
             const stranded = initial.challenges.filter(
               (c) =>
                 !["CONFIRMED", "WITHDRAWN", "EXPIRED"].includes(c.status) &&
-                c.payments.some((p) => p.paidAt && !p.refundedAt) &&
+                c.payments.some((p) => p.paidAt && !p.refundedAt && !p.refundOwedAt) &&
                 !c.payments.every((p) => p.paidAt && !p.refundedAt),
             );
             if (stranded.length === 0) return null;

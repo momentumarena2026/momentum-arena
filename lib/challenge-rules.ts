@@ -364,6 +364,34 @@ export function splitShare(total: number): { CHALLENGER: number; ACCEPTOR: numbe
 }
 
 /**
+ * The two halves once a booking exists — read off the BOOKING, not a quote.
+ *
+ * `splitShare` is right until the moment the court is sold. After that the
+ * advance is whatever the booking says it is, and the second captain owes
+ * exactly what is left of it. Re-quoting instead cost real money twice in
+ * testing: with `advancePct` edited from 50 to 75 between the two halves the
+ * second captain was charged ₹750 against a ₹500 ledger move and paid ₹2250
+ * for a ₹2000 court; edited downwards, the venue booked ₹250 of revenue
+ * nobody had paid.
+ *
+ * The invariant this exists to hold: the two halves add to exactly the
+ * booking's advance, whatever the venue does to its price list in between.
+ */
+export function sharesAgainstBooking(args: {
+  advanceAmount: number;
+  /** What the booking's payment has already collected. */
+  settled: number;
+  /** The side whose money is already in. */
+  paidSide: ChallengeSide;
+}): { CHALLENGER: number; ACCEPTOR: number } {
+  const settled = Math.min(Math.max(0, args.settled), Math.max(0, args.advanceAmount));
+  const outstanding = Math.max(0, args.advanceAmount - settled);
+  return args.paidSide === "CHALLENGER"
+    ? { CHALLENGER: settled, ACCEPTOR: outstanding }
+    : { CHALLENGER: outstanding, ACCEPTOR: settled };
+}
+
+/**
  * Why this person cannot pay their half right now — or null.
  *
  * `paidSides` is which halves are already in. The court-availability

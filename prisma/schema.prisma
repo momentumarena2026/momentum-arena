@@ -4136,6 +4136,11 @@ model Challenge {
   counterCountAcceptor   Int @default(0)
 
   /// Set once the advance is in and the court is booked.
+  /// When the "match confirmed" push went out. Claimed with a conditional
+  /// update so two halves landing in the same instant announce the match
+  /// once, rather than telling each captain twice.
+  confirmedNotifiedAt DateTime?
+
   bookingId String?
   booking   Booking? @relation(fields: [bookingId], references: [id])
 
@@ -4213,6 +4218,16 @@ model ChallengePayment {
   quotedCourtConfigId String?
 
   paidAt   DateTime?
+  /// Stamped once this half has been PLACED — a booking created or settled
+  /// against. `paidAt` alone only means the slot was claimed, and deriving
+  /// the challenge's status from claims let a half that never completed
+  /// mark the match CONFIRMED, with no retry able to repair it.
+  placedAt DateTime?
+  /// Set when a capture could not be honoured. Without it a row owed a
+  /// refund was byte-identical to a healthy paid half, and the venue's
+  /// stranded-money panel could not see it.
+  refundOwedAt DateTime?
+  refundOwedReason String?
   /// Gateway refs, whichever rail collected it.
   razorpayOrderId      String? @unique
   razorpayPaymentId    String?
