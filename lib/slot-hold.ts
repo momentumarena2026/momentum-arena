@@ -94,8 +94,17 @@ export async function lockCourtHours(
   targets: { configId: string; zones: string[] }[],
   dateStr: string,
   hours: number[],
+  /**
+   * Keys from another family to take in the SAME sorted acquisition — the
+   * bowling machine's half-hour keys, which give it precision against other
+   * bowling bookings that whole hours cannot. They must come through here
+   * rather than in a second statement: deadlock freedom depends on every
+   * transaction taking ALL of its keys in ascending order, and two statements
+   * are two orders.
+   */
+  extraKeys: number[] = [],
 ): Promise<void> {
-  const keys = new Set<number>();
+  const keys = new Set<number>(extraKeys);
   for (const t of targets) {
     for (const k of courtHourLockKeys(t.zones, t.configId, dateStr, hours)) keys.add(k);
   }
@@ -160,22 +169,47 @@ function holdFailure(error: unknown): HoldResult {
     };
   }
 
-  // Prisma's own failures name their internals; a timeout under contention is
-  // the realistic one and reads as gibberish on a phone.
-  const internal =
-    typeof (error as { code?: unknown })?.code === "string" ||
-    /^PrismaClient/.test((error as { name?: string })?.name ?? "") ||
-    /prisma\.|Transaction API error|Transaction not found|Timed out fetching/i.test(message);
-  if (internal) {
-    console.error("[slot-hold] internal failure taking a hold:", error);
-    return {
-      success: false,
-      error: "We couldn't hold those slots just now. Please try again.",
-    };
+  // AN ALLOWLIST, NOT A BLOCKLIST.
+  //
+  // The first version listed the Prisma signatures and let everything else
+  // through, which meant any OTHER exception still reached the customer
+  // verbatim: a plain TypeError from a helper — "Cannot read properties of
+  // undefined (reading 'reduce')" — rendered on the booking screen, which is
+  // precisely what this function exists to prevent. The set of sentences we
+  // deliberately show is small and knowable; the set of ways code can throw
+  // is not.
+  if (
+    CUSTOMER_SAFE_REFUSALS.includes(message) ||
+    // The one refusal that carries a number in it.
+    /^Slot at hour \d+ is blocked by admin$/.test(message)
+  ) {
+    return { success: false, error: message };
   }
-
-  return { success: false, error: message };
+  console.error("[slot-hold] internal failure taking a hold:", error);
+  return {
+    success: false,
+    error: "We couldn't hold those slots just now. Please try again.",
+  };
 }
+
+/**
+ * The refusals a customer is meant to read, verbatim. Anything thrown from a
+ * hold path that is not on this list is a fault, not an answer.
+ *
+ * Kept next to `holdFailure` deliberately: adding a `throw new Error("...")`
+ * to a hold path without adding it here turns that sentence into "please try
+ * again", which is a visible, harmless failure — the other direction, a
+ * blocklist, fails silently and shows a stack-trace fragment to a customer.
+ */
+const CUSTOMER_SAFE_REFUSALS: string[] = [
+  "Court config not found",
+  "This court is currently unavailable",
+  "This court is blocked for the entire day",
+  "This court was just reconfigured. Please try again.",
+  "All bowling slots are blocked for this day",
+  "This slot is blocked",
+  "Failed to reserve slots",
+];
 
 export async function createSlotHold(
   userId: string,
@@ -385,22 +419,27 @@ export async function createMediumHalfCourtHold(
   slotPrices: SlotPrice[],
   platform: BookingPlatform = "web"
 ): Promise<HoldResult> {
-  const { leftId, rightId } = await getMediumConfigs(sport);
   const dateOnly = new Date(date.toISOString().split("T")[0]);
   const dateStr = date.toISOString().split("T")[0];
   const now = new Date();
   const expiresAt = new Date(now.getTime() + LOCK_TTL_MINUTES * 60 * 1000);
 
-  // The zones of BOTH halves, read before the transaction so the locks can be
-  // taken on the thing that decides a conflict. Either half may be the one
-  // handed out, so both are locked — and a Full Field request, which locks the
-  // union of the ground's zones, now genuinely waits for this one.
-  const halfZones = await db.courtConfig.findMany({
-    where: { id: { in: [leftId, rightId] } },
-    select: { id: true, zones: true },
-  });
-
   try {
+    // INSIDE the try. `getMediumConfigs` throws when a sport has no active
+    // MEDIUM configs — true of FOOTBALL on this arena today — and sitting
+    // above the try meant that exception escaped `holdFailure` entirely and
+    // came out of the route as a framework 500, instead of the
+    // `{success:false,error}` shape every other failure on this path returns.
+    const { leftId, rightId } = await getMediumConfigs(sport);
+    // The zones of BOTH halves, read before the transaction so the locks can
+    // be taken on the thing that decides a conflict. Either half may be the
+    // one handed out, so both are locked — and a Full Field request, which
+    // locks the union of the ground's zones, now genuinely waits for this one.
+    const halfZones = await db.courtConfig.findMany({
+      where: { id: { in: [leftId, rightId] } },
+      select: { id: true, zones: true },
+    });
+
     const holdId = await db.$transaction(
       async (tx) => {
         // Lock the requested hours on BOTH halves, BY ZONE.
@@ -569,21 +608,48 @@ export async function createBowlingMachineHold(
     return h * 2 + (m === 30 ? 1 : 0);
   }
 
+  // The ground this machine stands on, read before the transaction so the
+  // locks can be taken on what actually decides a conflict.
+  const zonesForLock =
+    (
+      await db.courtConfig.findUnique({
+        where: { id: courtConfigId },
+        select: { zones: true },
+      })
+    )?.zones ?? [];
+
   try {
     const holdId = await db.$transaction(
       async (tx) => {
-        // 1. Acquire advisory locks
+        // 1. Acquire advisory locks — ON THE GROUND, plus the half-hour keys.
+        //
+        // This kept its config-only keys when the other two hold paths moved
+        // to zone keys, on the stated reasoning that "a bowling machine is a
+        // single resource rather than a patch of ground shared between
+        // configs". That reasoning was simply false: the machine's config
+        // carries zones [LEATHER_1, BOX_A], which is the whole of Medium
+        // (Left Half) and contains Leather Pitch 1. Its key set therefore
+        // intersected neither of theirs, and a bowling customer and a cricket
+        // customer could each be sold the same ground for the same hour —
+        // 12 trials in 12, against two different configs.
+        //
+        // The conflict CHECK below was right all along; it is the lock that
+        // let two transactions both reach it before either committed.
+        //
+        // Both families in one sorted acquisition: the zone keys are whole
+        // hours, because that is the granularity the courts are sold in, and
+        // the half-hour keys stay so that two bowling bookings still exclude
+        // each other at 14:00 and 14:30 separately.
         const sorted = [...slots].sort(
           (a, b) => slotKey(a.hour, a.minute) - slotKey(b.hour, b.minute),
         );
-        // One round trip, in sorted order. A bowling machine is a single
-        // resource rather than a patch of ground shared between configs, so
-        // its keys stay keyed on the config — but paying a round trip per
-        // half-hour slot is the same cost that blew the court path's timeout.
-        const bowlingKeys = sorted.map((s) =>
-          advisoryLockKey(courtConfigId, dateStr, slotKey(s.hour, s.minute)),
+        await lockCourtHours(
+          tx,
+          [{ configId: courtConfigId, zones: zonesForLock as string[] }],
+          dateStr,
+          [...new Set(sorted.map((s) => s.hour))],
+          sorted.map((s) => advisoryLockKey(courtConfigId, dateStr, slotKey(s.hour, s.minute))),
         );
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(k) FROM unnest(${bowlingKeys}::bigint[]) AS k`;
 
         // 2. Validate the court config
         const config = await tx.courtConfig.findUnique({
