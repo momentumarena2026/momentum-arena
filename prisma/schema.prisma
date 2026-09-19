@@ -668,6 +668,12 @@ model Payment {
   razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?
+  /// A challenge court is paid for by TWO captures, one per captain. The
+  /// first is in `razorpayPaymentId`; this is the second. Without it, every
+  /// second half was unmatchable against a Razorpay settlement report from
+  /// the venue-facing payment record — recoverable only by going through
+  /// ChallengePayment, which is not where anyone reconciles.
+  secondRazorpayPaymentId String?
 
   // PhonePe payment tracking
   phonePeMerchantTxnId String?
@@ -4222,6 +4228,15 @@ model ChallengePayment {
   /// against. `paidAt` alone only means the slot was claimed, and deriving
   /// the challenge's status from claims let a half that never completed
   /// mark the match CONFIRMED, with no retry able to repair it.
+  /// The advance this half was QUOTED against, pinned when the order was
+  /// opened. The booking's advanceAmount is set from this, not from a live
+  /// read of advancePct — a venue editing the percentage while somebody's
+  /// payment sheet was open otherwise produced a booking whose advance had
+  /// nothing to do with what was charged: at 50→100 a 1:3 split on an
+  /// "each pays half" feature, and at 50→10 a second half of ₹0 that
+  /// Razorpay will not accept, leaving the court blocked for ever.
+  quotedAdvance Int?
+
   placedAt DateTime?
   /// Set when a capture could not be honoured. Without it a row owed a
   /// refund was byte-identical to a healthy paid half, and the venue's
@@ -4258,6 +4273,57 @@ model ChallengePayment {
 /// device, so the result cannot be re-rolled by closing the app. A spin is
 /// earned by one confirmed challenge and is spent once — `offer` below is
 /// what the poster does with it.
+/**
+ * Every Razorpay order this module has ever opened.
+ *
+ * An append-only ledger, deliberately NOT related to Challenge or
+ * ChallengePayment, because its whole purpose is to outlive them. Two ways a
+ * capture could otherwise disappear completely:
+ *
+ *  - A payment slot goes stale and somebody else takes it over. The row is
+ *    reassigned and its `razorpayOrderId` cleared, so the displaced payer's
+ *    capture — which may already be in Razorpay — matched nothing, stamped
+ *    nothing, notified nobody, and the error they saw ("that payment does not
+ *    match this challenge") implied nothing had been charged.
+ *  - The challenge row is deleted. The payment cascades with it, and the
+ *    audit line cannot even be written: its own foreign key fails.
+ *
+ * With this ledger, an unmatched capture can be recognised as OURS and turned
+ * into a refund the venue can see, rather than money in Razorpay with nothing
+ * in the arena's data pointing at it.
+ */
+model ChallengeOrder {
+  id String @id @default(cuid())
+
+  razorpayOrderId String @unique
+
+  /// Plain strings, not relations: this row must survive their deletion.
+  challengeId String
+  userId      String
+  side        ChallengeSide
+  /// What the order was for, in whole rupees.
+  amount      Int
+
+  createdAt DateTime @default(now())
+
+  /// The capture for this order was processed normally.
+  settledAt DateTime?
+
+  /// A capture arrived that this system could not honour. Money we owe back.
+  strandedAt        DateTime?
+  strandedReason    String?
+  razorpayPaymentId String?
+
+  /// The arena's own record of having refunded it.
+  refundedAt DateTime?
+  refundedBy String?
+  refundNote String?
+
+  @@index([challengeId])
+  @@index([userId])
+  @@index([strandedAt])
+}
+
 model ChallengeSpin {
   id          String    @id @default(cuid())
   challengeId String    @unique

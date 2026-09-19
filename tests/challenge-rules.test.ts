@@ -620,3 +620,26 @@ test("a date that does not exist is refused, not rolled forward", () => {
     null,
   );
 });
+
+test("the advance a half was quoted against is what the booking must use", () => {
+  // The booking's advance used to come from a LIVE read of advancePct at
+  // capture time, while the charge came from the quote taken when the sheet
+  // opened. Moving the percentage in between produced two different deals:
+  // at 50→100 a first captain paid ₹500 of a ₹2000 advance and the second was
+  // asked for ₹1500 — a 1:3 split on an "each pays half" feature — and at
+  // 50→10 the second half came to ₹0, which Razorpay refuses, so the court
+  // stayed blocked and unconfirmable for ever.
+  //
+  // With the advance pinned, the second half is always the rest of the SAME
+  // advance, whatever the venue does to its price list.
+  const quotedAdvance = 1000;
+  for (const firstHalf of [500, 499, 501, 1, 999]) {
+    const s = sharesAgainstBooking({
+      advanceAmount: quotedAdvance,
+      settled: firstHalf,
+      paidSide: "ACCEPTOR",
+    });
+    assert.equal(s.CHALLENGER + s.ACCEPTOR, quotedAdvance);
+    assert.ok(s.CHALLENGER > 0, "the second half must never be zero");
+  }
+});

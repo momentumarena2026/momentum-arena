@@ -174,12 +174,14 @@ function RefundRow({
 }: {
   row: {
     id: string;
+    source: "payment" | "order";
     side: string;
     amount: number;
-    refundOwedAt: string;
-    refundOwedReason: string | null;
+    owedAt: string;
+    reason: string | null;
     user: { name: string | null; phone: string | null } | null;
-    challenge: { id: string; teamName: string | null; status: string };
+    challengeId: string;
+    teamName: string | null;
   };
 }) {
   const router = useRouter();
@@ -195,9 +197,12 @@ function RefundRow({
         </span>
         <span className="font-medium text-rose-300">₹{row.amount}</span>
         <span className="text-zinc-400">{row.side.toLowerCase()}</span>
-        {row.challenge.teamName && <span className="text-zinc-500">{row.challenge.teamName}</span>}
+        {row.teamName && <span className="text-zinc-500">{row.teamName}</span>}
+        {row.source === "order" && (
+          <span className="rounded border border-zinc-700 px-1.5 text-zinc-500">no live slot</span>
+        )}
         <span className="text-zinc-600">
-          {new Date(row.refundOwedAt).toISOString().slice(0, 16).replace("T", " ")}
+          {new Date(row.owedAt).toISOString().slice(0, 16).replace("T", " ")}
         </span>
         <button
           disabled={pending}
@@ -211,7 +216,7 @@ function RefundRow({
             if (note === null) return;
             setErr(null);
             start(async () => {
-              const res = await markChallengePaymentRefunded(row.id, note).catch(() => ({
+              const res = await markChallengePaymentRefunded(row.id, note, row.source).catch(() => ({
                 ok: false as const,
                 error: "Couldn't reach the server.",
               }));
@@ -224,9 +229,7 @@ function RefundRow({
           {pending ? "…" : "mark refunded"}
         </button>
       </div>
-      {row.refundOwedReason && (
-        <p className="mt-1 text-xs text-zinc-500">{row.refundOwedReason}</p>
-      )}
+      {row.reason && <p className="mt-1 text-xs text-zinc-500">{row.reason}</p>}
       {err && <p className="mt-1 text-xs text-rose-400">{err}</p>}
     </div>
   );
@@ -249,12 +252,16 @@ export function ChallengesAdmin({
     }[];
     refundsOwed: {
       id: string;
+      /** Which table the debt lives in — a payment row, or the order ledger
+       *  for captures no payment row can account for any more. */
+      source: "payment" | "order";
       side: string;
       amount: number;
-      refundOwedAt: string;
-      refundOwedReason: string | null;
+      owedAt: string;
+      reason: string | null;
       user: { name: string | null; phone: string | null } | null;
-      challenge: { id: string; teamName: string | null; status: string };
+      challengeId: string;
+      teamName: string | null;
     }[];
     counts: Record<string, number>;
     events: EventRow[];

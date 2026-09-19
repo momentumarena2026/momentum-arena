@@ -543,7 +543,10 @@ export async function expireStaleChallenges(): Promise<number> {
       // — and sweeping it to EXPIRED made that money vanish from every
       // surface at once.
       status: { in: ["OPEN", "COUNTERED", "AGREED"] },
-      payments: { none: { paidAt: { not: null } } },
+      // Money that has been written off as a refund does not protect a
+      // challenge from expiry — otherwise one stranded capture pins a dead
+      // card to the board for ever.
+      payments: { none: { paidAt: { not: null }, refundOwedAt: null } },
       expiresAt: { lte: new Date() },
     },
     select: { id: true, createdByUserId: true, sport: true, status: true },

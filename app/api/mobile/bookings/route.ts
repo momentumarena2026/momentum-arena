@@ -26,7 +26,18 @@ export async function GET(request: NextRequest) {
   const skip = (page - 1) * limit;
 
   const where = {
-    userId: user.id,
+    // Either the booking is theirs, or it is a challenge booking for a match
+    // they are a captain of. Whoever pays first owns the row, so keying on
+    // ownership alone hid a court from the captain who paid second — money in,
+    // nothing in My Bookings.
+    OR: [
+      { userId: user.id },
+      {
+        challenges: {
+          some: { OR: [{ createdByUserId: user.id }, { acceptedByUserId: user.id }] },
+        },
+      },
+    ],
     ...(status
       ? {
           status: status as

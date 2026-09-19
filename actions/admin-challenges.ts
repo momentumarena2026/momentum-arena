@@ -41,8 +41,17 @@ async function gate() {
 export async function getChallengeAdmin() {
   await gate();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const [settings, challenges, counts, events, eventCounts, refusals, moneyIn, refundsOwed] =
-    await Promise.all([
+  const [
+    settings,
+    challenges,
+    counts,
+    events,
+    eventCounts,
+    refusals,
+    moneyIn,
+    owedOnPayments,
+    owedOnOrders,
+  ] = await Promise.all([
     challengeSettings(),
     db.challenge.findMany({
       select: {
@@ -159,6 +168,23 @@ export async function getChallengeAdmin() {
       },
       orderBy: { refundOwedAt: "asc" },
     }),
+    // Captures the payment rows can no longer account for: a slot taken over
+    // while somebody was paying, or a challenge deleted underneath them. The
+    // order ledger is the only thing that still knows whose money it is, so
+    // it belongs on the same queue — money owed is money owed.
+    db.challengeOrder.findMany({
+      where: { strandedAt: { not: null }, refundedAt: null },
+      select: {
+        id: true,
+        userId: true,
+        challengeId: true,
+        side: true,
+        amount: true,
+        strandedAt: true,
+        strandedReason: true,
+      },
+      orderBy: { strandedAt: "asc" },
+    }),
   ]);
 
   // A challenge is half-paid when money is in and FEWER THAN TWO SIDES have
@@ -187,6 +213,42 @@ export async function getChallengeAdmin() {
       };
     })
     .filter((c) => c.sidesPaid === 1);
+
+  // One queue, two sources. The screen should not care which table a debt
+  // came from — the venue's question is "who is owed what".
+  const strandedUsers = owedOnOrders.length
+    ? await db.user.findMany({
+        where: { id: { in: [...new Set(owedOnOrders.map((o) => o.userId))] } },
+        select: { id: true, name: true, phone: true },
+      })
+    : [];
+  const refundsOwed = [
+    ...owedOnPayments.map((p) => ({
+      id: p.id,
+      source: "payment" as const,
+      side: p.side as string,
+      amount: p.amount,
+      owedAt: p.refundOwedAt as Date,
+      reason: p.refundOwedReason,
+      user: p.user,
+      challengeId: p.challenge.id,
+      teamName: p.challenge.teamName,
+    })),
+    ...owedOnOrders.map((o) => {
+      const u = strandedUsers.find((x) => x.id === o.userId);
+      return {
+        id: o.id,
+        source: "order" as const,
+        side: o.side as string,
+        amount: o.amount,
+        owedAt: o.strandedAt as Date,
+        reason: o.strandedReason,
+        user: u ? { name: u.name, phone: u.phone } : null,
+        challengeId: o.challengeId,
+        teamName: null as string | null,
+      };
+    }),
+  ].sort((a, b) => a.owedAt.getTime() - b.owedAt.getTime());
 
   // Funnel: what proportion of the people who saw the card ever posted.
   const n = (t: string) => eventCounts.find((e) => e.type === t)?._count ?? 0;
@@ -671,8 +733,48 @@ export async function saveChallengeSettings(
 export async function markChallengePaymentRefunded(
   paymentId: string,
   note: string,
+  /** Which queue this debt came from. Orders carry captures no payment row
+   *  can account for any more, so they are closed out on the ledger. */
+  source: "payment" | "order" = "payment",
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const admin = await gate();
+  if (source === "order") {
+    const o = await db.challengeOrder.findUnique({
+      where: { id: paymentId },
+      select: { id: true, userId: true, challengeId: true, amount: true, side: true, refundedAt: true, strandedAt: true },
+    });
+    if (!o) return { ok: false, error: "That payment is gone." };
+    if (!o.strandedAt) return { ok: false, error: "That one was never stranded." };
+    if (o.refundedAt) return { ok: false, error: "That one is already marked refunded." };
+    const done = await db.challengeOrder.updateMany({
+      where: { id: o.id, refundedAt: null },
+      data: {
+        refundedAt: new Date(),
+        refundedBy: admin.id,
+        refundNote: note.trim().slice(0, 200) || null,
+      },
+    });
+    if (done.count === 0) return { ok: false, error: "That one is already marked refunded." };
+    const { logChallengeEvent } = await import("@/lib/challenges");
+    await logChallengeEvent({
+      type: "REFUNDED",
+      userId: o.userId,
+      challengeId: o.challengeId,
+      detail: `refunded ₹${o.amount} to the ${o.side.toLowerCase()} (capture with no live slot)${
+        note.trim() ? ` · ${note.trim().slice(0, 120)}` : ""
+      }`,
+    });
+    const { notifyUser } = await import("@/lib/user-notifications");
+    await notifyUser(o.userId, {
+      type: "CHALLENGE_REFUND_OWED",
+      title: "Your refund is on its way",
+      body: `The arena has refunded ₹${o.amount}. It can take a few working days to appear.`,
+      link: `/challenges/${o.challengeId}`,
+    }).catch(() => undefined);
+    revalidatePath("/admin/challenges");
+    return { ok: true };
+  }
+
   const row = await db.challengePayment.findUnique({
     where: { id: paymentId },
     select: {

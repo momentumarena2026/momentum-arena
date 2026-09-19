@@ -16,7 +16,18 @@ export async function GET(
   const booking = await db.booking.findFirst({
     where: {
       id: bookingId,
-      userId: user.id,
+      OR: [
+        { userId: user.id },
+        // A challenge booking belongs to TWO teams. The captain who did not
+        // happen to pay first was locked out of a booking they had put real
+        // money into — could not see it, check in against it, or be reminded
+        // of it. The money is on the same court either way.
+        {
+          challenges: {
+            some: { OR: [{ createdByUserId: user.id }, { acceptedByUserId: user.id }] },
+          },
+        },
+      ],
     },
     include: {
       courtConfig: true,

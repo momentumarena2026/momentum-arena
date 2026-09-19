@@ -345,11 +345,24 @@ export async function challengeQuote(
         )
       : null;
 
+  // The refusals `createChallengePaymentOrder` will apply belong HERE too,
+  // or the app shows a Pay button the server always rejects — and in the ₹0
+  // cases it showed one with no price and no reason at all.
+  const unpayable =
+    total <= 0
+      ? "That court has no price set — the venue needs to fix that first."
+      : advance <= 0
+        ? "Challenges aren't taking payment right now. Please tell the arena."
+        : side && (shares[side] ?? 0) <= 0 && !paidSides.includes(side)
+          ? "There's nothing left to pay on this one — tell the arena."
+          : null;
+
   const refusal =
     (acceptingNow
       ? acceptGateRefusal(c, win, settings?.minLeadMins ?? 240, new Date(), settings?.enabled ?? false)
       : payRefusal(c, viewerId, new Date(), paidSides)) ??
     lateRefusal ??
+    unpayable ??
     (courtId
       ? null
       : // Only reachable for the first payer: once one half is in, the
@@ -455,6 +468,7 @@ export async function createChallengePaymentOrder(
         amount: quote.yourShare,
         acceptWindowId: acceptWindowId ?? null,
         quotedCourtConfigId: quote.courtConfigId,
+        quotedAdvance: quote.advance,
       },
       select: { id: true, paidAt: true },
     });
@@ -463,11 +477,25 @@ export async function createChallengePaymentOrder(
     // has genuinely gone stale, may proceed.
     const current = await db.challengePayment.findUnique({
       where: { challengeId_side: { challengeId, side: quote.yourSide } },
-      select: { id: true, userId: true, paidAt: true, createdAt: true, razorpayOrderId: true },
+      select: {
+        id: true,
+        userId: true,
+        paidAt: true,
+        placedAt: true,
+        refundOwedAt: true,
+        createdAt: true,
+        razorpayOrderId: true,
+      },
     });
     if (!current) return { ok: false, error: "Couldn't start that payment. Try again." };
     if (current.userId !== userId) {
-      if (current.paidAt) return { ok: false, error: "Somebody else has taken this one." };
+      // A capture that has been written off as a refund no longer holds the
+      // slot. Without this, one stranded payment left an OPEN challenge on
+      // the board that no stranger could ever take and expiry would never
+      // clear — a permanent dead card on a matchmaking board.
+      if (current.paidAt && !current.refundOwedAt) {
+        return { ok: false, error: "Somebody else has taken this one." };
+      }
       const windowMins =
         (await db.challengeSettings.findFirst({ select: { paymentWindowMins: true } }))
           ?.paymentWindowMins ?? 120;
@@ -479,7 +507,12 @@ export async function createChallengePaymentOrder(
           type: "REFUSED",
           userId: current.userId,
           challengeId,
-          detail: `their payment slot went stale after ${windowMins} minutes and was reassigned — refund owed if they paid`,
+          // No longer "refund owed if they paid" — that wrote a speculative
+          // debt into the feed before anyone knew whether money had moved,
+          // and the venue then read phantom debts alongside real ones. If
+          // they HAVE paid, their capture lands on the order ledger and is
+          // flagged there, with their name on it.
+          detail: `their payment slot went stale after ${windowMins} minutes and was reassigned`,
         });
       }
     }
@@ -490,6 +523,7 @@ export async function createChallengePaymentOrder(
         amount: quote.yourShare,
         acceptWindowId: acceptWindowId ?? null,
         quotedCourtConfigId: quote.courtConfigId,
+        quotedAdvance: quote.advance,
         // The new holder starts their OWN clock. Inheriting the previous
         // one left them instantly stale, so the slot could be ripped away
         // again immediately — and repeatedly, from whoever was mid-payment.
@@ -499,25 +533,21 @@ export async function createChallengePaymentOrder(
         razorpayOrderId: null,
       },
     });
-    if (taken.count === 0) return { ok: false, error: "You've already paid your half." };
+    // THIS is the branch a paid row reaches — the create above fails on the
+    // unique constraint, so `row.paidAt` below is structurally always null and
+    // the message written there never sent. Distinguish "done" from
+    // "mid-flight" here: telling somebody whose placement stalled that they
+    // have already paid their half is true and useless, because their money is
+    // not on the booking yet and the sweep is about to put it there.
+    if (taken.count === 0) {
+      return {
+        ok: false,
+        error: current.placedAt
+          ? "You've already paid your half."
+          : "We're still finishing your last payment. Give it a minute, then pull to refresh.",
+      };
+    }
     row = { id: current.id, paidAt: null };
-  }
-
-  if (row.paidAt) {
-    // Distinguish "done" from "mid-flight". Telling somebody whose placement
-    // stalled that they have already paid their half is true and useless:
-    // their money is not on the booking yet, and the sweeper is about to put
-    // it there.
-    const done = await db.challengePayment.findUnique({
-      where: { id: row.id },
-      select: { placedAt: true },
-    });
-    return {
-      ok: false,
-      error: done?.placedAt
-        ? "You've already paid your half."
-        : "We're still finishing your last payment. Give it a minute, then pull to refresh.",
-    };
   }
 
   let order: { id: string };
@@ -531,6 +561,22 @@ export async function createChallengePaymentOrder(
     where: { id: row.id },
     data: { razorpayOrderId: order.id },
   });
+
+  // The order ledger. Append-only and unrelated to either row above, so that
+  // a capture can still be recognised as ours after the payment row has been
+  // reassigned to somebody else or the challenge has been deleted outright —
+  // the two ways a real capture used to vanish without a trace.
+  await db.challengeOrder
+    .create({
+      data: {
+        razorpayOrderId: order.id,
+        challengeId,
+        userId,
+        side: quote.yourSide,
+        amount: quote.yourShare,
+      },
+    })
+    .catch(() => undefined);
 
   await logChallengeEvent({
     type: "PAY_STARTED",
@@ -580,6 +626,8 @@ type ClaimedSlot = {
   amount: number;
   acceptWindowId: string | null;
   quotedCourtConfigId: string | null;
+  /** The advance this half was quoted against. Null only for pre-fix rows. */
+  quotedAdvance: number | null;
 };
 
 /** Where the money ended up. Every branch is a value, not a flag. */
@@ -611,7 +659,16 @@ async function refundOwed(args: {
   error: string;
   rowId?: string;
 }): Promise<{ ok: false; error: string }> {
-  if (args.rowId) await markRefundOwed(args.rowId, args.detail);
+  // ONE debt, one push, one audit line. `refundOwed` fired unconditionally,
+  // so every replay of the payer's own triple re-notified them and wrote
+  // another "paid ₹500 … refund owed" line — a human reading four of those
+  // for one ₹500 capture reads it as ₹2,000 owed, and any customer could
+  // spam their own device and the venue's audit trail with one repeated POST.
+  // The stamp is the claim: whoever sets it does the telling.
+  if (args.rowId) {
+    const first = await markRefundOwed(args.rowId, args.detail);
+    if (!first) return { ok: false, error: args.error };
+  }
   await logChallengeEvent({
     type: "REFUSED",
     userId: args.userId,
@@ -642,13 +699,17 @@ async function refundOwed(args: {
  * admin screens run — `paidAt` set, `refundedAt` null — and the only record
  * that anything was owed was a sentence in the activity feed.
  */
-async function markRefundOwed(rowId: string, reason: string): Promise<void> {
-  await db.challengePayment
-    .update({
-      where: { id: rowId },
+async function markRefundOwed(rowId: string, reason: string): Promise<boolean> {
+  // Conditional, so it is also the dedupe for everything that follows it. The
+  // first reason wins: a row refusing on every retry should keep the reason it
+  // first failed for, not the latest one.
+  const done = await db.challengePayment
+    .updateMany({
+      where: { id: rowId, refundOwedAt: null },
       data: { refundOwedAt: new Date(), refundOwedReason: reason.slice(0, 300) },
     })
-    .catch(() => undefined);
+    .catch(() => ({ count: 0 }));
+  return done.count > 0;
 }
 
 /**
@@ -726,18 +787,62 @@ async function claimSlot(args: {
       placedAt: true,
       acceptWindowId: true,
       quotedCourtConfigId: true,
+      quotedAdvance: true,
     },
   });
   if (!row) {
-    // The signature verifies, so a capture exists — but not one this module
-    // ever opened. An ordinary booking receipt satisfies this branch, so the
-    // old "refund owed" line here was writable on demand: anyone holding one
-    // genuine capture of their own could POST it against any challenge id
-    // and fill the venue's audit trail with fictional refunds. It is not a
-    // refund-owed event at all — the money is honoured wherever it was
-    // taken. Log it once, as what it is, and claim nothing.
-    await logOnce(challengeId, userId, `a payment from elsewhere was offered here (${razorpayPaymentId})`);
-    return { kind: "refused", error: "That payment does not match this challenge." };
+    // No payment row — but the order ledger knows whether WE opened this
+    // order. That distinction is the whole point of the ledger:
+    //
+    //  - Ours, with no row to honour it: the payer's slot was taken over
+    //    while they were paying, or the challenge was deleted underneath
+    //    them. Real money, really stranded. Flag it, tell them, and put it
+    //    on the venue's refunds queue.
+    //  - Not ours: somebody is replaying an ordinary booking receipt at this
+    //    endpoint. The money is honoured wherever it was taken, so this is
+    //    not a refund at all — and treating it as one made the audit trail
+    //    an open write endpoint. Log it once and claim nothing.
+    const ours = await db.challengeOrder.findUnique({
+      where: { razorpayOrderId },
+      select: { id: true, userId: true, amount: true, challengeId: true, strandedAt: true },
+    });
+    if (!ours) {
+      await logOnce(
+        challengeId,
+        userId,
+        `a payment from elsewhere was offered here (${razorpayPaymentId})`,
+      );
+      return { kind: "refused", error: "That payment does not match this challenge." };
+    }
+    const claimedFirst = await db.challengeOrder.updateMany({
+      where: { id: ours.id, strandedAt: null },
+      data: {
+        strandedAt: new Date(),
+        strandedReason: "the payment slot was gone by the time this capture landed",
+        razorpayPaymentId,
+      },
+    });
+    if (claimedFirst.count > 0) {
+      await logChallengeEvent({
+        type: "REFUSED",
+        userId: ours.userId,
+        // Against the challenge the ORDER names. If that challenge is gone
+        // the write fails and is swallowed — which is why the ledger row,
+        // not the event, is the record that matters.
+        challengeId: ours.challengeId,
+        detail: `captured ₹${ours.amount} with no live slot to honour it (${razorpayPaymentId}) — refund owed`,
+      });
+      await notifyUser(ours.userId, {
+        type: "CHALLENGE_REFUND_OWED",
+        title: "We owe you a refund",
+        body: `Your ₹${ours.amount} went through but the match could no longer take it. The arena will refund you in full.`,
+        link: `/challenges/${ours.challengeId}`,
+      }).catch(() => undefined);
+    }
+    return {
+      kind: "refused",
+      error: "That payment arrived too late to be used. The arena will refund you in full.",
+    };
   }
   if (row.challengeId !== challengeId) {
     // Real challenge money, but the client named the wrong challenge. Its
@@ -775,6 +880,7 @@ async function claimSlot(args: {
       amount: row.amount,
       acceptWindowId: row.acceptWindowId,
       quotedCourtConfigId: row.quotedCourtConfigId,
+      quotedAdvance: row.quotedAdvance,
     },
   });
 
@@ -800,6 +906,15 @@ async function claimSlot(args: {
     where: { id: row.id, paidAt: null },
     data: { paidAt: new Date(), razorpayPaymentId, razorpaySignature: args.razorpaySignature },
   });
+  // The ledger's other half: an order whose capture reached a live slot is
+  // accounted for, so the venue's stranded-money view is exactly the orders
+  // that are neither settled nor refunded.
+  await db.challengeOrder
+    .updateMany({
+      where: { razorpayOrderId, settledAt: null },
+      data: { settledAt: new Date(), razorpayPaymentId },
+    })
+    .catch(() => undefined);
   if (claimed.count === 0) {
     const now = await db.challengePayment.findUnique({
       where: { id: row.id },
@@ -816,6 +931,7 @@ async function claimSlot(args: {
       amount: row.amount,
       acceptWindowId: row.acceptWindowId,
       quotedCourtConfigId: row.quotedCourtConfigId,
+      quotedAdvance: row.quotedAdvance,
     },
   };
 }
@@ -910,8 +1026,22 @@ async function tryBlockCourt(ctx: {
     price: prices.find((p) => p.hour === h)?.price ?? 0,
   }));
   const total = slots.reduce((s, x) => s + x.price, 0);
+  // THE ADVANCE THIS HALF WAS QUOTED AGAINST, not a live read.
+  //
+  // Reading `advancePct` here meant the booking's advance was whatever the
+  // venue's setting happened to be at the instant the capture landed, while
+  // the money charged came from the quote taken when the sheet opened. Move
+  // the percentage in between and the two describe different deals: at
+  // 50→100 the first captain paid ₹500 of a ₹2000 advance and the second was
+  // asked for ₹1500 — a 1:3 split on a feature whose whole promise is "each
+  // pays half" — and at 50→10 the second half came to ₹0, which Razorpay
+  // refuses, so that captain could NEVER pay and the court stayed blocked
+  // and unconfirmed for ever.
+  //
+  // The fallback is only for rows written before this column existed.
   const settings = await db.challengeSettings.findFirst({ select: { advancePct: true } });
-  const advance = Math.round((total * (settings?.advancePct ?? 50)) / 100);
+  const advance =
+    ctx.slot.quotedAdvance ?? Math.round((total * (settings?.advancePct ?? 50)) / 100);
 
   // ONE transaction. Creating the booking and attaching it as two
   // statements left a window where the hour was occupied by a PENDING
@@ -992,7 +1122,7 @@ class LostRace extends Error {}
 
 /** Settle this half against a booking that already holds the hour. */
 async function settleAgainst(
-  ctx: { challengeId: string; slot: ClaimedSlot },
+  ctx: { challengeId: string; slot: ClaimedSlot; razorpayPaymentId: string },
   bookingId: string,
 ): Promise<Placement> {
   const booking = await db.booking.findUnique({
@@ -1025,44 +1155,52 @@ async function settleAgainst(
   // payment PARTIAL for ever with nothing left to collect.
   const venueBalanceAfter = Math.max(0, (booking.payment?.remainingAmount ?? 0) - settling);
 
-  // `placedAt` is stamped INSIDE the transaction that moves the money, not
-  // before it. Stamping first would mark this half placed even if the ledger
-  // write then failed — the same class of lie as the old claimed-counts-as-
-  // paid bug, just one stage further down.
-  //
   // The status is computed as "the sides already placed, plus this one",
-  // because this one is not placed until the transaction commits.
+  // because this one is not placed until the transaction below commits.
   const status = statusAfterPayment([...(await paidSides(ctx.challengeId)), ctx.slot.side]);
 
-  // The stamp is the serialisation point for placement, exactly as the
-  // attach is for blocking: two callers holding the same claimed row — a
-  // retry racing the repair sweep — must not both move the ledger.
-  const claimed = await db.challengePayment.updateMany({
-    where: { id: ctx.slot.rowId, placedAt: null },
-    data: { placedAt: new Date() },
-  });
-  if (claimed.count === 0) return { kind: "settled", bookingId, status };
+  // ONE interactive transaction, because the stamp has to be BOTH the
+  // serialisation point and part of the same commit as the money.
+  //
+  // The previous version had the conditional stamp a round-trip ahead of the
+  // ledger writes, and a crash in that window marked the half placed while
+  // the money, the booking status and the challenge status all rolled back.
+  // That state was unreachable by every recovery path at once: a retry hit
+  // the already-done short-circuit, the repair sweep skips placed rows, the
+  // half-paid panel saw two paid sides, the refunds panel saw no flag, and
+  // the payer was told they had already paid. ₹500 captured against a
+  // booking that still wanted ₹1500 — the exact bug this round was called to
+  // close, moved one function down.
+  await db.$transaction(async (tx) => {
+    // Two callers holding the same claimed row — a retry racing the repair
+    // sweep — must not both move the ledger. Whoever stamps, settles.
+    const claimed = await tx.challengePayment.updateMany({
+      where: { id: ctx.slot.rowId, placedAt: null },
+      data: { placedAt: new Date() },
+    });
+    if (claimed.count === 0) return;
 
-  await db.$transaction([
-    ...(booking.payment
-      ? [
-          db.payment.update({
-            where: { id: booking.payment.id },
-            data: {
-              // PARTIAL while the gate balance is owed — marking it
-              // COMPLETED would tell the collect screens there is nothing
-              // to take on the day.
-              status: venueBalanceAfter > 0 ? "PARTIAL" : "COMPLETED",
-              amount: { increment: settling },
-              remainingAmount: { decrement: settling },
-              confirmedAt: new Date(),
-            },
-          }),
-          db.booking.update({ where: { id: booking.id }, data: { status: "CONFIRMED" } }),
-        ]
-      : []),
-    db.challenge.update({ where: { id: ctx.challengeId }, data: { status } }),
-  ]);
+    if (booking.payment) {
+      await tx.payment.update({
+        where: { id: booking.payment.id },
+        data: {
+          // PARTIAL while the gate balance is owed — marking it COMPLETED
+          // would tell the collect screens there is nothing to take on the
+          // day.
+          status: venueBalanceAfter > 0 ? "PARTIAL" : "COMPLETED",
+          amount: { increment: settling },
+          remainingAmount: { decrement: settling },
+          confirmedAt: new Date(),
+          // The second capture, on the venue-facing record. Reconciling a
+          // Razorpay settlement report against `razorpayPaymentId` left every
+          // second half unmatched.
+          secondRazorpayPaymentId: ctx.razorpayPaymentId,
+        },
+      });
+      await tx.booking.update({ where: { id: booking.id }, data: { status: "CONFIRMED" } });
+    }
+    await tx.challenge.update({ where: { id: ctx.challengeId }, data: { status } });
+  });
 
   return { kind: "settled", bookingId, status };
 }
@@ -1101,6 +1239,7 @@ export async function resumeStalledPayments(now = new Date()): Promise<number> {
       amount: true,
       acceptWindowId: true,
       quotedCourtConfigId: true,
+      quotedAdvance: true,
       razorpayOrderId: true,
       razorpayPaymentId: true,
       razorpaySignature: true,
@@ -1119,6 +1258,7 @@ export async function resumeStalledPayments(now = new Date()): Promise<number> {
         amount: row.amount,
         acceptWindowId: row.acceptWindowId,
         quotedCourtConfigId: row.quotedCourtConfigId,
+        quotedAdvance: row.quotedAdvance,
       },
       razorpayOrderId: row.razorpayOrderId as string,
       razorpayPaymentId: row.razorpayPaymentId as string,
@@ -1323,7 +1463,18 @@ async function placeClaimedPayment(args: {
   };
 
   if (placement.kind === "slotLost") {
-    await markRefundOwed(slot.rowId, "the hour went before the first half landed");
+    // Same dedupe as `refundOwed`: a replayed capture must not re-announce a
+    // lost hour to both captains or re-state the debt in the feed.
+    const firstTime = await markRefundOwed(
+      slot.rowId,
+      "the hour went before the first half landed",
+    );
+    if (!firstTime) {
+      return {
+        ok: false,
+        error: "That hour went before we could hold it. Your money is safe — the arena will refund it.",
+      };
+    }
     await logChallengeEvent({
       type: "SLOT_LOST",
       userId,
