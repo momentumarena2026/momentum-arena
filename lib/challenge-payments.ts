@@ -431,6 +431,10 @@ export async function createChallengePaymentOrder(
         amount: quote.yourShare,
         acceptWindowId: acceptWindowId ?? null,
         quotedCourtConfigId: quote.courtConfigId,
+        // The new holder starts their OWN clock. Inheriting the previous
+        // one left them instantly stale, so the slot could be ripped away
+        // again immediately — and repeatedly, from whoever was mid-payment.
+        createdAt: new Date(),
         // The previous holder's order must not stay attached to a row that
         // now names somebody else.
         razorpayOrderId: null,
@@ -601,7 +605,29 @@ export async function confirmChallengePayment(args: {
   // agreed window until this moment.
   const acceptingNow = !c.acceptedByUserId && !c.agreedWindowId && !!row.acceptWindowId;
   const win = c.windows.find((w) => w.id === (acceptingNow ? row.acceptWindowId : c.agreedWindowId));
-  if (!win) return { ok: false, error: "That challenge has no settled time." };
+  if (!win) {
+    // The money is already claimed at this point, so this cannot be a bare
+    // refusal. It happens when somebody else counters while this payer's
+    // sheet is open: the acceptor slot fills, `acceptingNow` goes false and
+    // there is no agreed window — and the capture was being dropped with no
+    // event, no notification and a retry that reported success.
+    await logChallengeEvent({
+      type: "REFUSED",
+      userId,
+      challengeId,
+      detail: `paid ₹${row.amount} but the match moved on before it landed — refund owed`,
+    });
+    await notifyUser(userId, {
+      type: "CHALLENGE_REFUND_OWED",
+      title: "That match moved on",
+      body: "Your payment went through just after somebody else took it. The arena will refund you.",
+      link: `/challenges/${challengeId}`,
+    });
+    return {
+      ok: false,
+      error: "Somebody else took this one while you were paying. The arena will refund you.",
+    };
+  }
   const hours = windowHours(win.startHour, win.endHour);
 
   if (acceptingNow) {
@@ -631,9 +657,23 @@ export async function confirmChallengePayment(args: {
     });
   }
 
-  const alreadyPaid = c.payments.filter((p) => p.paidAt).map((p) => p.side as ChallengeSide);
+  // EXCLUDE THIS CALLER'S OWN ROW. The claim above stamps `paidAt` before
+  // the challenge is read, so without this filter the caller always finds
+  // itself in `c.payments`, `isFirstHalf` is false every single time, and
+  // the entire booking block below is dead code: one ₹500 confirmed the
+  // match, no booking was ever created, the court was never blocked and
+  // stayed on sale, the second half became unpayable, and the money reached
+  // no revenue report because there was no Booking to carry it.
+  const alreadyPaid = c.payments
+    .filter((p) => p.paidAt && p.id !== row.id)
+    .map((p) => p.side as ChallengeSide);
   const paidAfter = [...alreadyPaid, row.side as ChallengeSide];
-  const nextStatus = statusAfterPayment(paidAfter);
+  // Recomputed after any demotion below — the loser of the booking race
+  // writes the challenge's status, and using the pre-race value stamped
+  // PART_PAID over a match whose halves were both in: no confirmation push,
+  // no spin, and a fully-paid match sitting in the venue's "needs a
+  // decision" queue for ever.
+  let nextStatus = statusAfterPayment(paidAfter);
   let isFirstHalf = alreadyPaid.length === 0;
 
   let bookingId = c.bookingId;
@@ -744,13 +784,14 @@ export async function confirmChallengePayment(args: {
       await db.bookingSlot.deleteMany({ where: { bookingId: booking.id } });
       await db.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
       isFirstHalf = false;
-      bookingId =
-        (
-          await db.challenge.findUnique({
-            where: { id: challengeId },
-            select: { bookingId: true },
-          })
-        )?.bookingId ?? null;
+      const won = await db.challenge.findUnique({
+        where: { id: challengeId },
+        select: { bookingId: true, payments: { where: { paidAt: { not: null } }, select: { side: true } } },
+      });
+      bookingId = won?.bookingId ?? null;
+      nextStatus = statusAfterPayment(
+        (won?.payments ?? []).map((p) => p.side as ChallengeSide),
+      );
     } else {
       bookingId = booking.id;
     }
@@ -768,16 +809,27 @@ export async function confirmChallengePayment(args: {
           select: {
             id: true,
             totalAmount: true,
-            payment: { select: { id: true, remainingAmount: true } },
+            payment: { select: { id: true, remainingAmount: true, advanceAmount: true, amount: true } },
           },
         })
       : null;
+
+    // The second half settles what the BOOKING says is outstanding, never a
+    // fresh quote. Re-pricing live meant any rate-card or advancePct edit
+    // inside the 120-minute payment window silently overcharged the second
+    // captain — 250 + 500 against a recorded advance of 500 — which breaks
+    // the one arithmetic promise the spec makes about this module.
+    const owedOnBooking = Math.max(
+      0,
+      (booking?.payment?.advanceAmount ?? 0) - (booking?.payment?.amount ?? 0),
+    );
+    const settling = owedOnBooking > 0 ? owedOnBooking : row.amount;
 
     // What is still owed AFTER this half lands. Computed from the
     // post-decrement figure, not the pre-decrement one: with advancePct at
     // 100 there is no venue balance, and reading the old value would leave
     // the payment PARTIAL forever with nothing left to collect.
-    const venueBalanceAfter = Math.max(0, (booking?.payment?.remainingAmount ?? 0) - row.amount);
+    const venueBalanceAfter = Math.max(0, (booking?.payment?.remainingAmount ?? 0) - settling);
 
     await db.$transaction([
       db.challengePayment.update({
@@ -795,8 +847,8 @@ export async function confirmChallengePayment(args: {
                 // this codebase. Marking it COMPLETED would tell the collect
                 // screens there is nothing to take at the gate.
                 status: venueBalanceAfter > 0 ? "PARTIAL" : "COMPLETED",
-                amount: { increment: row.amount },
-                remainingAmount: { decrement: row.amount },
+                amount: { increment: settling },
+                remainingAmount: { decrement: settling },
                 confirmedAt: new Date(),
               },
             }),

@@ -47,7 +47,12 @@ import {
   RAZORPAY_KEY_ID,
 } from "@/lib/razorpay";
 import { logChallengeEvent } from "@/lib/challenges";
-import { resolveWheel, spinWheel, type WheelSegment } from "@/lib/challenge-rules";
+import {
+  resolveWheel,
+  spinWheel,
+  leadTimeRefusal,
+  type WheelSegment,
+} from "@/lib/challenge-rules";
 import {
   resolvePushes,
   renderPush,
@@ -491,7 +496,10 @@ export async function expireOffers(now = new Date()): Promise<number> {
   if (dead.length > 0) {
     await db.challengeOffer.updateMany({
       where: { id: { in: dead.map((d) => d.id) } },
-      data: { lapsedAt: now },
+      // `takenAt` is cleared alongside the lapse. Leaving it set stranded a
+      // capture for ever: the retry could neither find a booking nor
+      // re-claim the offer, so the money was gone with no refund trail.
+      data: { lapsedAt: now, takenAt: null },
     });
   }
   return dead.length;
@@ -546,6 +554,7 @@ export async function offerQuote(
       discountPct: true,
       expiresAt: true,
       takenAt: true,
+      lapsedAt: true,
       courtConfigId: true,
       date: true,
       startHour: true,
@@ -565,6 +574,7 @@ export async function offerQuote(
   });
   if (!o) return { ok: false, error: "That offer is gone." };
   if (o.userId !== userId) return { ok: false, error: "That offer isn't yours." };
+  if (o.lapsedAt) return { ok: false, error: "That offer has expired." };
   if (o.takenAt && !claimedByCaller) {
     return { ok: false, error: "You've already used this one." };
   }
@@ -590,8 +600,18 @@ export async function offerQuote(
   } else {
     // A pinned pick wins over anything the client sends: once an order has
     // been minted against an hour, that is the hour being bought.
-    const pinned =
+    // A pin only binds while the hour it names is still free. Otherwise an
+    // abandoned payment sheet left the prize pointing at a gone hour for
+    // the rest of its life, refusing every new pick — and every nudge
+    // deep-linked to that dead end.
+    const pinnedStill =
       o.courtConfigId && o.date && o.startHour !== null
+        ? (await getSlotAvailability(o.courtConfigId, o.date)).find(
+            (x) => x.hour === o.startHour,
+          )?.status === "available"
+        : false;
+    const pinned =
+      pinnedStill && o.courtConfigId && o.date && o.startHour !== null
         ? { courtConfigId: o.courtConfigId, date: o.date, startHour: o.startHour }
         : null;
     if (!pinned && !pick) return { ok: false, error: "Pick an hour first." };
@@ -658,6 +678,21 @@ export async function offerQuote(
   const prices = await getSlotPricesForDate(courtConfigId, date);
   const fullPrice = prices.find((p) => p.hour === startHour)?.price ?? 0;
   if (fullPrice <= 0) return { ok: false, error: "That hour has no price set." };
+  // The lead-time rule applies to a FALLBACK hour. The spec exempts only
+  // the ADJACENT one — same session, staff already there — and a prize
+  // holder was able to buy an unstaffable hour 35 minutes out that the
+  // venue refuses to sell anyone else at full price.
+  if (o.kind === "FALLBACK") {
+    const lead = (await db.challengeSettings.findFirst({ select: { minLeadMins: true } }))
+      ?.minLeadMins;
+    const late = leadTimeRefusal(
+      new Date(date.getTime() + (startHour - 5.5) * 3600000),
+      new Date(),
+      lead ?? 240,
+    );
+    if (late) return { ok: false, error: late };
+  }
+
   const money = discounted(fullPrice, o.discountPct);
   const label = court.label;
 
@@ -923,6 +958,15 @@ export async function confirmOfferPayment(args: {
       select: { bookingId: true },
     });
     if (now?.bookingId) return { ok: true, bookingId: now.bookingId };
+    // The winner may not have committed its booking yet. Give it a moment
+    // rather than telling somebody their payment failed for an hour that is
+    // about to be booked in their name.
+    await new Promise((r) => setTimeout(r, 1200));
+    const settled = await db.challengeOffer.findUnique({
+      where: { id: existing.id },
+      select: { bookingId: true },
+    });
+    if (settled?.bookingId) return { ok: true, bookingId: settled.bookingId };
     return { ok: false, error: "That offer is already being used." };
   }
 

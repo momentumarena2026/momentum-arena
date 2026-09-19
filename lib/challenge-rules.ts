@@ -382,7 +382,11 @@ export function payRefusal(
  * could pay for an hour that had just gone.
  */
 export function statusAfterPayment(paidSidesIncludingThis: ChallengeSide[]): ChallengeStatus {
-  return paidSidesIncludingThis.length >= 2 ? "CONFIRMED" : "PART_PAID";
+  // DISTINCT sides, not array length. Counting the array let the same side
+  // appearing twice confirm a match on one half — which is exactly what
+  // happened when a caller's own freshly-claimed row was read back into the
+  // list it was being compared against.
+  return new Set(paidSidesIncludingThis).size >= 2 ? "CONFIRMED" : "PART_PAID";
 }
 
 // ── The wheel ──────────────────────────────────────────────────────

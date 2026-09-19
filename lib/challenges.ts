@@ -472,10 +472,13 @@ export async function expireStaleChallenges(): Promise<number> {
       // poster from withdrawing, from posting again, and from ever being
       // swept, which is a permanent lockout from one unpaid handshake.
       // AGREED WITH money in it is the venue's to unwind, never a sweep's.
-      OR: [
-        { status: { in: ["OPEN", "COUNTERED"] } },
-        { status: "AGREED", payments: { none: { paidAt: { not: null } } } },
-      ],
+      // The "nobody has paid" guard applies to EVERY status, not just
+      // AGREED. A COUNTERED challenge can hold a captured payment — a
+      // stranger who paid while it was OPEN, before somebody else countered
+      // — and sweeping it to EXPIRED made that money vanish from every
+      // surface at once.
+      status: { in: ["OPEN", "COUNTERED", "AGREED"] },
+      payments: { none: { paidAt: { not: null } } },
       expiresAt: { lte: new Date() },
     },
     select: { id: true, createdByUserId: true, sport: true, status: true },

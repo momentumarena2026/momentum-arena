@@ -511,3 +511,13 @@ test("the band is judged against the wheel that RUNS, whatever is stored", () =>
     );
   }
 });
+
+test("one side paying twice can never confirm a match", () => {
+  // The array-length version confirmed a match on a single ₹500 when a
+  // caller's own row was read back into the list — no booking, no blocked
+  // court, no second half payable, and the money in no revenue report.
+  assert.equal(statusAfterPayment(["ACCEPTOR", "ACCEPTOR"]), "PART_PAID");
+  assert.equal(statusAfterPayment(["CHALLENGER", "CHALLENGER"]), "PART_PAID");
+  assert.equal(statusAfterPayment(["CHALLENGER", "ACCEPTOR"]), "CONFIRMED");
+  assert.equal(statusAfterPayment(["ACCEPTOR", "CHALLENGER", "ACCEPTOR"]), "CONFIRMED");
+});
