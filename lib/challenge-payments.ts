@@ -743,6 +743,30 @@ async function paidSides(challengeId: string): Promise<ChallengeSide[]> {
 }
 
 /**
+ * Flag an order in the ledger as money we owe back, once.
+ *
+ * Returns the ledger row when THIS call was the one that claimed it, so the
+ * caller knows whether to do the telling. Replays then cost nothing: one
+ * capture, one push, one audit line, one row on the venue's refunds queue.
+ */
+async function strandOrder(
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  reason: string,
+): Promise<{ userId: string; challengeId: string; amount: number; side: string } | null> {
+  const order = await db.challengeOrder.findUnique({
+    where: { razorpayOrderId },
+    select: { id: true, userId: true, challengeId: true, amount: true, side: true },
+  });
+  if (!order) return null;
+  const claimed = await db.challengeOrder.updateMany({
+    where: { id: order.id, strandedAt: null },
+    data: { strandedAt: new Date(), strandedReason: reason.slice(0, 300), razorpayPaymentId },
+  });
+  return claimed.count > 0 ? order : null;
+}
+
+/**
  * STAGE 1 — prove the capture is real, and claim its slot exactly once.
  *
  * The claim is a conditional update, not a read followed by a write: three
@@ -802,33 +826,18 @@ async function claimSlot(args: {
     //    endpoint. The money is honoured wherever it was taken, so this is
     //    not a refund at all — and treating it as one made the audit trail
     //    an open write endpoint. Log it once and claim nothing.
-    const ours = await db.challengeOrder.findUnique({
-      where: { razorpayOrderId },
-      select: { id: true, userId: true, amount: true, challengeId: true, strandedAt: true },
-    });
-    if (!ours) {
-      await logOnce(
-        challengeId,
-        userId,
-        `a payment from elsewhere was offered here (${razorpayPaymentId})`,
-      );
-      return { kind: "refused", error: "That payment does not match this challenge." };
-    }
-    const claimedFirst = await db.challengeOrder.updateMany({
-      where: { id: ours.id, strandedAt: null },
-      data: {
-        strandedAt: new Date(),
-        strandedReason: "the payment slot was gone by the time this capture landed",
-        razorpayPaymentId,
-      },
-    });
-    if (claimedFirst.count > 0) {
+    const ours = await strandOrder(
+      razorpayOrderId,
+      razorpayPaymentId,
+      "the payment slot was gone by the time this capture landed",
+    );
+    if (ours) {
       await logChallengeEvent({
         type: "REFUSED",
         userId: ours.userId,
         // Against the challenge the ORDER names. If that challenge is gone
-        // the write fails and is swallowed — which is why the ledger row,
-        // not the event, is the record that matters.
+        // the write fails and is swallowed — which is exactly why the ledger
+        // row, and not the event, is the record that matters.
         challengeId: ours.challengeId,
         detail: `captured ₹${ours.amount} with no live slot to honour it (${razorpayPaymentId}) — refund owed`,
       });
@@ -838,11 +847,31 @@ async function claimSlot(args: {
         body: `Your ₹${ours.amount} went through but the match could no longer take it. The arena will refund you in full.`,
         link: `/challenges/${ours.challengeId}`,
       }).catch(() => undefined);
+      return {
+        kind: "refused",
+        error: "That payment arrived too late to be used. The arena will refund you in full.",
+      };
     }
-    return {
-      kind: "refused",
-      error: "That payment arrived too late to be used. The arena will refund you in full.",
-    };
+    // Either not ours at all, or ours and already flagged. Both are quiet:
+    // the first is somebody replaying an ordinary booking receipt at this
+    // endpoint, and treating that as a refund made the audit trail an open
+    // write endpoint.
+    const known = await db.challengeOrder.findUnique({
+      where: { razorpayOrderId },
+      select: { id: true },
+    });
+    if (known) {
+      return {
+        kind: "refused",
+        error: "That payment arrived too late to be used. The arena will refund you in full.",
+      };
+    }
+    await logOnce(
+      challengeId,
+      userId,
+      `a payment from elsewhere was offered here (${razorpayPaymentId})`,
+    );
+    return { kind: "refused", error: "That payment does not match this challenge." };
   }
   if (row.challengeId !== challengeId) {
     // Real challenge money, but the client named the wrong challenge. Its
@@ -852,23 +881,34 @@ async function claimSlot(args: {
     return { kind: "refused", error: "That payment does not match this challenge." };
   }
   if (row.userId !== userId) {
-    // This one IS stranded: the payer's money is captured and their slot now
-    // names somebody else. No stamp — the row belongs to the new holder and
-    // marking it would flag their perfectly good payment — but the payer
-    // must be told, which an error string in an alert they may never see
-    // does not do.
+    // Stranded: the payer's money is captured and their slot now names
+    // somebody else. The ROW must not be stamped — it belongs to the new
+    // holder and flagging it would mark their perfectly good payment as a
+    // refund — so the debt is recorded on the order ledger instead, which is
+    // both the dedupe for the telling and the reason the venue can find this
+    // money as a query rather than as prose in the activity feed.
+    const stranded = await strandOrder(
+      razorpayOrderId,
+      razorpayPaymentId,
+      "paid into a slot that had been reassigned to somebody else",
+    );
+    if (stranded) {
+      await logChallengeEvent({
+        type: "REFUSED",
+        userId,
+        challengeId,
+        detail: `paid ₹${stranded.amount} into a slot that had been reassigned (${razorpayPaymentId}) — refund owed`,
+      });
+      await notifyUser(userId, {
+        type: "CHALLENGE_REFUND_OWED",
+        title: "We owe you a refund",
+        body: "Somebody else had taken that half by the time your payment landed. The arena will refund you in full.",
+        link: `/challenges/${challengeId}`,
+      }).catch(() => undefined);
+    }
     return {
       kind: "refused",
-      error: (
-        await refundOwed({
-          challengeId,
-          userId,
-          detail: `paid into a slot that had been reassigned (${razorpayPaymentId}) — refund owed`,
-          title: "We owe you a refund",
-          body: "Somebody else had taken that half by the time your payment landed. The arena will refund you in full.",
-          error: "Somebody else took this one while you were paying. The arena will refund you.",
-        })
-      ).error,
+      error: "Somebody else took this one while you were paying. The arena will refund you.",
     };
   }
 
