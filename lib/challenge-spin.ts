@@ -154,13 +154,20 @@ export async function adjacentHour(
 }
 
 /** "Sun, 20 Sep" — the day a push should name, never a bare ISO string. */
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * "Sun, 20 Sep" — spelled out here rather than left to `toLocaleDateString`.
+ *
+ * ICU's abbreviation for September is "Sept" in some builds and "Sep" in
+ * others, so the server (Node) and the app (Hermes) disagreed: the same day
+ * read "24 Sept" on the prize card and "24 Sep" in the window list on the
+ * same screen. A three-letter table is not a localisation, but neither was
+ * the inconsistency — and this string must match the app's exactly.
+ */
 export function istDayLabel(d: Date): string {
-  return d.toLocaleDateString("en-IN", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
+  return `${DAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
 /** Midnight of today, IST, as the UTC instant the @db.Date columns store. */
@@ -661,7 +668,13 @@ export async function offerQuote(
       if (chosen.getTime() > maxDay.getTime() || chosen.getTime() < todayIst.getTime()) {
         return {
           ok: false,
-          error: `This one's good for the next ${cfg.fallbackDays} day${cfg.fallbackDays === 1 ? "" : "s"} only.`,
+          // The slot loop runs `d = 0..fallbackDays` inclusive, so the
+          // inventory offered is today PLUS that many days. Saying "the next
+          // 3 days" for four days of hours is a small lie the customer can
+          // catch by scrolling.
+          error: `This one's good for today and the next ${cfg.fallbackDays} day${
+            cfg.fallbackDays === 1 ? "" : "s"
+          } only.`,
         };
       }
       courtConfigId = pick!.courtConfigId;

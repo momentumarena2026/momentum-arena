@@ -564,3 +564,59 @@ test("a half that was claimed but never placed cannot confirm a match", () => {
   // The same side twice is still one side.
   assert.equal(statusAfterPayment(["ACCEPTOR", "ACCEPTOR"]), "PART_PAID");
 });
+
+test("the arena's real closing hour is what the board honours", () => {
+  // A duplicate, limit-less windowRefusal call at the end of postRefusal
+  // re-imposed the hard-coded 5–25 after the real check had passed, so the
+  // arena's own last sellable hour was refused while the prize picker
+  // offered it.
+  const limits = {
+    enabled: true,
+    sports: [],
+    minPlayers: 1,
+    maxPlayers: 30,
+    maxWindows: 3,
+    minLeadMins: 0,
+    openHour: 5,
+    closeHour: 26,
+  } as never;
+  const now = new Date("2026-09-19T06:00:00.000Z"); // 11:30 IST
+  assert.equal(
+    postRefusal(
+      { sport: "CRICKET", playerCount: 8, windows: [{ date: "2026-09-20", startHour: 25, endHour: 26 }] },
+      limits,
+      now,
+    ),
+    null,
+  );
+  // And a venue that closes earlier still refuses it, readably.
+  assert.match(
+    postRefusal(
+      { sport: "CRICKET", playerCount: 8, windows: [{ date: "2026-09-20", startHour: 24, endHour: 25 }] },
+      { ...(limits as object), closeHour: 23 } as never,
+      now,
+    ) ?? "",
+    /The arena is open/,
+  );
+});
+
+test("a date that does not exist is refused, not rolled forward", () => {
+  // `new Date("2026-09-31")` is 1 October. The API accepted it and booked a
+  // court on a day nobody asked for.
+  const limits = {
+    enabled: true, sports: [], minPlayers: 1, maxPlayers: 30, maxWindows: 3,
+    minLeadMins: 0, openHour: 5, closeHour: 26,
+  } as never;
+  const now = new Date("2026-09-19T06:00:00.000Z");
+  for (const date of ["2026-09-31", "2026-02-30", "2026-13-01", "2026-00-10"]) {
+    assert.match(
+      postRefusal({ sport: "CRICKET", playerCount: 8, windows: [{ date, startHour: 19, endHour: 20 }] }, limits, now) ?? "",
+      /date isn't valid/,
+      `${date} must be refused`,
+    );
+  }
+  assert.equal(
+    postRefusal({ sport: "CRICKET", playerCount: 8, windows: [{ date: "2026-09-30", startHour: 19, endHour: 20 }] }, limits, now),
+    null,
+  );
+});

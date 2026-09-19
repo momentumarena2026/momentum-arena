@@ -10,6 +10,7 @@ import {
   withdrawRefusal,
   expiryFor,
   windowStart,
+  leadTimeRefusal,
   KNOWN_SPORTS,
   windowRefusal,
   sideOf,
@@ -210,12 +211,19 @@ export async function postChallenge(input: {
     return { ok: false, error: refusal };
   }
 
-  // One live challenge at a time per person. Without it the board fills
-  // with one captain's five posts and nobody else is visible.
+  // One challenge ON THE BOARD at a time per person. Without it the board
+  // fills with one captain's five posts and nobody else is visible.
+  //
+  // PART_PAID is deliberately NOT on this list. It is a matched challenge
+  // with money in it — off the board, unwithdrawable by rule, and never
+  // swept — so counting it as "up" locked the captain who paid FIRST out of
+  // the board for ever if their opponent never paid, while telling them to
+  // withdraw something the app gives them no way to withdraw and the server
+  // refuses. The one person who did everything right was the one punished.
   const existing = await db.challenge.count({
     where: {
       createdByUserId: input.userId,
-      status: { in: ["OPEN", "COUNTERED", "AGREED", "PART_PAID"] },
+      status: { in: ["OPEN", "COUNTERED", "AGREED"] },
     },
   });
   if (existing > 0) {
@@ -370,7 +378,20 @@ export async function counterChallenge(
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
     return { ok: false, error: refusal };
   }
-  const bad = windowRefusal(window, now, limits);
+  const bad =
+    windowRefusal(window, now, limits) ??
+    // The lead-time rule belongs here too. Without it a captain could
+    // counter with a slot two hours out, which stored fine, showed the other
+    // side an "Accept this time" button, and then refused the acceptance —
+    // having spent the counterer's ONE counter on a time nobody was ever
+    // allowed to take.
+    (limits.minLeadMins && limits.minLeadMins > 0
+      ? leadTimeRefusal(
+          windowStart(window.date, window.startHour),
+          now,
+          limits.minLeadMins,
+        )
+      : null);
   if (bad) {
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: bad });
     return { ok: false, error: bad };

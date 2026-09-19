@@ -4512,6 +4512,10 @@ enum ChallengeEventType {
   OFFER_TAKEN
   /// They didn't, and it expired. The most diagnostic row in the promo.
   OFFER_LAPSED
+  /// The arena marked a captured payment refunded. The counterpart to the
+  /// REFUSED lines that say a refund is owed — without it the audit trail
+  /// records the debt and never its settlement.
+  REFUNDED
 }
 
 model ChallengeEvent {

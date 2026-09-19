@@ -157,10 +157,6 @@ export function postRefusal(
       if (bad) return bad;
     }
   }
-  for (const w of input.windows) {
-    const bad = windowRefusal(w, now);
-    if (bad) return bad;
-  }
   // Two identical windows waste a slot the captain could have used to
   // widen their net, which is the whole point of offering several.
   const seen = new Set(input.windows.map((w) => `${w.date}@${w.startHour}`));
@@ -175,6 +171,13 @@ export function windowRefusal(
   limits?: ChallengeLimits,
 ): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(w.date)) return "That date isn't valid.";
+  // A well-SHAPED date is not a real one. `new Date("2026-09-31")` rolls
+  // silently forward to 1 October, so the API accepted a date that does not
+  // exist and booked the court a day after the one that was asked for.
+  const asDate = new Date(`${w.date}T00:00:00.000Z`);
+  if (Number.isNaN(asDate.getTime()) || asDate.toISOString().slice(0, 10) !== w.date) {
+    return "That date isn't valid.";
+  }
   if (!Number.isInteger(w.startHour) || !Number.isInteger(w.endHour)) {
     return "Pick whole hours.";
   }
@@ -304,11 +307,18 @@ export function counterRefusal(
   }
   const used = side === "CHALLENGER" ? c.counterCountChallenger : c.counterCountAcceptor;
   if (used >= limits.maxCountersPerSide) {
-    return "You've used your counter-offer — take one of the times on the table, or leave it.";
+    // Zero is not "you've used yours" — the venue has switched counters off,
+    // and telling a participant they spent something they never had is a
+    // small lie they cannot act on.
+    return limits.maxCountersPerSide < 1
+      ? "Counter-offers are switched off — take one of the times on the table, or leave it."
+      : "You've used your counter-offer — take one of the times on the table, or leave it.";
   }
   // You cannot counter your own outstanding offer; the other side has it.
   if (side === "CHALLENGER" && c.status === "OPEN") {
-    return "Nobody has responded yet — edit or withdraw the challenge instead.";
+    // No edit exists. Offering one sends the captain looking for a button
+    // that was never built.
+    return "Nobody has responded yet — withdraw it if the times no longer work.";
   }
   if (side === "ACCEPTOR" && c.status === "COUNTERED") {
     return "Your counter-offer is with them — wait for an answer.";

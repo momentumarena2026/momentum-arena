@@ -161,7 +161,7 @@ export function SpinWheel({
       <View
         style={{
           flex: 1,
-          backgroundColor: "rgba(0,0,0,0.92)",
+          backgroundColor: "rgba(0,0,0,0.97)",
           alignItems: "center",
           justifyContent: "center",
           padding: 24,
@@ -231,7 +231,11 @@ export function SpinWheel({
                           fontSize={sweep >= 40 ? 17 : 13}
                           fontWeight="700"
                           textAnchor="middle"
-                          transform={`rotate(${s.mid} ${lx} ${ly})`}
+                          // Flip on the lower half. A label rotated to its
+                          // slice's own angle reads upside down for every
+                          // slice past the 3 o'clock mark, which is half the
+                          // wheel.
+                          transform={`rotate(${s.mid > 90 && s.mid < 270 ? s.mid + 180 : s.mid} ${lx} ${ly})`}
                         >
                           {s.pct}%
                         </SvgText>

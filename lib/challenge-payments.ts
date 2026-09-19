@@ -395,7 +395,24 @@ export async function createChallengePaymentOrder(
     return { ok: false, error: quote.refusal };
   }
   if (!quote.yourSide || quote.yourShare === null) {
-    return { ok: false, error: "You're not part of this match." };
+    // Two very different situations wore the same sentence. Losing a race —
+    // tapping "take it" a second after somebody else paid for it — is not
+    // "you're not part of this match", which reads as a bug to the person who
+    // was looking at the board a moment ago. The codebase already had the
+    // right words for it a few lines down; this path did not use them.
+    const taken = await db.challenge.findUnique({
+      where: { id: challengeId },
+      select: { acceptedByUserId: true, createdByUserId: true },
+    });
+    const outsider =
+      taken && taken.acceptedByUserId && taken.acceptedByUserId !== userId &&
+      taken.createdByUserId !== userId;
+    return {
+      ok: false,
+      error: outsider
+        ? "Somebody else has taken this one."
+        : "You're not part of this match.",
+    };
   }
   if (quote.total <= 0) {
     return { ok: false, error: "That court has no price set — the venue needs to fix that first." };

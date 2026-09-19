@@ -14,6 +14,7 @@ import { DEFAULT_WHEEL, wheelRefusal, resolveWheel } from "@/lib/challenge-rules
 import {
   saveChallengeSettings,
   adminWithdrawChallenge,
+  markChallengePaymentRefunded,
   type ChallengeSettingsInput,
 } from "@/actions/admin-challenges";
 
@@ -139,12 +140,104 @@ const hr = (h: number) => {
   return x === 0 ? "12am" : x < 12 ? `${x}am` : x === 12 ? "12pm" : `${x - 12}pm`;
 };
 
+/**
+ * One line of the refunds queue, with the control that closes it out.
+ *
+ * The panel used to tell the venue to "mark it refunded on the payment" when
+ * nothing in the product could do that. So the list only ever grew, its
+ * total never fell, and — because the take-down guard counted flagged money
+ * as still held — a challenge whose money was flagged could never be closed
+ * either. The refund itself is made by hand in Razorpay or in cash; this
+ * records the arena's own act, and says so, rather than pretending to move
+ * money it does not move.
+ */
+function RefundRow({
+  row,
+}: {
+  row: {
+    id: string;
+    side: string;
+    amount: number;
+    refundOwedAt: string;
+    refundOwedReason: string | null;
+    user: { name: string | null; phone: string | null } | null;
+    challenge: { id: string; teamName: string | null; status: string };
+  };
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <div className="rounded-lg border border-rose-500/20 bg-zinc-950/40 p-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300">
+        <span className="font-medium text-zinc-100">
+          {row.user?.name ?? "A captain"}
+          {row.user?.phone ? ` · ${row.user.phone}` : ""}
+        </span>
+        <span className="font-medium text-rose-300">₹{row.amount}</span>
+        <span className="text-zinc-400">{row.side.toLowerCase()}</span>
+        {row.challenge.teamName && <span className="text-zinc-500">{row.challenge.teamName}</span>}
+        <span className="text-zinc-600">
+          {new Date(row.refundOwedAt).toISOString().slice(0, 16).replace("T", " ")}
+        </span>
+        <button
+          disabled={pending}
+          onClick={() => {
+            const note = window.prompt(
+              `Mark ₹${row.amount} as refunded to ${row.user?.name ?? "this captain"}?\n\nRefund it in Razorpay (or in cash) FIRST — this only records that you did.\n\nReference or note (optional):`,
+              "",
+            );
+            // A cancelled prompt returns null. An empty string is a
+            // deliberate "no note", which is fine.
+            if (note === null) return;
+            setErr(null);
+            start(async () => {
+              const res = await markChallengePaymentRefunded(row.id, note).catch(() => ({
+                ok: false as const,
+                error: "Couldn't reach the server.",
+              }));
+              if (!res.ok) setErr(res.error);
+              else router.refresh();
+            });
+          }}
+          className="ml-auto rounded border border-emerald-500/40 px-2 py-0.5 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50"
+        >
+          {pending ? "…" : "mark refunded"}
+        </button>
+      </div>
+      {row.refundOwedReason && (
+        <p className="mt-1 text-xs text-zinc-500">{row.refundOwedReason}</p>
+      )}
+      {err && <p className="mt-1 text-xs text-rose-400">{err}</p>}
+    </div>
+  );
+}
+
 export function ChallengesAdmin({
   initial,
 }: {
   initial: {
     settings: Settings;
     challenges: Row[];
+    halfPaid: {
+      id: string;
+      status: string;
+      teamName: string | null;
+      bookingId: string | null;
+      held: number;
+      owes: { name: string | null; phone: string | null } | null;
+      window: { date: string; startHour: number; endHour: number } | null;
+    }[];
+    refundsOwed: {
+      id: string;
+      side: string;
+      amount: number;
+      refundOwedAt: string;
+      refundOwedReason: string | null;
+      user: { name: string | null; phone: string | null } | null;
+      challenge: { id: string; teamName: string | null; status: string };
+    }[];
     counts: Record<string, number>;
     events: EventRow[];
     eventCounts: Record<string, number>;
@@ -156,6 +249,21 @@ export function ChallengesAdmin({
   const router = useRouter();
   const [tab, setTab] = useState<"board" | "activity" | "promo" | "settings">("board");
   const [s, setS] = useState<Settings>(initial.settings);
+
+  /**
+   * Re-seed the form from the server whenever the page's data changes.
+   *
+   * `router.refresh()` re-renders the server component but cannot reach into
+   * this state, so after a save the screen kept showing what was TYPED
+   * rather than what was STORED. The server normalises — titles truncated to
+   * 200 characters, sports deduped — so a venue typing a 238-character board
+   * title was shown their full sentence while the app served a string cut
+   * mid-word. And because the wheel banner derives from this state, saving a
+   * custom wheel left the screen insisting the built-in one was live.
+   */
+  useEffect(() => {
+    setS(initial.settings);
+  }, [initial.settings]);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -449,31 +557,16 @@ export function ChallengesAdmin({
             </div>
           </Panel>
 
-          <Panel title="Push" desc="Stored now, used when notifications land.">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={label}>Who hears about a new challenge</label>
-                <select
-                  className={field}
-                  value={s.pushAudience}
-                  disabled={pending}
-                  onChange={(e) => {
-                    setS({ ...s, pushAudience: e.target.value });
-                    save({ pushAudience: e.target.value });
-                  }}
-                >
-                  <option value="ALL">Everyone on the app</option>
-                  <option value="SPORT">Everyone who plays that sport</option>
-                  <option value="RECENT">Played in the last 90 days</option>
-                </select>
-                <p className={hint}>
-                  Reach is what a cold board needs. Narrow it once there are enough
-                  challenges that people start muting you.
-                </p>
-              </div>
-              <Num label="Broadcasts per day" value={s.pushDailyCap} onSave={(v) => { setS({ ...s, pushDailyCap: v }); save({ pushDailyCap: v }); }} hint="Past this, challenges still post — they just go up quietly. Messages to the two people in a challenge never count against it." />
-            </div>
-          </Panel>
+          {/* The "Push" panel that stood here is gone.
+              `pushAudience` and `pushDailyCap` were saved, validated, bounded
+              — and read by nothing. There is no new-challenge broadcast in
+              this module at all, so the copy under them ("challenges still
+              post, they just go up quietly") described behaviour the product
+              does not have, which is worse than an absent control: the venue
+              would have set it, believed it, and wondered why the board
+              stayed quiet. Same call, and same reason, as the retired
+              `holdMinsAfterFirstPayment`. The columns stay; when a broadcast
+              exists, so can the panel. */}
 
           <Panel
             title="Home screen card"
@@ -549,49 +642,31 @@ export function ChallengesAdmin({
 
           {/* Money the arena has taken and cannot honour. Every branch of
               the payment code that refuses a CAPTURED payment stamps
-              `refundOwedAt`, so this panel is a query rather than a reading
-              of the activity feed — which is how these used to be found,
-              i.e. when the customer rang up. */}
-          {(() => {
-            const owed = initial.challenges.flatMap((c) =>
-              c.payments
-                .filter((p) => p.refundOwedAt && !p.refundedAt)
-                .map((p) => ({ c, p })),
-            );
-            if (owed.length === 0) return null;
-            const total = owed.reduce((sum, x) => sum + x.p.amount, 0);
-            return (
-              <div className="rounded-xl border border-rose-500/40 bg-rose-500/5 p-4">
-                <p className="text-sm font-medium text-rose-300">
-                  Refunds owed — ₹{total} taken and not honoured
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-400">
-                  These captures arrived after the match could no longer be held. Each payer
-                  has already been told a refund is coming. Refund in Razorpay, then mark it
-                  refunded on the payment.
-                </p>
-                <div className="mt-3 space-y-2">
-                  {owed.map(({ c, p }) => (
-                    <div
-                      key={`${c.id}-${p.side}`}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300"
-                    >
-                      <span className="font-medium text-zinc-100">
-                        {p.user?.name ?? "A captain"}
-                        {p.user?.phone ? ` · ${p.user.phone}` : ""}
-                      </span>
-                      <span className="text-rose-300">₹{p.amount}</span>
-                      <span className="text-zinc-400">{p.side.toLowerCase()}</span>
-                      <span className="text-zinc-500">{p.refundOwedReason}</span>
-                      <span className="text-zinc-600">
-                        {new Date(p.refundOwedAt!).toISOString().slice(0, 16).replace("T", " ")}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+              `refundOwedAt`, so this is a query rather than a reading of the
+              activity feed — which is how these used to be found, i.e. when
+              the customer rang up. Asked for server-side and uncapped: the
+              old version derived it from the 200 most recent challenges, so
+              the oldest unrefunded capture would eventually drop out of the
+              one view that exists to remember it. */}
+          {initial.refundsOwed.length > 0 && (
+            <div className="rounded-xl border border-rose-500/40 bg-rose-500/5 p-4">
+              <p className="text-sm font-medium text-rose-300">
+                Refunds owed — ₹{initial.refundsOwed.reduce((t, r) => t + r.amount, 0)} taken and
+                not honoured
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-400">
+                These captures arrived after the match could no longer be held, and each payer has
+                already been told a refund is coming. Refund in Razorpay (or in cash at the
+                counter), then mark it here — that is what clears it from this list and lets the
+                challenge be taken down.
+              </p>
+              <div className="mt-3 space-y-2">
+                {initial.refundsOwed.map((r) => (
+                  <RefundRow key={r.id} row={r} />
+                ))}
               </div>
-            );
-          })()}
+            </div>
+          )}
 
           {/* The consequence of "block the court on the first payment". One
               captain's money is in, the hour is off the board, and the other
@@ -599,73 +674,65 @@ export function ChallengesAdmin({
               make on each of these: chase it, take the balance at the gate,
               or cancel the booking and refund. Nothing here resolves itself,
               deliberately: auto-cancelling would release a court the venue
-              may already have promised on the phone. */}
-          {(() => {
-            // MONEY, not status. A capture is claimed before the status is
-            // written, so a half-paid match can sit at AGREED — or at
-            // SLOT_LOST, whose own event copy says a refund is owed — and
-            // the panel that exists to catch exactly this filtered it out.
-            const stranded = initial.challenges.filter(
-              (c) =>
-                !["CONFIRMED", "WITHDRAWN", "EXPIRED"].includes(c.status) &&
-                c.payments.some((p) => p.paidAt && !p.refundedAt && !p.refundOwedAt) &&
-                !c.payments.every((p) => p.paidAt && !p.refundedAt),
-            );
-            if (stranded.length === 0) return null;
-            return (
-              <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
-                <p className="text-sm font-medium text-amber-300">
-                  Half paid — the court is blocked and someone still owes
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-400">
-                  One side has paid and the hour is held. Chase the other half, take it at
-                  the gate, or cancel the booking and refund what was paid.
-                </p>
-                <div className="mt-3 space-y-2">
-                  {stranded.map((c) => {
-                    const held = c.payments
-                      .filter((p) => p.paidAt && !p.refundedAt)
-                      .reduce((sum, p) => sum + p.amount, 0);
-                    const owing = c.payments.find((p) => !p.paidAt);
-                    const win = c.windows.find((w) => w.status === "ACCEPTED");
-                    const owes =
-                      owing?.side === "CHALLENGER" ? c.createdBy : c.acceptedBy;
-                    return (
-                      <div
-                        key={c.id}
-                        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300"
+              may already have promised on the phone.
+
+              Computed on the server now, from DISTINCT SIDES PAID rather
+              than from a count of rows. Rows are created lazily, one per
+              side, when that side opens a payment sheet — so the canonical
+              case (one captain paid, the other has not started) has exactly
+              one row, and the old `!every(paid)` test was vacuously false on
+              it. The panel built for that case was the one case it missed. */}
+          {initial.halfPaid.length > 0 && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
+              <p className="text-sm font-medium text-amber-300">
+                Half paid — the court is blocked and someone still owes
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-400">
+                One side has paid and the hour is held. Chase the other half, take it at the gate,
+                or cancel the booking and refund what was paid.
+              </p>
+              <div className="mt-3 space-y-2">
+                {initial.halfPaid.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300"
+                  >
+                    <span className="font-medium text-zinc-100">
+                      {c.teamName || "A team"}
+                    </span>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 ${STATUS_TONE[c.status] ?? "border-zinc-700 text-zinc-400"}`}
+                    >
+                      {c.status.replace("_", " ").toLowerCase()}
+                    </span>
+                    {c.window && (
+                      <span className="text-zinc-400">
+                        {new Date(c.window.date).toISOString().slice(0, 10)} {hr(c.window.startHour)}
+                        –{hr(c.window.endHour)}
+                      </span>
+                    )}
+                    <span className="text-emerald-300">₹{c.held} held</span>
+                    {c.owes ? (
+                      <span className="text-amber-300">
+                        {c.owes.name ?? "the other captain"} owes
+                        {c.owes.phone ? ` · ${c.owes.phone}` : ""}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-500">nobody has taken the other half yet</span>
+                    )}
+                    {c.bookingId && (
+                      <a
+                        href={`/admin/bookings/${c.bookingId}`}
+                        className="rounded border border-sky-500/40 px-2 py-0.5 text-sky-300 hover:bg-sky-500/10"
                       >
-                        <span className="font-medium text-zinc-100">
-                          {c.teamName || c.createdBy?.name || "A team"}
-                        </span>
-                        {win && (
-                          <span className="text-zinc-400">
-                            {new Date(win.date).toISOString().slice(0, 10)} {hr(win.startHour)}–
-                            {hr(win.endHour)}
-                          </span>
-                        )}
-                        <span className="text-emerald-300">₹{held} held</span>
-                        {owes && (
-                          <span className="text-amber-300">
-                            {owes.name ?? "the other captain"} owes
-                            {owes.phone ? ` · ${owes.phone}` : ""}
-                          </span>
-                        )}
-                        {c.bookingId && (
-                          <a
-                            href={`/admin/bookings/${c.bookingId}`}
-                            className="rounded border border-sky-500/40 px-2 py-0.5 text-sky-300 hover:bg-sky-500/10"
-                          >
-                            open booking
-                          </a>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                        open booking
+                      </a>
+                    )}
+                  </div>
+                ))}
               </div>
-            );
-          })()}
+            </div>
+          )}
 
           {initial.challenges.map((c) => (
             <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
@@ -819,10 +886,14 @@ function Num({
   hint?: string;
 }) {
   const [v, setV] = useState(String(value));
+  const [why, setWhy] = useState<string | null>(null);
   // Re-sync when the server value changes — including when a save is
   // REFUSED and the prop comes back unchanged. Without this the field kept
   // displaying a number the database never accepted.
-  useEffect(() => setV(String(value)), [value]);
+  useEffect(() => {
+    setV(String(value));
+    setWhy(null);
+  }, [value]);
   return (
     <div>
       <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">{label}</label>
@@ -836,11 +907,20 @@ function Num({
           // that reached the database was not the one on screen and the
           // server's bounds check judged an already-mangled number.
           const n = Number(v.trim());
-          if (Number.isInteger(n) && n !== value) onSave(n);
-          else setV(String(value));
+          if (Number.isInteger(n)) {
+            setWhy(null);
+            if (n !== value) onSave(n);
+          } else {
+            // SAY SO. Reverting in silence looked like the edit had been
+            // taken and then lost, which is the one thing a settings screen
+            // must never do.
+            setWhy("Whole numbers only — that edit wasn't saved.");
+            setV(String(value));
+          }
         }}
         className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
       />
+      {why && <p className="mt-1 text-xs text-amber-400">{why}</p>}
       {hint && <p className="mt-1 text-xs leading-relaxed text-zinc-600">{hint}</p>}
     </div>
   );
@@ -1334,13 +1414,33 @@ function PushEditor({
   single?: boolean;
 }) {
   const [list, setList] = useState<Push[]>(value);
+  // Re-sync when the SERVER's copy changes — after a successful save, and
+  // after a refusal, which leaves it untouched. Without this the editor kept
+  // showing copy the server had rejected: the page-level rollback restores
+  // the settings object but cannot reach into this child, so a nudge refused
+  // for being set to 12.5 minutes still read 12.5 afterwards.
+  useEffect(() => setList(value), [JSON.stringify(value)]);
+
   // Built from PUSH_VARIABLES so the preview can never advertise a
   // placeholder it cannot substitute.
   const sample: Record<string, string> = Object.fromEntries(
     PUSH_VARIABLES.map((v) => [v.name, v.example]),
   );
-  const render = (t: string) =>
-    t.replace(/\{(\w+)\}/g, (whole, k: string) => sample[k] ?? whole);
+  /**
+   * Preview one template, using ITS OWN marker for {minsLeft}.
+   *
+   * The fixed example of 5 made every nudge in a ladder preview identically:
+   * a 30-minute nudge and a 10-minute last call both read "5 minutes", so a
+   * venue proofreading the ladder could not tell them apart — and the number
+   * they proofread was never the number that sends, because the sender
+   * computes the real minutes remaining.
+   */
+  const render = (t: string, p?: Push) =>
+    t.replace(/\{(\w+)\}/g, (whole, k: string) =>
+      k === "minsLeft" && typeof p?.minsLeft === "number"
+        ? String(p.minsLeft)
+        : (sample[k] ?? whole),
+    );
 
   const tooLate = (p: Push) =>
     !single && windowMins !== undefined && (p.minsLeft ?? 0) >= windowMins;
@@ -1403,8 +1503,8 @@ function PushEditor({
             />
             <div className="rounded border border-zinc-800 bg-black/40 px-2 py-1.5">
               <p className="text-[10px] uppercase tracking-wide text-zinc-600">As it sends</p>
-              <p className="text-xs font-medium text-zinc-200">{render(p.title)}</p>
-              <p className="text-xs text-zinc-400">{render(p.body)}</p>
+              <p className="text-xs font-medium text-zinc-200">{render(p.title, p)}</p>
+              <p className="text-xs text-zinc-400">{render(p.body, p)}</p>
             </div>
           </div>
         ))}

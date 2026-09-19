@@ -14,6 +14,7 @@ import {
   counterChallenge,
   withdrawChallenge,
   hourLabel,
+  statusLabel,
   dayLabel,
   trackChallenge,
   challengeErrorMessage,
@@ -337,7 +338,7 @@ export function ChallengeDetailScreen() {
           </Text>
           <Text variant="small" color={colors.zinc500}>
             {c.sport[0] + c.sport.slice(1).toLowerCase()} · {c.playerCount} players ·{" "}
-            {c.status.replace("_", " ").toLowerCase()}
+            {statusLabel(c.status)}
           </Text>
           {c.notes ? (
             <Text variant="small" color={colors.zinc400} style={{ marginTop: 4 }}>
@@ -631,6 +632,19 @@ export function ChallengeDetailScreen() {
                           );
                         }
                         return (
+                          <View style={{ alignItems: "flex-end", gap: 4 }}>
+                            {/* What the game actually costs, BEFORE the
+                                money is taken. The share alone reads as the
+                                price of the match, and the balance due at
+                                the gate was only ever shown afterwards. */}
+                            {wq.share !== null && wq.total > 0 && (
+                              <Text variant="tiny" color={colors.zinc500} style={{ textAlign: "right" }}>
+                                ₹{wq.total} for the court · your half now
+                                {wq.venueBalance > 0
+                                  ? `, ₹${wq.venueBalance} at the venue on the day`
+                                  : ""}
+                              </Text>
+                            )}
                           <Button
                             label={wq?.share ? `Take it — pay ₹${wq.share}` : "Take this match"}
                             variant="primary"
@@ -642,6 +656,7 @@ export function ChallengeDetailScreen() {
                               void pay(w.id);
                             }}
                           />
+                          </View>
                         );
                       })()
                     ))}
@@ -708,7 +723,17 @@ export function ChallengeDetailScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={{ flexDirection: "row", gap: 6 }}>
                     {hours.map((h) => (
-                      <Pressable key={h} onPress={() => setHour(h)} style={chip(hour === h)}>
+                      <Pressable
+                        key={h}
+                        onPress={() => {
+                          setHour(h);
+                          // Late hours have fewer durations available; a
+                          // 3h selection carried over from 7pm to midnight
+                          // would send a window the arena cannot sell.
+                          if (h + len > closeHour) setLen(Math.max(1, closeHour - h));
+                        }}
+                        style={chip(hour === h)}
+                      >
                         <Text variant="tiny" color={hour === h ? colors.emerald400 : colors.zinc400}>
                           {hourLabel(h)}
                         </Text>
@@ -720,13 +745,20 @@ export function ChallengeDetailScreen() {
                   <Text variant="tiny" color={colors.zinc500}>
                     for
                   </Text>
-                  {[1, 2, 3].map((n) => (
-                    <Pressable key={n} onPress={() => setLen(n)} style={chip(len === n)}>
-                      <Text variant="tiny" color={len === n ? colors.emerald400 : colors.zinc400}>
-                        {n}h
-                      </Text>
-                    </Pressable>
-                  ))}
+                  {/* Only the durations that FIT before closing. Offering
+                      1am + 3h produced a window past the arena's last hour,
+                      which the server then refused by naming a field — the
+                      picker has the closing time, so it should never put the
+                      captain in front of that. */}
+                  {[1, 2, 3]
+                    .filter((n) => hour + n <= closeHour)
+                    .map((n) => (
+                      <Pressable key={n} onPress={() => setLen(n)} style={chip(len === n)}>
+                        <Text variant="tiny" color={len === n ? colors.emerald400 : colors.zinc400}>
+                          {n}h
+                        </Text>
+                      </Pressable>
+                    ))}
                 </View>
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <Button
@@ -789,7 +821,16 @@ export function ChallengeDetailScreen() {
         landOn={spun?.pct ?? null}
         spinning={spinning}
         onSpin={spin}
-        onClose={() => setWheelOpen(false)}
+        onClose={() => {
+          setWheelOpen(false);
+          // The prize lives on the SERVER's payload. Closing the wheel
+          // without re-reading it dropped the screen back to "Spin the
+          // wheel" while a 30-minute clock was already running on the
+          // discount they had just won — and tapping Spin again answers
+          // "you've already spun for this match", which reads as the prize
+          // having been lost.
+          void refresh();
+        }}
         subtitle={
           spun
             ? spun.kind === "ADJACENT" && spun.hour

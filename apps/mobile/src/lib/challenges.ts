@@ -137,7 +137,15 @@ export async function fetchChallenge(id: string): Promise<{
   /** The venue's real segments, so the wheel drawn is the wheel that spun. */
   wheel: { pct: number; weight: number }[];
   /** Per-window price and refusal for a prospective taker. */
-  windowQuotes: { windowId: string; share: number | null; refusal: string | null }[];
+  windowQuotes: {
+    windowId: string;
+    share: number | null;
+    /** The whole court for that window, so the price is visible before paying. */
+    total: number;
+    /** What is still due at the gate on the day. */
+    venueBalance: number;
+    refusal: string | null;
+  }[];
   hours: { start: number; end: number };
   /** What the spin came to, spent or not. Null means never spun. */
   spin: { pct: number; spentOn: string | null; hour: string | null; date: string | null } | null;
@@ -262,16 +270,58 @@ export async function withdrawChallenge(
 }
 
 /** "6pm", "12am" — the arena runs 5am to 1am, so hours can reach 25. */
+/**
+ * What a challenge's state is, in words a captain uses.
+ *
+ * The raw enum was being shown: "· open", "· countered", "· part paid". The
+ * last one is the worst of them — it is the state where somebody's money is
+ * in and somebody else's is not, which is exactly when the screen needs to
+ * be clear rather than to leak a column name.
+ */
+export function statusLabel(status: string): string {
+  switch (status) {
+    case "OPEN":
+      return "looking for a match";
+    case "COUNTERED":
+      return "another time suggested";
+    case "AGREED":
+      return "time agreed";
+    case "PART_PAID":
+      return "one half paid";
+    case "CONFIRMED":
+      return "confirmed";
+    case "SLOT_LOST":
+      return "the hour went";
+    case "WITHDRAWN":
+      return "withdrawn";
+    case "EXPIRED":
+      return "expired";
+    default:
+      return status.replace(/_/g, " ").toLowerCase();
+  }
+}
+
 export function hourLabel(h: number): string {
   const x = h % 24;
   return x === 0 ? "12am" : x < 12 ? `${x}am` : x === 12 ? "12pm" : `${x - 12}pm`;
 }
 
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * "Sun, 20 Sep" — spelled out rather than left to `toLocaleDateString`.
+ *
+ * ICU abbreviates September as "Sept" in some builds and "Sep" in others, and
+ * the server and Hermes disagreed: one screen showed "24 Sept" on the prize
+ * card and "24 Sep" in the window list directly below it. This must match
+ * `istDayLabel` in lib/challenge-spin.ts exactly — the same day is written by
+ * both, sometimes in the same sentence.
+ */
 export function dayLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-IN", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    timeZone: "Asia/Kolkata",
-  });
+  // Windows are stored as a UTC-midnight instant standing for an IST day, so
+  // the UTC parts ARE the venue's day. Reading them in Asia/Kolkata would be
+  // the same answer for midnight and a day out for anything else.
+  const d = new Date(iso);
+  return `${DAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }

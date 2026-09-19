@@ -30,7 +30,8 @@ async function gate() {
 export async function getChallengeAdmin() {
   await gate();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const [settings, challenges, counts, events, eventCounts, refusals] = await Promise.all([
+  const [settings, challenges, counts, events, eventCounts, refusals, moneyIn, refundsOwed] =
+    await Promise.all([
     challengeSettings(),
     db.challenge.findMany({
       select: {
@@ -103,13 +104,86 @@ export async function getChallengeAdmin() {
       orderBy: { _count: { detail: "desc" } },
       take: 12,
     }),
+    // ── The two money worklists, asked for directly ──
+    //
+    // These were computed in the browser from the 200 most recent challenges.
+    // Both are lists of things the venue OWES — half-paid courts to chase,
+    // captures to refund — so the one guarantee they need is that nothing
+    // falls off the end. The 201st-oldest unrefunded capture dropping out of
+    // view, with no "showing 200 of N" anywhere, is the worst possible
+    // failure for a panel whose whole job is "do not forget this".
+    db.challenge.findMany({
+      where: {
+        payments: { some: { paidAt: { not: null }, refundedAt: null, refundOwedAt: null } },
+      },
+      select: {
+        id: true,
+        status: true,
+        teamName: true,
+        bookingId: true,
+        createdBy: { select: { name: true, phone: true } },
+        acceptedBy: { select: { name: true, phone: true } },
+        windows: {
+          where: { status: "ACCEPTED" },
+          select: { date: true, startHour: true, endHour: true },
+          take: 1,
+        },
+        payments: {
+          where: { refundedAt: null, refundOwedAt: null },
+          select: { side: true, amount: true, paidAt: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.challengePayment.findMany({
+      where: { refundOwedAt: { not: null }, refundedAt: null },
+      select: {
+        id: true,
+        side: true,
+        amount: true,
+        refundOwedAt: true,
+        refundOwedReason: true,
+        user: { select: { name: true, phone: true } },
+        challenge: { select: { id: true, teamName: true, status: true } },
+      },
+      orderBy: { refundOwedAt: "asc" },
+    }),
   ]);
+
+  // A challenge is half-paid when money is in and FEWER THAN TWO SIDES have
+  // paid. Counting ROWS was the bug: they are created lazily, one per side,
+  // the first time that side opens a payment sheet — so the canonical case
+  // (one captain paid, the other has not started) has exactly one row,
+  // `every()` over it is vacuously true, and the panel built for that case
+  // excluded it. It only ever fired when the second captain had opened a
+  // sheet and abandoned it.
+  const halfPaid = moneyIn
+    .map((c) => {
+      const paid = c.payments.filter((p) => p.paidAt);
+      const sides = new Set(paid.map((p) => p.side));
+      const owingSide = sides.has("CHALLENGER") ? "ACCEPTOR" : "CHALLENGER";
+      return {
+        id: c.id,
+        status: c.status,
+        teamName: c.teamName,
+        bookingId: c.bookingId,
+        held: paid.reduce((sum, p) => sum + p.amount, 0),
+        sidesPaid: sides.size,
+        // Whoever has NOT paid is who the venue rings. Derived from the side
+        // that is missing, not from an unpaid row — there may not be one.
+        owes: owingSide === "CHALLENGER" ? c.createdBy : c.acceptedBy,
+        window: c.windows[0] ?? null,
+      };
+    })
+    .filter((c) => c.sidesPaid === 1);
 
   // Funnel: what proportion of the people who saw the card ever posted.
   const n = (t: string) => eventCounts.find((e) => e.type === t)?._count ?? 0;
   return {
     settings,
     challenges,
+    halfPaid,
+    refundsOwed,
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count])),
     events,
     eventCounts: Object.fromEntries(eventCounts.map((e) => [e.type, e._count])),
@@ -388,14 +462,27 @@ export async function saveChallengeSettings(
     const next = { ...(stored ?? {}), ...data } as Record<string, unknown>;
     const n = (k: string, d: number) => (typeof next[k] === "number" ? (next[k] as number) : d);
 
-    if (n("minPlayers", 1) > n("maxPlayers", 30)) {
-      return { ok: false, error: "Minimum players can't exceed the maximum." };
+    // GATE ONLY WHAT THIS SAVE TOUCHES — these two pairs as well.
+    //
+    // They were exempted from that rule when it was applied to the wheel and
+    // nudge guards below, and they bricked the screen in exactly the way it
+    // was written to prevent: with an inconsistent band stored, EVERY save
+    // was refused — `enabled: false` and `spinEnabled: false` included. The
+    // venue could not switch off a 90%-paying wheel because the band that
+    // described it was inconsistent, and the error named a field they had
+    // not touched.
+    if (input.minPlayers !== undefined || input.maxPlayers !== undefined) {
+      if (n("minPlayers", 1) > n("maxPlayers", 30)) {
+        return { ok: false, error: "Minimum players can't exceed the maximum." };
+      }
     }
-    if (n("spinAvgMinPct", 15) > n("spinAvgMaxPct", 25)) {
-      return {
-        ok: false,
-        error: "The average floor can't be above the ceiling — no wheel could satisfy both.",
-      };
+    if (input.spinAvgMinPct !== undefined || input.spinAvgMaxPct !== undefined) {
+      if (n("spinAvgMinPct", 15) > n("spinAvgMaxPct", 25)) {
+        return {
+          ok: false,
+          error: "The average floor can't be above the ceiling — no wheel could satisfy both.",
+        };
+      }
     }
 
 
@@ -542,6 +629,74 @@ export async function saveChallengeSettings(
  * needs volume — but it means the venue has to be able to remove one. The
  * reason is stored, and shown to whoever posted it.
  */
+/**
+ * Mark a captured challenge payment as refunded.
+ *
+ * The refunds panel told the venue to "refund in Razorpay, then mark it
+ * refunded on the payment" — and nothing anywhere could do the second half.
+ * So the panel only grew, its total never fell, and a challenge whose money
+ * was flagged could never be taken down, because the take-down guard counted
+ * flagged money as held.
+ *
+ * This records the arena's own act. It does not call Razorpay: refunds here
+ * are made by hand in Razorpay's dashboard (and sometimes in cash at the
+ * counter), so a button that claimed to move money would be lying about
+ * which system is the record.
+ */
+export async function markChallengePaymentRefunded(
+  paymentId: string,
+  note: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const admin = await gate();
+  const row = await db.challengePayment.findUnique({
+    where: { id: paymentId },
+    select: {
+      id: true,
+      amount: true,
+      side: true,
+      userId: true,
+      challengeId: true,
+      paidAt: true,
+      refundedAt: true,
+    },
+  });
+  if (!row) return { ok: false, error: "That payment is gone." };
+  if (!row.paidAt) return { ok: false, error: "Nothing was ever captured on that one." };
+  if (row.refundedAt) return { ok: false, error: "That one is already marked refunded." };
+
+  // Conditional, because this is a public POST endpoint and two clicks a
+  // second apart must not write two audit lines for one refund.
+  const done = await db.challengePayment.updateMany({
+    where: { id: paymentId, refundedAt: null },
+    data: {
+      refundedAt: new Date(),
+      refundedBy: admin.id,
+      refundNote: note.trim().slice(0, 200) || null,
+    },
+  });
+  if (done.count === 0) return { ok: false, error: "That one is already marked refunded." };
+
+  const { logChallengeEvent } = await import("@/lib/challenges");
+  await logChallengeEvent({
+    type: "REFUNDED",
+    userId: row.userId,
+    challengeId: row.challengeId,
+    detail: `refunded ₹${row.amount} to the ${row.side.toLowerCase()}${
+      note.trim() ? ` · ${note.trim().slice(0, 120)}` : ""
+    }`,
+  });
+  const { notifyUser } = await import("@/lib/user-notifications");
+  await notifyUser(row.userId, {
+    type: "CHALLENGE_REFUND_OWED",
+    title: "Your refund is on its way",
+    body: `The arena has refunded ₹${row.amount}. It can take a few working days to appear.`,
+    link: `/challenges/${row.challengeId}`,
+  }).catch(() => undefined);
+
+  revalidatePath("/admin/challenges");
+  return { ok: true };
+}
+
 export async function adminWithdrawChallenge(
   id: string,
   reason: string,
@@ -552,7 +707,17 @@ export async function adminWithdrawChallenge(
     where: { id },
     select: {
       status: true,
-      payments: { where: { paidAt: { not: null }, refundedAt: null }, select: { amount: true } },
+      bookingId: true,
+      // Money that is FLAGGED for refund is already resolved as far as this
+      // action is concerned — the refunds panel owns it. Counting it as held
+      // made a SLOT_LOST challenge permanently un-takedownable: the refusal
+      // told the venue to cancel a booking that does not exist and refund
+      // money already flagged, and the button that would have followed that
+      // instruction was hidden by the same rule.
+      payments: {
+        where: { paidAt: { not: null }, refundedAt: null, refundOwedAt: null },
+        select: { amount: true },
+      },
     },
   });
   if (!c) return { ok: false, error: "That challenge is gone." };
@@ -578,15 +743,23 @@ export async function adminWithdrawChallenge(
   // holding a real paid half — invisible to the "half paid" panel, which
   // also filters on PART_PAID, and still offering this button. SLOT_LOST is
   // the same shape, and its own event copy says a refund is owed.
+  // Booked first: on a confirmed match the booking IS the thing to act on,
+  // and being told about the money instead sends the venue to the wrong
+  // screen.
+  if (c.status === "CONFIRMED") {
+    return { ok: false, error: "That match is booked — cancel the booking instead." };
+  }
   const held = c.payments.reduce((sum, p) => sum + p.amount, 0);
   if (held > 0) {
     return {
       ok: false,
-      error: `₹${held} has been paid on this one and the court may be held. Cancel the booking and refund first — that releases the hour.`,
+      // Two different situations, two different instructions. Telling
+      // somebody to cancel a booking that was never created is an
+      // instruction they cannot follow, and there is no other route out.
+      error: c.bookingId
+        ? `₹${held} has been paid on this one and the court is held. Cancel the booking and refund first — that releases the hour.`
+        : `₹${held} has been paid on this one and no court was ever held. Refund it from the refunds panel first, then take this down.`,
     };
-  }
-  if (c.status === "CONFIRMED") {
-    return { ok: false, error: "That match is booked — cancel the booking instead." };
   }
   await db.challenge.update({
     where: { id },

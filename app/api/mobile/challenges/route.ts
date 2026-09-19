@@ -41,10 +41,22 @@ import {
  * of small actions on one object rather than a REST resource.
  */
 
+/**
+ * A proposed time, as the app sends it.
+ *
+ * The hour bounds are a SANITY range, not the arena's trading hours —
+ * `windowRefusal` reads `ArenaSettings` and is the authority on what is
+ * sellable. A hard 25 here meant the board refused the arena's own last
+ * sellable hour (staging closes at 26, i.e. 1am–2am) *before* the rules ran,
+ * so the customer got a zod field name — "That window's endHour isn't
+ * something the arena accepts" — while the prize picker, which reads the
+ * real setting, happily offered the same hour. Two copies of "what hours
+ * exist" have now disagreed twice; there is one, and this is not it.
+ */
 const windowSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  startHour: z.number().int().min(0).max(25),
-  endHour: z.number().int().min(1).max(25),
+  startHour: z.number().int().min(0).max(47),
+  endHour: z.number().int().min(1).max(48),
   courtConfigId: z.string().nullish(),
 });
 
@@ -92,10 +104,32 @@ export async function GET(request: NextRequest) {
           await Promise.all(
             offered.map(async (w) => {
               const q = await challengeQuote(id, user.id, w.id).catch(() => null);
-              return q ? { windowId: w.id, share: q.yourShare, refusal: q.refusal } : null;
+              // The COURT price and the gate balance travel with the share.
+              // Showing a stranger only "pay ₹500" let them believe ₹500 was
+              // the cost of the game; the ₹1000 still due at the gate
+              // appeared for the first time after their money was taken.
+              return q
+                ? {
+                    windowId: w.id,
+                    share: q.yourShare,
+                    total: q.total,
+                    venueBalance: q.venueBalance,
+                    refusal: q.refusal,
+                  }
+                : null;
             }),
           )
-        ).filter((x): x is { windowId: string; share: number | null; refusal: string | null } => !!x);
+        ).filter(
+          (
+            x,
+          ): x is {
+            windowId: string;
+            share: number | null;
+            total: number;
+            venueBalance: number;
+            refusal: string | null;
+          } => !!x,
+        );
     const quote = await challengeQuote(
       id,
       user.id,

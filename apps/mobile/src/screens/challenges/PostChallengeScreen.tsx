@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getCurrentHourIST, getTodayIST, getUpcomingDatesIST } from "../../lib/ist-date";
 import {
   View,
   ScrollView,
@@ -19,6 +20,7 @@ import {
   fetchChallengeBoard,
   postChallenge,
   hourLabel,
+  dayLabel,
   type ProposedWindow,
   challengeErrorMessage,
 } from "../../lib/challenges";
@@ -64,23 +66,37 @@ export function PostChallengeScreen() {
       : null;
 
   // The next seven days, which is as far ahead as anyone plans a pickup game.
-  // Start far enough out that the venue's notice period is already met.
-  // Offering tomorrow regardless meant any minLeadMins above about a day
-  // produced days whose every hour the server refused on submit.
-  const leadDays = Math.ceil((board.data?.limits?.minLeadMins ?? 240) / (60 * 24));
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i + Math.max(1, leadDays));
-    return d.toISOString().slice(0, 10);
-  });
-  // The arena's real hours, not a hard-coded 5–25. When the venue moved its
-  // closing time the chips kept offering the old range and the board refused
-  // what the arena was actually selling.
+  //
+  // Starting at tomorrow-at-the-earliest made TONIGHT unreachable — the
+  // single most valuable case for a pickup-game board. At 1pm with four
+  // hours' notice required, a 7pm game is legal and the server accepts it;
+  // only the app refused to offer it. The rule is a number of MINUTES, so
+  // the strip starts today whenever today still has a legal hour in it and
+  // steps forward only for notice periods long enough to swallow a whole day.
+  //
+  // Built from the IST helpers, not `toISOString()` on a local Date: between
+  // midnight and 05:30 IST that produced yesterday's date, while the arena is
+  // open until 1am.
+  const minLeadMins = board.data?.limits?.minLeadMins ?? 240;
   const openHour = board.data?.limits?.openHour ?? 5;
   const closeHour = board.data?.limits?.closeHour ?? 25;
-  const hours = Array.from({ length: Math.max(1, closeHour - openHour) }, (_, i) => i + openHour);
+  const earliestHourToday = getCurrentHourIST() + Math.ceil(minLeadMins / 60);
+  const todayIsStillPlayable = earliestHourToday < closeHour;
+  const days = getUpcomingDatesIST(8).slice(todayIsStillPlayable ? 0 : 1, 8);
+  // The arena's real hours, not a hard-coded 5–25. When the venue moved its
+  // closing time the chips kept offering the old range and the board refused
+  // what the arena was actually selling. On TODAY the notice period also
+  // rules out the next few hours, so they are not offered either.
+  const allHours = Array.from(
+    { length: Math.max(1, closeHour - openHour) },
+    (_, i) => i + openHour,
+  );
 
   const [pickDay, setPickDay] = useState<string>(days[0]);
+  // On today, the notice period has already eaten the next few hours.
+  const hours = allHours.filter(
+    (h) => pickDay !== getTodayIST() || h >= earliestHourToday,
+  );
   const [pickHour, setPickHour] = useState<number>(18);
   const [pickLen, setPickLen] = useState<number>(2);
 
@@ -185,7 +201,7 @@ export function PostChallengeScreen() {
           </Text>
           <TextInput
             style={input as never}
-            placeholder="Team name (optional)"
+            placeholder="Team name — or we'll use yours"
             placeholderTextColor={colors.zinc600}
             value={teamName}
             onChangeText={setTeamName}
@@ -225,11 +241,7 @@ export function PostChallengeScreen() {
               }}
             >
               <Text variant="small" color={colors.emerald400}>
-                {new Date(w.date).toLocaleDateString("en-IN", {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                })}{" "}
+                {dayLabel(`${w.date}T00:00:00.000Z`)}{" "}
                 · {hourLabel(w.startHour)}–{hourLabel(w.endHour)}
               </Text>
               <Pressable onPress={() => setWindows(windows.filter((_, x) => x !== i))} hitSlop={8}>
@@ -251,15 +263,26 @@ export function PostChallengeScreen() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={{ flexDirection: "row", gap: 6 }}>
                   {days.map((d) => (
-                    <Pressable key={d} onPress={() => setPickDay(d)} style={chip(pickDay === d)}>
+                    <Pressable
+                      key={d}
+                      onPress={() => {
+                        setPickDay(d);
+                        // Today offers fewer hours than the rest of the
+                        // strip, so a selection carried over from another
+                        // day can be one the arena cannot take.
+                        if (d === getTodayIST() && pickHour < earliestHourToday) {
+                          setPickHour(earliestHourToday);
+                        }
+                      }}
+                      style={chip(pickDay === d)}
+                    >
                       <Text
                         variant="tiny"
                         color={pickDay === d ? colors.emerald400 : colors.zinc400}
                       >
-                        {new Date(d).toLocaleDateString("en-IN", {
-                          weekday: "short",
-                          day: "numeric",
-                        })}
+                        {d === getTodayIST()
+                          ? "Today"
+                          : dayLabel(`${d}T00:00:00.000Z`)}
                       </Text>
                     </Pressable>
                   ))}
