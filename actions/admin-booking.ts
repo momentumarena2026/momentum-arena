@@ -54,6 +54,7 @@ import {
   type RazorpayPaymentRecord,
 } from "@/lib/razorpay";
 import { createBookingFromHold as _createBookingFromHold } from "@/actions/booking";
+import { lockCourtHours } from "@/lib/slot-hold";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_BOOKINGS");
@@ -2590,6 +2591,39 @@ export async function adminCreateBooking(data: {
 
     // Create in transaction
     const bookingId = await db.$transaction(async (tx) => {
+      // LOCK THE GROUND, THEN ASK AGAIN.
+      //
+      // The zone-overlap conflict check above is a plain unlocked read, and it
+      // runs three hundred lines before this transaction opens. So an admin
+      // taking a booking at the counter and a customer taking one on their
+      // phone could both pass their checks and both be written — the one path
+      // in this venue that creates a booking with no advisory lock anywhere in
+      // it. Every other path takes these keys; this one is why it has to be
+      // asked twice, because the answer can change between the check and the
+      // write.
+      const lockHours = usingBowling
+        ? [...new Set(data.bowlingSlots!.map((s) => s.hour))]
+        : data.hours;
+      await lockCourtHours(
+        tx,
+        [{ configId: data.courtConfigId, zones: config.zones as string[] }],
+        data.date,
+        lockHours,
+      );
+      const taken = await tx.booking.findMany({
+        where: {
+          date: dateOnly,
+          status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+          courtConfig: { zones: { hasSome: config.zones } },
+        },
+        include: { slots: true },
+      });
+      const busy = new Set(taken.flatMap((b) => b.slots.map((sl) => sl.startHour)));
+      const clash = lockHours.filter((h) => busy.has(h));
+      if (clash.length > 0) {
+        throw new Error(`Slots already booked: ${clash.join(", ")}`);
+      }
+
       // Create booking. When the admin negotiated a different total, we
       // stash the slot-sum on originalAmount so the audit view can surface
       // the delta.
