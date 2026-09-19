@@ -50,3 +50,6 @@ next-env.d.ts
 
 # Expo OTA code-signing private key — never commit
 apps/mobile/keys/
+
+# Agent QA scratch space. Swept into a commit once by a `git add -A`.
+.qa-scratch/
