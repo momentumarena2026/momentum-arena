@@ -1,5 +1,7 @@
 "use server";
 
+import { unwindChallengesForCancelledBooking } from "@/lib/challenge-payments";
+
 import { after } from "next/server";
 import { notifyBookingActivity } from "@/lib/booking-activity";
 
@@ -697,6 +699,18 @@ export async function cancelBooking(bookingId: string, reason: string) {
 
   // Pass-paid booking → hours go back on the pass (no-op otherwise).
   await restorePassForBooking(bookingId).catch(() => {});
+
+  // A CHALLENGE court is two customers' money, and cancelling the booking is
+  // the venue deciding to unwind the match. Without this the challenge was left
+  // CONFIRMED, still pointing at the cancelled booking, with both halves
+  // unflagged — so it appeared on no worklist, and BOTH admin actions refused
+  // by naming the one thing the venue had just done: "mark refunded" said the
+  // money was on a live booking and to cancel it, and take-down said the match
+  // was booked and to cancel the booking instead. ₹1000 captured, the hour
+  // resold, and nothing in the product able to record the refund.
+  await unwindChallengesForCancelledBooking(bookingId, reason).catch((err: unknown) =>
+    console.error("[challenges] could not unwind for cancelled booking", bookingId, err),
+  );
 
   await revalidateBookingPaths(bookingId);
 

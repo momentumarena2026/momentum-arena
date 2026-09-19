@@ -1341,6 +1341,59 @@ async function placeMoney(ctx: {
 }
 
 /**
+ * The venue cancelled the booking a challenge had bought. Unwind the match.
+ *
+ * `cancelBooking` had no idea challenges existed, so it left the challenge
+ * CONFIRMED and still pointing at a cancelled booking, with both captures
+ * unflagged. The challenge then appeared on no worklist, and BOTH admin
+ * actions refused by naming the very thing the venue had just done — "it's on
+ * a live booking, cancel the booking" and "that match is booked, cancel the
+ * booking instead". Two customers' money, a resold hour, and nothing in the
+ * product able to record a refund.
+ *
+ * Cancelling the court IS the decision to unwind, so this does the unwinding:
+ * detach the booking, close the challenge, flag every capture, tell each payer
+ * and tell the arena. Idempotent — `flagChallengeRefunds` claims each row with
+ * a conditional stamp, and a challenge already closed is skipped.
+ */
+export async function unwindChallengesForCancelledBooking(
+  bookingId: string,
+  reason: string,
+): Promise<number> {
+  const affected = await db.challenge.findMany({
+    where: { bookingId, status: { notIn: ["WITHDRAWN", "EXPIRED"] } },
+    select: { id: true },
+  });
+  let unwound = 0;
+  for (const c of affected) {
+    // Detach first: while `bookingId` still points at the cancelled row, the
+    // take-down guard reads the match as booked and every refund refusal
+    // above fires again.
+    const claimed = await db.challenge.updateMany({
+      where: { id: c.id, bookingId },
+      data: {
+        bookingId: null,
+        status: "WITHDRAWN",
+        withdrawnAt: new Date(),
+        withdrawReason: `the arena cancelled the booking: ${reason}`.slice(0, 200),
+      },
+    });
+    if (claimed.count === 0) continue;
+    unwound += 1;
+    await logChallengeEvent({
+      type: "ADMIN_TOOK_DOWN",
+      challengeId: c.id,
+      detail: `booking cancelled by the arena: ${reason}`.slice(0, 200),
+    });
+    await flagChallengeRefunds(
+      c.id,
+      `the arena cancelled the court: ${reason}`.slice(0, 200),
+    );
+  }
+  return unwound;
+}
+
+/**
  * Flag every captured half on a challenge as money the arena owes back.
  *
  * The venue-initiated counterpart to `discardForLostHour`: when an admin takes

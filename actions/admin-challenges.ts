@@ -67,6 +67,7 @@ export async function getChallengeAdmin() {
         expiresAt: true,
         createdAt: true,
         withdrawReason: true,
+        booking: { select: { status: true } },
         createdBy: { select: { name: true, phone: true } },
         acceptedBy: { select: { name: true, phone: true } },
         windows: {
@@ -298,7 +299,12 @@ export async function getChallengeAdmin() {
   const n = (t: string) => eventCounts.find((e) => e.type === t)?._count ?? 0;
   return {
     settings,
-    challenges,
+    // `bookingStatus` flattened onto the row, because the board needs to tell a
+    // live court from a cancelled one to decide whether Take down applies — and
+    // the page hands this object through `JSON.parse(JSON.stringify(...))`, so
+    // a field the client declares but the server never sets is `undefined` at
+    // runtime and typechecks perfectly.
+    challenges: challenges.map((c) => ({ ...c, bookingStatus: c.booking?.status ?? null })),
     halfPaid,
     refundsOwed,
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count])),
@@ -890,10 +896,19 @@ export async function markChallengePaymentRefunded(
   // disagree about that court, and the customer is pushed "your refund is on
   // its way" for money nobody is returning.
   if (!row.refundOwedAt) {
+    // Say which situation it is. "Cancel the booking" is useless advice to
+    // somebody who has just cancelled it — and that is exactly when they come
+    // looking for this control.
+    const c = await db.challenge.findUnique({
+      where: { id: row.challengeId },
+      select: { bookingId: true, booking: { select: { status: true } } },
+    });
+    const live = c?.bookingId && c.booking?.status !== "CANCELLED";
     return {
       ok: false,
-      error:
-        "That payment isn't owed back — it's on a live booking. Cancel the booking if you need to refund it.",
+      error: live
+        ? "That payment isn't owed back — it's on a live booking. Cancel the booking if you need to refund it."
+        : "That payment isn't flagged as owed. Take the challenge down from the challenges board — that is what flags it and tells everyone.",
     };
   }
 
@@ -941,6 +956,7 @@ export async function adminWithdrawChallenge(
     select: {
       status: true,
       bookingId: true,
+      booking: { select: { status: true } },
       // Money that is FLAGGED for refund is already resolved as far as this
       // action is concerned — the refunds panel owns it. Counting it as held
       // made a SLOT_LOST challenge permanently un-takedownable: the refusal
@@ -979,7 +995,10 @@ export async function adminWithdrawChallenge(
   // Booked first: on a confirmed match the booking IS the thing to act on,
   // and being told about the money instead sends the venue to the wrong
   // screen.
-  if (c.status === "CONFIRMED") {
+  // A CANCELLED booking is not a booking. Refusing on status alone told the
+  // venue to cancel a court they had already cancelled, and left the money with
+  // no route out at all.
+  if (c.status === "CONFIRMED" && c.bookingId && c.booking?.status !== "CANCELLED") {
     return { ok: false, error: "That match is booked — cancel the booking instead." };
   }
   const held = c.payments.reduce((sum, p) => sum + p.amount, 0);

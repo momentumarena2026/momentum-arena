@@ -122,6 +122,8 @@ type Row = {
     status: string;
   }[];
   bookingId: string | null;
+  /** So the board can tell a live court from one that has been cancelled. */
+  bookingStatus: string | null;
   payments: {
     side: string;
     amount: number;
@@ -900,8 +902,11 @@ export function ChallengesAdmin({
 
                     A challenge that HAS a booking still goes through the
                     booking — the server says so in its own words. */}
-                {!["CONFIRMED", "WITHDRAWN", "EXPIRED"].includes(c.status) &&
-                  !c.bookingId && (
+                {!["WITHDRAWN", "EXPIRED"].includes(c.status) &&
+                  // A CANCELLED booking is not a booking. Hiding the button on
+                  // status alone left a challenge holding two captures with no
+                  // control anywhere once the venue cancelled its court.
+                  (!c.bookingId || c.bookingStatus === "CANCELLED") && (
                   <button
                     disabled={pending}
                     onClick={() => {
