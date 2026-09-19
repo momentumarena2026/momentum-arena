@@ -27,6 +27,7 @@ import {
   liveOfferFor,
   createOfferOrder,
   confirmOfferPayment,
+  spinConfig,
 } from "@/lib/challenge-spin";
 
 /**
@@ -95,6 +96,10 @@ export async function GET(request: NextRequest) {
       spinEnabled: liveSettings.spinEnabled,
       boardEnabled: liveSettings.enabled,
       offer,
+      // The REAL segments, so the wheel on screen is the wheel that spun.
+      // Drawing a decorative one and landing it on a number from elsewhere
+      // is the kind of thing a player eventually notices.
+      wheel: (await spinConfig()).segments,
     });
   }
 

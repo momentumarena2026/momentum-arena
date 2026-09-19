@@ -129,6 +129,8 @@ export async function fetchChallenge(id: string): Promise<{
   quote: ChallengeQuote | null;
   spinEnabled: boolean;
   boardEnabled: boolean;
+  /** The venue's real segments, so the wheel drawn is the wheel that spun. */
+  wheel: { pct: number; weight: number }[];
   /** A prize already won and not yet spent — survives an app restart. */
   offer: {
     offerId: string;

@@ -6,6 +6,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
 import { colors, radius } from "../../theme";
+import { SpinWheel } from "./SpinWheel";
 import type { AccountStackParamList } from "../../navigation/types";
 import {
   fetchChallenge,
@@ -48,6 +49,7 @@ export function ChallengeDetailScreen() {
   const [spinning, setSpinning] = useState(false);
   const [spun, setSpun] = useState<SpinResult | null>(null);
   const [slots, setSlots] = useState<OfferSlots | null>(null);
+  const [wheelOpen, setWheelOpen] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const { state: authState } = useAuth();
 
@@ -191,6 +193,7 @@ export function ChallengeDetailScreen() {
     try {
       setSpun(await spinChallengeWheel(id));
     } catch (e) {
+      setWheelOpen(false);
       Alert.alert("No spin", challengeErrorMessage(e));
     } finally {
       setSpinning(false);
@@ -329,11 +332,9 @@ export function ChallengeDetailScreen() {
                 </Text>
                 {mine && !prize && spinEnabled && (
                   <Button
-                    label="Spin for a discount on the next hour"
+                    label="Spin the wheel"
                     variant="primary"
-                    loading={spinning}
-                    disabled={spinning}
-                    onPress={spin}
+                    onPress={() => setWheelOpen(true)}
                   />
                 )}
                 {prize && (
@@ -654,6 +655,22 @@ export function ChallengeDetailScreen() {
           </Pressable>
         )}
       </ScrollView>
+
+      <SpinWheel
+        visible={wheelOpen}
+        segments={q.data?.wheel ?? []}
+        landOn={spun?.pct ?? null}
+        spinning={spinning}
+        onSpin={spin}
+        onClose={() => setWheelOpen(false)}
+        subtitle={
+          spun
+            ? spun.kind === "ADJACENT" && spun.hour
+              ? `${spun.hour} for ₹${spun.price} instead of ₹${(spun.price ?? 0) + (spun.saving ?? 0)}.`
+              : "Good on another hour — pick one below."
+            : null
+        }
+      />
     </Screen>
   );
 }
