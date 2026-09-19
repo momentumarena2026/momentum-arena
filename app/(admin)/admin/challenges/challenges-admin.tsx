@@ -23,6 +23,7 @@ import {
   markChallengePaymentRefunded,
   type ChallengeSettingsInput,
 } from "@/actions/admin-challenges";
+import { ChallengesGuide } from "./challenges-guide";
 
 /**
  * The venue's control room for the challenge board.
@@ -279,7 +280,7 @@ export function ChallengesAdmin({
   };
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"board" | "activity" | "promo" | "settings">("board");
+  const [tab, setTab] = useState<"board" | "activity" | "promo" | "settings" | "guide">("board");
   const [s, setS] = useState<Settings>(initial.settings);
 
   /**
@@ -359,7 +360,7 @@ export function ChallengesAdmin({
       </p>
 
       <div className="mt-4 flex gap-2">
-        {(["board", "activity", "promo", "settings"] as const).map((t) => (
+        {(["board", "activity", "promo", "settings", "guide"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -375,7 +376,9 @@ export function ChallengesAdmin({
                 ? `Activity (${initial.events.length}${initial.events.length >= 300 ? "+" : ""})`
                 : t === "promo"
                   ? `Prize wheel (${initial.promo.spins})`
-                  : "Settings"}
+                  : t === "settings"
+                    ? "Settings"
+                    : "How it works"}
           </button>
         ))}
       </div>
@@ -521,6 +524,13 @@ export function ChallengesAdmin({
         </div>
       ) : tab === "promo" ? (
         <PromoTab initial={initial} s={s} setS={setS} save={save} pending={pending} />
+      ) : tab === "guide" ? (
+        <div className="mt-4">
+          <ChallengesGuide
+            segments={s.spinSegments as { pct: number; weight: number }[] | null}
+            advancePct={s.advancePct}
+          />
+        </div>
       ) : tab === "settings" ? (
         <div className="mt-5 space-y-5">
           <Panel
