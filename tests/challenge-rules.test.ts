@@ -750,3 +750,44 @@ test("two bookings of the same ground take the same lock", () => {
   const keys = at(full, "cfg-full");
   assert.deepEqual(keys, [...keys].sort((a, b) => a - b));
 });
+
+test("the jackpot caption states the chance the draw actually gives", () => {
+  // The player is told their odds in exactly ONE sentence — the caption under
+  // the wheel in apps/mobile/src/screens/challenges/SpinWheel.tsx — and the
+  // wheel's whole premise is that somebody eventually checks it. Nothing stops
+  // the venue putting the top prize on two slices, and taking only the first
+  // match halved the number: "about 1 spin in 12" for something that came up
+  // 1 in 6. The formula must sum EVERY slice showing the top percentage.
+  //
+  // There is no mobile mirror of this file to run a parity test against, so
+  // this pins the rule rather than the code. If the caption moves, bring it.
+  const caption = (segs: { pct: number; weight: number }[]) => {
+    const live = segs.filter((s) => s.weight > 0);
+    const total = live.reduce((t, x) => t + x.weight, 0) || 1;
+    const maxPct = Math.max(...live.map((s) => s.pct), 0);
+    return live.filter((x) => x.pct === maxPct).reduce((t, x) => t + x.weight, 0) / total;
+  };
+  // Deterministic sweep of the whole roll space, so no randomness in a test.
+  const measured = (segs: { pct: number; weight: number }[]) => {
+    const live = segs.filter((s) => s.weight > 0);
+    const maxPct = Math.max(...live.map((s) => s.pct), 0);
+    const N = 100000;
+    let wins = 0;
+    for (let i = 0; i < N; i++) if (spinWheel(segs, i / N) === maxPct) wins++;
+    return wins / N;
+  };
+  const wheels = [
+    [{ pct: 50, weight: 1 }, { pct: 50, weight: 1 }, { pct: 20, weight: 5 }, { pct: 10, weight: 5 }],
+    [{ pct: 50, weight: 1 }, { pct: 20, weight: 5 }, { pct: 10, weight: 6 }],
+    // A jackpot the venue has weighted to zero is not the jackpot: the top
+    // WINNABLE prize is, and its odds are what the sentence must describe.
+    [{ pct: 50, weight: 0 }, { pct: 20, weight: 5 }, { pct: 10, weight: 5 }],
+    [{ pct: 30, weight: 2 }, { pct: 30, weight: 2 }, { pct: 30, weight: 2 }, { pct: 10, weight: 6 }],
+  ];
+  for (const w of wheels) {
+    assert.ok(
+      Math.abs(caption(w) - measured(w)) < 0.005,
+      `caption ${caption(w)} vs measured ${measured(w)} for ${JSON.stringify(w)}`,
+    );
+  }
+});

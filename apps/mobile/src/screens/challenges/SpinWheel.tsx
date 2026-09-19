@@ -120,8 +120,16 @@ export function SpinWheel({
   // player was never shown a number.
   const jackpotOdds = useMemo(() => {
     const total = slices.reduce((t, x) => t + x.weight, 0) || 1;
-    const top = slices.find((x) => x.pct === maxPct);
-    const chance = top ? top.weight / total : 0;
+    // EVERY slice showing the top number, not the first one found. Nothing
+    // stops the venue putting 50% on the wheel twice — two slices, weight 1
+    // each — and taking only the first understated the real chance by half:
+    // the caption read "about 1 spin in 12" for something that came up 1 in 6,
+    // measured over 400,000 draws. This sentence is the only place a player is
+    // told their odds, and the wheel's whole premise is that they will
+    // eventually check.
+    const chance = slices
+      .filter((x) => x.pct === maxPct)
+      .reduce((t, x) => t + x.weight, 0) / total;
     // Phrased as a whole sentence, because "about never spins" is what
     // stitching a fragment into the caption produced when a wheel had the
     // top prize weighted to zero.
