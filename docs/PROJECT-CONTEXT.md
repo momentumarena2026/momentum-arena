@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone and taken through one function (gotcha 15); availability must stay on the caller's client (16).
+**Last substantive update:** 2026-09-20 · accurate as of `main` = `2273751f` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone and taken through one function (gotcha 15); availability must stay on the caller's client (16).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -651,7 +651,20 @@ its templates here, or it ships with no push voice at all.
 
 ---
 
-## 7b. Challenges (team matchmaking) — phase 1, `development` only
+## 7b. Challenges (team matchmaking) — ON MAIN, switched OFF
+
+**Promoted 2026-09-20 (merge `2273751f`), arriving dark.**
+`ChallengeSettings.enabled` and `spinEnabled` both default to `false` and gate
+posting, accepting, countering and the payment quote, so no customer can put
+money into this until an admin turns it on at `/admin/challenges`.
+`challengeSettings()` upserts the singleton row with schema defaults, so a
+production database with no row is OFF, not ON. **Turning it on is a business
+decision, not a deploy step.**
+
+Before the switch is flipped, one thing is still not true: the cron that
+repairs stalled money (`resumeStalledPayments`) had never run on a schedule
+in any environment as of promotion — it now can, because the workflow is on
+the default branch, but it has not been observed doing so in production.
 
 **The problem it solves.** A whole-ground booking is ₹2,000, which is nothing
 between two full sides and impossible for one person or a half-team. Challenges
