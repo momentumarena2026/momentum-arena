@@ -23,6 +23,13 @@ export type ChallengeSide = "CHALLENGER" | "ACCEPTOR";
  * midnight challenge read as "already passed" and gave a late-night one an
  * expiry a full day before its own match.
  */
+/** "5am", "1am" — for a sentence, not a schedule. */
+function hourWord(h: number): string {
+  const x = h % 24;
+  const ampm = x >= 12 ? "pm" : "am";
+  return `${x % 12 === 0 ? 12 : x % 12}${ampm}`;
+}
+
 export function windowStart(date: string, startHour: number): Date {
   return new Date(new Date(`${date}T00:00:00.000Z`).getTime() + (startHour - 5.5) * 3600000);
 }
@@ -45,6 +52,9 @@ export type ChallengeLimits = {
   enabled: boolean;
   /** Notice the venue needs before a slot. 0 switches the gate off. */
   minLeadMins?: number;
+  /** The arena's real trading hours, so nothing here assumes 5–25. */
+  openHour?: number;
+  closeHour?: number;
   minPlayers: number;
   maxPlayers: number;
   maxWindows: number;
@@ -138,7 +148,7 @@ export function postRefusal(
   // windowRefusal runs FIRST, so a time in the past is reported as a time in
   // the past rather than as "settle it four hours earlier".
   for (const w of input.windows) {
-    const bad = windowRefusal(w, now);
+    const bad = windowRefusal(w, now, limits);
     if (bad) return bad;
   }
   if (limits.minLeadMins && limits.minLeadMins > 0) {
@@ -159,15 +169,26 @@ export function postRefusal(
 }
 
 /** Why one proposed window is not playable — or null. */
-export function windowRefusal(w: ProposedWindow, now: Date): string | null {
+export function windowRefusal(
+  w: ProposedWindow,
+  now: Date,
+  limits?: ChallengeLimits,
+): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(w.date)) return "That date isn't valid.";
   if (!Number.isInteger(w.startHour) || !Number.isInteger(w.endHour)) {
     return "Pick whole hours.";
   }
   if (w.endHour <= w.startHour) return "The end time must be after the start.";
   if (w.endHour - w.startHour > 6) return "A match can't run more than six hours.";
-  // Venue hours are 05:00–01:00, modelled as 5–25.
-  if (w.startHour < 5 || w.endHour > 25) return "The arena is open 5am to 1am.";
+  // The arena's real hours, passed in. Hard-coding 5–25 here meant the
+  // board refused a slot the arena was selling the moment the venue moved
+  // its closing time — and the prize picker, which reads the real setting,
+  // happily offered the hour the board refused.
+  const openH = limits?.openHour ?? 5;
+  const closeH = limits?.closeHour ?? 25;
+  if (w.startHour < openH || w.endHour > closeH) {
+    return `The arena is open ${hourWord(openH)} to ${hourWord(closeH)}.`;
+  }
   // windowStart, not a `% 24` on the same date — hours 24 and 25 are the
   // small hours of the NEXT day, and reducing them in place put the slot a
   // full day early.

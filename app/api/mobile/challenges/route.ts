@@ -15,6 +15,7 @@ import {
   challengeLimits,
 } from "@/lib/challenges";
 import { counterRefusal } from "@/lib/challenge-rules";
+import { getOperatingHours } from "@/lib/court-config";
 import {
   createChallengePaymentOrder,
   confirmChallengePayment,
@@ -75,15 +76,29 @@ export async function GET(request: NextRequest) {
     // take button can show the number before the payment sheet does.
     // Without the window argument every stranger got shares of zero and the
     // Razorpay sheet was the first place they saw a price.
-    const takeable = one.windows.find(
-      (w) => w.status === "OFFERED" && w.proposedBy === "CHALLENGER",
-    );
     const isParticipant =
       one.createdByUserId === user.id || one.acceptedByUserId === user.id;
+    const offered = one.windows.filter(
+      (w) => w.status === "OFFERED" && w.proposedBy === "CHALLENGER",
+    );
+    // EVERY window, priced on its own. One quote from the first window was
+    // stamped on every button, so a 1-hour slot's ₹500 appeared on a 3-hour
+    // slot costing ₹1,300 and the payment sheet was the first place anyone
+    // saw the real number.
+    const windowQuotes = isParticipant
+      ? []
+      : (
+          await Promise.all(
+            offered.map(async (w) => {
+              const q = await challengeQuote(id, user.id, w.id).catch(() => null);
+              return q ? { windowId: w.id, share: q.yourShare, refusal: q.refusal } : null;
+            }),
+          )
+        ).filter((x): x is { windowId: string; share: number | null; refusal: string | null } => !!x);
     const quote = await challengeQuote(
       id,
       user.id,
-      isParticipant ? undefined : takeable?.id,
+      isParticipant ? undefined : offered[0]?.id,
     ).catch(() => null);
     const offer = await liveOfferFor(id, user.id).catch(() => null);
     const liveSettings = await challengeSettings();
@@ -96,6 +111,9 @@ export async function GET(request: NextRequest) {
       spinEnabled: liveSettings.spinEnabled,
       boardEnabled: liveSettings.enabled,
       offer,
+      windowQuotes,
+      // The counter picker needs the same real hours the post form does.
+      hours: await getOperatingHours(),
       // The REAL segments, so the wheel on screen is the wheel that spun.
       // Drawing a decorative one and landing it on a number from elsewhere
       // is the kind of thing a player eventually notices.
@@ -103,7 +121,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const settings = await challengeSettings();
+  const [settings, hours] = await Promise.all([challengeSettings(), getOperatingHours()]);
   // The Home card reads this endpoint for its copy on every render. Logging
   // that as a board view would make board views a count of Home renders, and
   // the impression-to-open step of the funnel would always read 100%.
@@ -130,6 +148,12 @@ export async function GET(request: NextRequest) {
       maxPlayers: settings.maxPlayers,
       maxWindows: settings.maxWindows,
       maxCountersPerSide: settings.maxCountersPerSide,
+      // The arena's real trading hours. The app's hour chips hard-coded
+      // 5–25, so when the venue moved its closing time the board refused a
+      // slot the arena was selling — while the prize picker, which reads
+      // the real setting, happily offered it.
+      openHour: hours.start,
+      closeHour: hours.end,
     },
     copy: {
       title: settings.boardTitle,

@@ -52,6 +52,8 @@ export type ChallengeBoard = {
     maxPlayers: number;
     maxWindows: number;
     maxCountersPerSide: number;
+    openHour: number;
+    closeHour: number;
   };
   copy: { title: string | null; subtitle: string | null; empty: string | null };
   homeCard: {
@@ -131,6 +133,9 @@ export async function fetchChallenge(id: string): Promise<{
   boardEnabled: boolean;
   /** The venue's real segments, so the wheel drawn is the wheel that spun. */
   wheel: { pct: number; weight: number }[];
+  /** Per-window price and refusal for a prospective taker. */
+  windowQuotes: { windowId: string; share: number | null; refusal: string | null }[];
+  hours: { start: number; end: number };
   /** A prize already won and not yet spent — survives an app restart. */
   offer: {
     offerId: string;

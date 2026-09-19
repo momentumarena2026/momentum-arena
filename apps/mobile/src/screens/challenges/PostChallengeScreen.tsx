@@ -61,7 +61,12 @@ export function PostChallengeScreen() {
     d.setDate(d.getDate() + i + 1);
     return d.toISOString().slice(0, 10);
   });
-  const hours = Array.from({ length: 20 }, (_, i) => i + 5); // 5am–1am
+  // The arena's real hours, not a hard-coded 5–25. When the venue moved its
+  // closing time the chips kept offering the old range and the board refused
+  // what the arena was actually selling.
+  const openHour = board.data?.limits?.openHour ?? 5;
+  const closeHour = board.data?.limits?.closeHour ?? 25;
+  const hours = Array.from({ length: Math.max(1, closeHour - openHour) }, (_, i) => i + openHour);
 
   const [pickDay, setPickDay] = useState<string>(days[0]);
   const [pickHour, setPickHour] = useState<number>(18);

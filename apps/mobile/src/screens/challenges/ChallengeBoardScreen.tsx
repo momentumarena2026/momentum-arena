@@ -230,6 +230,7 @@ function ChallengeCard({
             {c.status === "AGREED" ? " · matched, both halves due" : ""}
             {c.status === "PART_PAID" ? " · half paid, court held" : ""}
             {c.status === "CONFIRMED" ? " · paid, court booked" : ""}
+            {c.status === "CONFIRMED" && mine ? " · prize inside" : ""}
           </Text>
         </View>
         <ChevronRight size={18} color={colors.zinc600} />

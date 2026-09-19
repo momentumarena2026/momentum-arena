@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { notifyUser } from "@/lib/user-notifications";
+import { getOperatingHours } from "@/lib/court-config";
 import { Prisma, type ChallengeEventType } from "@prisma/client";
 import {
   DEFAULT_LIMITS,
@@ -74,8 +75,10 @@ export async function challengeSettings() {
 }
 
 export async function challengeLimits(): Promise<ChallengeLimits> {
-  const s = await challengeSettings();
+  const [s, hours] = await Promise.all([challengeSettings(), getOperatingHours()]);
   return {
+    openHour: hours.start,
+    closeHour: hours.end,
     enabled: s.enabled,
     minPlayers: s.minPlayers,
     maxPlayers: s.maxPlayers,
@@ -141,10 +144,17 @@ export type ChallengeRow = Awaited<ReturnType<typeof listOpenChallenges>>[number
  */
 export async function listOpenChallenges(args?: { sport?: string; viewerId?: string }) {
   const now = new Date();
+  // Past the lead time nobody can take it, so it must not be advertised.
+  // `expiryFor` pins expiry to the match start, so every challenge aged
+  // into a four-hour window where it sat on the board with a live priced
+  // button and refused on tap. Posted ≥4h out, this happened on its own.
+  const lead = (await db.challengeSettings.findFirst({ select: { minLeadMins: true } }))
+    ?.minLeadMins;
+  const takeableUntil = new Date(now.getTime() + (lead ?? 240) * 60000);
   return db.challenge.findMany({
     where: {
       status: { in: ["OPEN", "COUNTERED"] },
-      expiresAt: { gt: now },
+      expiresAt: { gt: takeableUntil },
       ...(args?.viewerId
         ? { createdByUserId: { not: args.viewerId }, acceptedByUserId: null }
         : {}),
@@ -357,7 +367,7 @@ export async function counterChallenge(
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
     return { ok: false, error: refusal };
   }
-  const bad = windowRefusal(window, now);
+  const bad = windowRefusal(window, now, limits);
   if (bad) {
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: bad });
     return { ok: false, error: bad };

@@ -59,7 +59,6 @@ export function ChallengeDetailScreen() {
     d.setDate(d.getDate() + i + 1);
     return d.toISOString().slice(0, 10);
   });
-  const hours = Array.from({ length: 20 }, (_, i) => i + 5); // 5am–1am
   const [day, setDay] = useState<string>(days[0]);
   const [hour, setHour] = useState<number>(18);
   const [len, setLen] = useState<number>(2);
@@ -97,12 +96,23 @@ export function ChallengeDetailScreen() {
   const counterBlock = q.data?.counterBlock ?? null;
   const quote = q.data?.quote ?? null;
   const spinEnabled = q.data?.spinEnabled ?? false;
+  const windowQuotes = q.data?.windowQuotes ?? [];
+  // The arena's real hours, not a hard-coded 5–25. When the venue moved its
+  // closing time the chips kept offering the old range while the board
+  // refused what the arena was actually selling.
+  const openHour = q.data?.hours?.start ?? 5;
+  const closeHour = q.data?.hours?.end ?? 25;
+  const hours = Array.from({ length: Math.max(1, closeHour - openHour) }, (_, i) => i + openHour);
+  const boardEnabled = q.data?.boardEnabled ?? true;
   // The prize comes from the SERVER, not from state left over in this
   // component. Spin, background the app, come back — it is still here, and
   // every nudge deep-links to exactly this screen.
   const serverOffer = q.data?.offer ?? null;
+  // The SERVER wins whenever it has spoken. Preferring local state meant a
+  // lapsed offer kept its panel and its Book button alive indefinitely, and
+  // a refresh could not correct it — the user tapped a live-looking button
+  // and got "That offer has expired."
   const prize: SpinResult | null =
-    spun ??
     (serverOffer
       ? {
           pct: serverOffer.pct,
@@ -113,10 +123,13 @@ export function ChallengeDetailScreen() {
           price: serverOffer.price,
           saving: serverOffer.saving,
         }
-      : null);
+      : null) ?? spun;
   const mine = c.createdByUserId === me;
   const iAmIn = mine || c.acceptedByUserId === me;
-  const live = ["OPEN", "COUNTERED", "AGREED"].includes(c.status);
+  // A switched-off board must stop offering actions here too. This field was
+  // on the wire and read by nothing, so Take, Accept, Pay and Suggest all
+  // stayed live and were refused server-side.
+  const live = boardEnabled && ["OPEN", "COUNTERED", "AGREED"].includes(c.status);
   // Only a time the OTHER side put up can be accepted — accepting your own
   // suggestion is just waiting for an answer.
   const mySide = mine ? "CHALLENGER" : "ACCEPTOR";
@@ -352,8 +365,8 @@ export function ChallengeDetailScreen() {
                     </Text>
                     <Text variant="small" color={colors.zinc300}>
                       {prize.kind === "ADJACENT" && prize.hour
-                        ? `${prize.hour} is free — ₹${prize.price} instead of ₹${(prize.price ?? 0) + (prize.saving ?? 0)}. Ask your side, then take it.`
-                        : `The hour after your match is taken, so this is good on another hour — pick one below.`}
+                        ? `${serverOffer?.date ? `${serverOffer.date}, ` : ""}${prize.hour} is free — ₹${prize.price} instead of ₹${(prize.price ?? 0) + (prize.saving ?? 0)}. Ask your side, then take it.`
+                        : `The hour after your match is taken. This is good on another hour of the same size of court you just played on — pick one below.`}
                     </Text>
                     <Text variant="tiny" color={colors.zinc500}>
                       Expires {new Date(prize.expiresAt).toLocaleTimeString("en-IN", {
@@ -478,7 +491,11 @@ export function ChallengeDetailScreen() {
                       {dayLabel(w.date)} · {hourLabel(w.startHour)}–{hourLabel(w.endHour)}
                     </Text>
                     <Text variant="tiny" color={colors.zinc600}>
-                      {w.proposedBy === "CHALLENGER" ? "their time" : "counter-offer"}
+                      {w.proposedBy === (mine ? "CHALLENGER" : "ACCEPTOR")
+                        ? "your time"
+                        : w.proposedBy === "CHALLENGER"
+                          ? "their time"
+                          : "counter-offer"}
                     </Text>
                   </View>
                   {canTake &&
@@ -502,21 +519,35 @@ export function ChallengeDetailScreen() {
                       // match" and producing a payment sheet nobody asked
                       // for — a price on the button is the difference
                       // between a considered tap and an ambushed one.
-                      <Button
-                        label={
-                          quote?.shares.ACCEPTOR
-                            ? `Take it — pay ₹${quote.shares.ACCEPTOR}`
-                            : "Take this match"
+                      (() => {
+                        // THIS window's price and THIS window's refusal. One
+                        // quote from the first window used to be stamped on
+                        // every button — ₹500 on a slot costing ₹1,300 — and
+                        // a window that could not be taken still rendered a
+                        // live button that failed with a sentence telling
+                        // the user to do what the server had just refused.
+                        const wq = windowQuotes.find((x) => x.windowId === w.id);
+                        if (wq?.refusal) {
+                          return (
+                            <Text variant="tiny" color={colors.zinc600} style={{ maxWidth: 150 }}>
+                              {wq.refusal}
+                            </Text>
+                          );
                         }
-                        variant="primary"
-                        size="sm"
-                        loading={paying}
-                        disabled={paying}
-                        onPress={() => {
-                          trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
-                          void pay(w.id);
-                        }}
-                      />
+                        return (
+                          <Button
+                            label={wq?.share ? `Take it — pay ₹${wq.share}` : "Take this match"}
+                            variant="primary"
+                            size="sm"
+                            loading={paying}
+                            disabled={paying}
+                            onPress={() => {
+                              trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
+                              void pay(w.id);
+                            }}
+                          />
+                        );
+                      })()
                     ))}
                 </View>
               );
@@ -529,7 +560,7 @@ export function ChallengeDetailScreen() {
             own. The server enforces the cap and says so if it is spent. */}
         {live && (
           <View style={{ gap: 8 }}>
-            {counterBlock ? (
+            {counterBlock && c.status !== "AGREED" && c.status !== "PART_PAID" ? (
               // The server already told us this viewer's counter is spent (or
               // otherwise not theirs to make), so say so instead of offering a
               // button whose only outcome is that same sentence in an alert.
@@ -539,7 +570,7 @@ export function ChallengeDetailScreen() {
             ) : !showCounter ? (
               <>
                 <Text variant="tiny" color={colors.zinc600}>
-                  None of those work? Suggest one of your own — one counter-offer each.
+                  None of those work? Suggest one of your own — one counter-offer each. It replaces any time you've already offered.
                 </Text>
                 <Button
                   label="Suggest a different time"
