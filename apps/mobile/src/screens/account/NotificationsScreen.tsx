@@ -81,6 +81,12 @@ export function NotificationsScreen() {
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => notificationsApi.list(pageParam),
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // ALWAYS re-ask on mount. The global `staleTime` is 30 seconds and the
+    // cache is persisted to disk, so opening the bell within that window —
+    // which is exactly when something has just happened — showed a list that
+    // predated the event. A captain who had just paid and won a prize opened
+    // their notifications and saw neither.
+    refetchOnMount: "always",
   });
 
   const markRead = useMutation({

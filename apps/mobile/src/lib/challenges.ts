@@ -147,8 +147,17 @@ export async function fetchChallenge(id: string): Promise<{
     refusal: string | null;
   }[];
   hours: { start: number; end: number };
+  /** The venue's notice period, so the counter picker offers only legal times. */
+  minLeadMins: number;
   /** What the spin came to, spent or not. Null means never spun. */
-  spin: { pct: number; spentOn: string | null; hour: string | null; date: string | null } | null;
+  spin: {
+    pct: number;
+    spentOn: string | null;
+    hour: string | null;
+    date: string | null;
+    /** The wheel as it was when they spun, not as the venue has it now. */
+    segments: { pct: number; weight: number }[];
+  } | null;
   /** A prize already won and not yet spent — survives an app restart. */
   offer: {
     offerId: string;

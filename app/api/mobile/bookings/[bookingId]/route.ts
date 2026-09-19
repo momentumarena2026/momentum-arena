@@ -3,20 +3,30 @@ import { db } from "@/lib/db";
 import { getMobileUser } from "@/lib/mobile-auth";
 
 /**
- * Strip the gateway references from a booking the viewer does not own.
+ * Strip gateway references the viewer has no business holding.
  *
  * A challenge court is visible to BOTH captains, which is the point — but the
- * row belongs to whoever paid first, and its `Payment` carries that person's
- * Razorpay order id, payment id and signature. Handing one customer another's
- * full capture triple is no way to share a court: nothing in this module would
- * honour a replay of it, but it is somebody else's payment credential and it
- * has no business on this screen. The amounts, which are what the other
- * captain actually needs, all stay.
+ * row belongs to the POSTER while its `Payment` carries the triple of whoever
+ * paid FIRST, and in the headline flow ("a stranger accepts by paying") those
+ * are different people. So an owner-only guard fired exactly backwards: the
+ * captain who had paid nothing got the other one's complete
+ * order-id/payment-id/signature, and the captain whose money it was got the
+ * redacted copy. Replaying that triple was then worth real money.
+ *
+ * So the rule is not "unless you own it" — it is: a booking that came from a
+ * challenge carries NOBODY's gateway references, to anybody. The app has never
+ * needed them, and every amount, which is what both captains actually need,
+ * stays.
  */
-function withoutOthersGatewayRefs<
-  T extends { userId: string; payment: Record<string, unknown> | null },
+function withoutGatewayRefs<
+  T extends {
+    userId: string;
+    challenges?: unknown[];
+    payment: Record<string, unknown> | null;
+  },
 >(booking: T, viewerId: string): T {
-  if (!booking.payment || booking.userId === viewerId) return booking;
+  const shared = (booking.challenges?.length ?? 0) > 0;
+  if (!booking.payment || (!shared && booking.userId === viewerId)) return booking;
   const {
     razorpayOrderId: _o,
     razorpayPaymentId: _p,
@@ -29,7 +39,6 @@ function withoutOthersGatewayRefs<
   } = booking.payment;
   return { ...booking, payment: safe };
 }
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ bookingId: string }> }
@@ -61,6 +70,17 @@ export async function GET(
       courtConfig: true,
       slots: { orderBy: { startHour: "asc" } },
       payment: true,
+      // So the app can say "challenge match vs X" rather than showing a court
+      // with no explanation of why it is in your list — and so the redaction
+      // below can tell a shared court from an ordinary one.
+      challenges: {
+        select: {
+          id: true,
+          teamName: true,
+          createdBy: { select: { id: true, name: true } },
+          acceptedBy: { select: { id: true, name: true } },
+        },
+      },
     },
   });
 
@@ -68,5 +88,5 @@ export async function GET(
     return NextResponse.json({ error: "Booking not found" }, { status: 404 });
   }
 
-  return NextResponse.json(withoutOthersGatewayRefs(booking, user.id));
+  return NextResponse.json(withoutGatewayRefs(booking, user.id));
 }

@@ -85,7 +85,9 @@ export function ChallengeBoardScreen() {
         refreshControl={<RefreshControl refreshing={q.isFetching} onRefresh={refresh} />}
       >
         <View style={{ gap: 4 }}>
-          <Text variant="title" color={colors.foreground}>
+          <Text variant="title" color={colors.foreground} numberOfLines={2}>
+            {/* Clamped: the venue's title is stored up to 200 characters, and a
+                long one pushed the whole board off the screen. */}
             {q.data?.copy.title || "Challenge a team"}
           </Text>
           <Text variant="small" color={colors.zinc500}>
@@ -193,8 +195,14 @@ export function ChallengeBoardScreen() {
               }}
             >
               <Text variant="small" color={colors.zinc500} style={{ textAlign: "center" }}>
-                {q.data?.copy.empty ||
-                  "Nobody has put up a match yet. Post one and it'll show up for every other player."}
+                {/* "Nobody has put up a match yet" directly beneath the match
+                    you just posted reads as your post having failed. Your own
+                    challenge is listed above, in its own section; this section
+                    is about everybody ELSE, so say that when you have one. */}
+                {(q.data?.mine ?? []).length > 0
+                  ? "No other teams have put up a match yet. Yours is up — we'll tell you the moment somebody takes it."
+                  : q.data?.copy.empty ||
+                    "Nobody has put up a match yet. Post one and it'll show up for every other player."}
               </Text>
             </View>
           ) : (

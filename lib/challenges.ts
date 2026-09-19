@@ -359,6 +359,18 @@ export async function acceptChallengeWindow(
     (await db.challengeSettings.findFirst({ select: { agreedPush: true } }))?.agreedPush,
     DEFAULT_LIFECYCLE_PUSHES.agreed,
   );
+  // The MONEY, not zeros.
+  //
+  // `court`, `amount`, `total` and `balance` were hard-coded empty and 0 here,
+  // while the admin screen previewed them as "Full Field / 500 / 2000 / 1000".
+  // The default copy for this very message is about paying halves, so "your
+  // half is ₹{amount}" is the first edit a venue makes — and it sent "your
+  // half is ₹0". Zeros are worse than blanks: they look like answers.
+  // Imported lazily: `challenge-payments` imports `logChallengeEvent` from
+  // this file, so a top-level import here closes a cycle, and a cycle whose
+  // members are read at module-init time hands one of them `undefined`.
+  const { challengeQuote } = await import("@/lib/challenge-payments");
+  const money = await challengeQuote(challengeId, c.createdByUserId).catch(() => null);
   for (const [who, other] of [
     [poster, taker],
     [taker, poster],
@@ -369,10 +381,11 @@ export async function acceptChallengeWindow(
       team: c.teamName ?? poster?.name ?? "the other side",
       hour: `${hourWord(w.startHour)}–${hourWord(w.endHour)}`,
       date: istDayLabel(w.date),
-      court: "",
-      amount: 0,
-      total: 0,
-      balance: 0,
+      court: money?.courtLabel ?? "",
+      // Each captain's own half, which is what {amount} means everywhere else.
+      amount: money?.shares?.[who.id === c.createdByUserId ? "CHALLENGER" : "ACCEPTOR"] ?? 0,
+      total: money?.total ?? 0,
+      balance: money?.venueBalance ?? 0,
     };
     await notifyUser(who.id, {
       type: "CHALLENGE_AGREED",

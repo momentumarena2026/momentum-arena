@@ -4237,6 +4237,14 @@ model ChallengePayment {
   /// Razorpay will not accept, leaving the court blocked for ever.
   quotedAdvance Int?
 
+  /// The COURT total this half was quoted against, pinned with the advance.
+  /// The advance alone was pinned, so a venue editing the rate card between the
+  /// two payments left the captains with a gate balance nobody had shown them:
+  /// quoted "₹1600, ₹800 at the gate", charged correctly, then handed a booking
+  /// saying ₹2200 was due. Pinning both means the deal the captains agreed is
+  /// the deal they get.
+  quotedTotal Int?
+
   placedAt DateTime?
   /// Set when a capture could not be honoured. Without it a row owed a
   /// refund was byte-identical to a healthy paid half, and the venue's

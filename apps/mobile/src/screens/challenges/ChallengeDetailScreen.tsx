@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, ScrollView, Pressable, Alert, RefreshControl } from "react-native";
 import { useRoute, useNavigation, type RouteProp } from "@react-navigation/native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button";
 import { colors, radius } from "../../theme";
 import { SpinWheel } from "./SpinWheel";
 import type { AccountStackParamList } from "../../navigation/types";
+import { getCurrentMinutesIST, getTodayIST, getUpcomingDatesIST } from "../../lib/ist-date";
 import {
   fetchChallenge,
   acceptChallenge,
@@ -69,14 +70,24 @@ export function ChallengeDetailScreen() {
   const { state: authState } = useAuth();
 
   // The next seven days — as far ahead as anyone arranges a pickup game.
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i + 1);
-    return d.toISOString().slice(0, 10);
-  });
-  const [day, setDay] = useState<string>(days[0]);
+  //
+  // Built from the IST helpers, and starting TODAY when today still has a legal
+  // hour left in it. Both bugs the post form already had: `i + 1` made tonight
+  // unreachable when countering while it was reachable when posting, and
+  // `toISOString()` on a local Date returns yesterday between midnight and
+  // 05:30 IST — at a venue open until 2am.
+  const [day, setDay] = useState<string>("");
   const [hour, setHour] = useState<number>(18);
   const [len, setLen] = useState<number>(2);
+  // A countdown computed once in render sits frozen until something else
+  // re-renders the screen — so a captain watches "12 minutes left" for twelve
+  // minutes and then finds the offer gone. One tick a second, mounted only
+  // while this screen is.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const chip = (on: boolean) => ({
     paddingHorizontal: 12,
@@ -118,6 +129,16 @@ export function ChallengeDetailScreen() {
   const openHour = q.data?.hours?.start ?? 5;
   const closeHour = q.data?.hours?.end ?? 25;
   const hours = Array.from({ length: Math.max(1, closeHour - openHour) }, (_, i) => i + openHour);
+  const minLeadMins = q.data?.minLeadMins ?? 240;
+  const earliestHourToday = Math.ceil((getCurrentMinutesIST() + minLeadMins) / 60);
+  const days = getUpcomingDatesIST(8).slice(earliestHourToday < closeHour ? 0 : 1, 8);
+  // Today offers fewer hours than the rest of the strip does.
+  const legalHours = hours.filter((h) => day !== getTodayIST() || h >= earliestHourToday);
+  useEffect(() => {
+    if (!day && days[0]) setDay(days[0]);
+    if (legalHours.length > 0 && !legalHours.includes(hour)) setHour(legalHours[0]);
+    if (hour + len > closeHour) setLen(Math.max(1, closeHour - hour));
+  }, [day, days, legalHours, hour, len, closeHour]);
   const boardEnabled = q.data?.boardEnabled ?? true;
   // The prize comes from the SERVER, not from state left over in this
   // component. Spin, background the app, come back — it is still here, and
@@ -722,7 +743,7 @@ export function ChallengeDetailScreen() {
                 </ScrollView>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={{ flexDirection: "row", gap: 6 }}>
-                    {hours.map((h) => (
+                    {legalHours.map((h) => (
                       <Pressable
                         key={h}
                         onPress={() => {
@@ -831,13 +852,21 @@ export function ChallengeDetailScreen() {
           // having been lost.
           void refresh();
         }}
-        subtitle={
-          spun
-            ? spun.kind === "ADJACENT" && spun.hour
-              ? `${spun.date ? `${spun.date}, ` : ""}${spun.hour} for ₹${spun.price} instead of ₹${(spun.price ?? 0) + (spun.saving ?? 0)}.`
-              : "Good on another hour — pick one below."
-            : null
-        }
+        subtitle={(() => {
+          if (!spun) return null;
+          // THE DEADLINE BELONGS HERE TOO. The celebratory screen is the one a
+          // captain reads first and sometimes the only one they read; omitting
+          // the clock meant the single most time-critical fact in the promo
+          // appeared only on the card behind it.
+          const mins = Math.max(
+            0,
+            Math.ceil((new Date(spun.expiresAt).getTime() - Date.now()) / 60000),
+          );
+          const clock = mins > 0 ? ` Take it within ${mins} minute${mins === 1 ? "" : "s"}.` : "";
+          return spun.kind === "ADJACENT" && spun.hour
+            ? `${spun.date ? `${spun.date}, ` : ""}${spun.hour} for ₹${spun.price} instead of ₹${(spun.price ?? 0) + (spun.saving ?? 0)}.${clock}`
+            : `Good on another hour — pick one below.${clock}`;
+        })()}
       />
     </Screen>
   );

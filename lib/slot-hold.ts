@@ -32,7 +32,7 @@ export interface BowlingSlotPrice {
  * PostgreSQL advisory locks use bigint keys.
  * We hash the string to a 32-bit integer to stay within range.
  */
-function advisoryLockKey(configId: string, date: string, hour: number): number {
+export function advisoryLockKey(configId: string, date: string, hour: number): number {
   const str = `${configId}:${date}:${hour}`;
   let hash = 0;
   for (let i = 0; i < str.length; i++) {

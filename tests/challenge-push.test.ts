@@ -247,3 +247,18 @@ test("a lifecycle message that could not send is refused at save time", () => {
   assert.equal(templateRefusal({ title: "t", body: "b" }), null);
   assert.match(templateRefusal(null) ?? "", /title and a body/);
 });
+
+test("an invisible character is not a way to switch a lifecycle message off", () => {
+  // `String.trim()` leaves U+200B alone, so a zero-width title saved happily
+  // and the runtime sent an empty notification instead of "your half is due" —
+  // which made "there is no off switch" false by the one route nobody checks.
+  for (const ghost of ["​", "​‌", "﻿", " ", " ⁠ "]) {
+    assert.match(templateRefusal({ title: ghost, body: "b" }) ?? "", /title and a body/);
+    assert.match(templateRefusal({ title: "t", body: ghost }) ?? "", /title and a body/);
+    // And the runtime falls back rather than sending it.
+    const fb = DEFAULT_LIFECYCLE_PUSHES.payHalf;
+    assert.deepEqual(resolveTemplate({ title: ghost, body: "b" }, fb), fb);
+  }
+  // Ordinary copy still saves and still resolves.
+  assert.equal(templateRefusal({ title: "Your half is due", body: "Pay ₹{amount}" }), null);
+});

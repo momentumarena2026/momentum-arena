@@ -231,12 +231,27 @@ export function SpinWheel({
                   const ly = CENTRE + R * 0.68 * Math.sin(rad);
                   return (
                     <G key={`${s.pct}-${i}`}>
-                      <Path
-                        d={wedge(s.start, s.end)}
-                        fill={sliceFill(s.pct, maxPct)}
-                        stroke="#020617"
-                        strokeWidth={2}
-                      />
+                      {/* A lone segment is 360°, and an arc from a point back
+                          to itself draws nothing — the wheel collapsed to a
+                          line. A venue can legitimately run a one-prize wheel,
+                          so draw the circle. */}
+                      {slices.length === 1 ? (
+                        <Circle
+                          cx={CENTRE}
+                          cy={CENTRE}
+                          r={R}
+                          fill={sliceFill(s.pct, maxPct)}
+                          stroke="#020617"
+                          strokeWidth={2}
+                        />
+                      ) : (
+                        <Path
+                          d={wedge(s.start, s.end)}
+                          fill={sliceFill(s.pct, maxPct)}
+                          stroke="#020617"
+                          strokeWidth={2}
+                        />
+                      )}
                       {sweep >= 16 && (
                         <SvgText
                           x={lx}

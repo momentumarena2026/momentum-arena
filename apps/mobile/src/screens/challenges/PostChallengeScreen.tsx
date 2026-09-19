@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCurrentHourIST, getTodayIST, getUpcomingDatesIST } from "../../lib/ist-date";
+import { getCurrentMinutesIST, getTodayIST, getUpcomingDatesIST } from "../../lib/ist-date";
 import {
   View,
   ScrollView,
@@ -80,7 +80,11 @@ export function PostChallengeScreen() {
   const minLeadMins = board.data?.limits?.minLeadMins ?? 240;
   const openHour = board.data?.limits?.openHour ?? 5;
   const closeHour = board.data?.limits?.closeHour ?? 25;
-  const earliestHourToday = getCurrentHourIST() + Math.ceil(minLeadMins / 60);
+  // From the current TIME, not the current hour. `getCurrentHourIST() + 4`
+  // at 16:39 gives 20:00 — which is 21 minutes short of four hours' notice, so
+  // the picker's first and preselected chip was one the server always refused.
+  // Anyone posting for tonight hit that on their first tap.
+  const earliestHourToday = Math.ceil((getCurrentMinutesIST() + minLeadMins) / 60);
   const todayIsStillPlayable = earliestHourToday < closeHour;
   const days = getUpcomingDatesIST(8).slice(todayIsStillPlayable ? 0 : 1, 8);
   // The arena's real hours, not a hard-coded 5–25. When the venue moved its
@@ -105,6 +109,11 @@ export function PostChallengeScreen() {
     if (hours.length > 0 && !hours.includes(pickHour)) setPickHour(hours[0]);
   }, [hours, pickHour]);
   const [pickLen, setPickLen] = useState<number>(2);
+  // Keep the duration legal: 2h is the default, but 1am + 2h runs past closing,
+  // so a late hour has to pull the length down with it.
+  useEffect(() => {
+    if (pickHour + pickLen > closeHour) setPickLen(Math.max(1, closeHour - pickHour));
+  }, [pickHour, pickLen, closeHour]);
 
   const addWindow = () => {
     if (windows.length >= maxWindows) {
@@ -312,7 +321,13 @@ export function PostChallengeScreen() {
                 <Text variant="tiny" color={colors.zinc500}>
                   for
                 </Text>
-                {[1, 2, 3].map((n) => (
+                {/* Only durations that FIT before closing. With 1am picked,
+                    the row still offered 3h and preselected 2h, so the server
+                    refused "1am–3am" by quoting its opening hours back. The
+                    counter picker already did this; this screen did not. */}
+                {[1, 2, 3]
+                  .filter((n) => pickHour + n <= closeHour)
+                  .map((n) => (
                   <Pressable key={n} onPress={() => setPickLen(n)} style={chip(pickLen === n)}>
                     <Text variant="tiny" color={pickLen === n ? colors.emerald400 : colors.zinc400}>
                       {n}h
@@ -357,6 +372,17 @@ export function PostChallengeScreen() {
           />
         </View>
 
+        {/* The reason goes ABOVE the button. Below it, the hint sat off the
+            bottom of the screen, so a disabled green button read as simply
+            broken until you thought to scroll past it. */}
+        <Text
+          variant="tiny"
+          color={missing ? colors.zinc400 : colors.zinc600}
+          style={{ textAlign: "center" }}
+        >
+          {missing ??
+            "Nothing is charged yet. The court is only held once both captains have paid their half."}
+        </Text>
         <Button
           label="Put it on the board"
           variant="primary"
@@ -364,13 +390,6 @@ export function PostChallengeScreen() {
           disabled={busy || windows.length === 0 || !players.trim()}
           onPress={submit}
         />
-        <Text
-          variant="tiny"
-          color={missing ? colors.zinc500 : colors.zinc600}
-          style={{ textAlign: "center" }}
-        >
-          {missing ?? "Nothing is charged yet. Whoever pays their half first blocks the court."}
-        </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

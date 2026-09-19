@@ -152,7 +152,7 @@ export async function getChallengeAdmin() {
         },
         payments: {
           where: { refundedAt: null, refundOwedAt: null },
-          select: { side: true, amount: true, paidAt: true },
+          select: { side: true, amount: true, paidAt: true, placedAt: true },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -175,7 +175,10 @@ export async function getChallengeAdmin() {
     // order ledger is the only thing that still knows whose money it is, so
     // it belongs on the same queue — money owed is money owed.
     db.challengeOrder.findMany({
-      where: { strandedAt: { not: null }, refundedAt: null },
+      // `settledAt: null` matters: an order could carry BOTH flags, so the same
+      // capture appeared on this queue and on the payment-row queue, and the
+      // panel totalled it as two debts with the same name on both rows.
+      where: { strandedAt: { not: null }, refundedAt: null, settledAt: null },
       select: {
         id: true,
         userId: true,
@@ -198,7 +201,14 @@ export async function getChallengeAdmin() {
   // sheet and abandoned it.
   const halfPaid = moneyIn
     .map((c) => {
-      const paid = c.payments.filter((p) => p.paidAt);
+      // PLACED, not merely claimed — the same definition `paidSides()` and
+      // `challengeQuote` use. Counting `paidAt` meant a challenge with one
+      // placed half and one claimed-but-unplaced half read as "both paid" and
+      // fell off this panel, while its money sat on neither worklist.
+      const paid = c.payments.filter((p) => p.paidAt && p.placedAt);
+      // A half that was claimed and never placed is money with no court and no
+      // queue. It belongs here too, flagged for what it is.
+      const stuck = c.payments.filter((p) => p.paidAt && !p.placedAt);
       const sides = new Set(paid.map((p) => p.side));
       const owingSide = sides.has("CHALLENGER") ? "ACCEPTOR" : "CHALLENGER";
       return {
@@ -206,15 +216,18 @@ export async function getChallengeAdmin() {
         status: c.status,
         teamName: c.teamName,
         bookingId: c.bookingId,
-        held: paid.reduce((sum, p) => sum + p.amount, 0),
+        held: [...paid, ...stuck].reduce((sum, p) => sum + p.amount, 0),
         sidesPaid: sides.size,
+        /** Captured money that never reached a booking. Needs a person. */
+        stuck: stuck.reduce((sum, p) => sum + p.amount, 0),
         // Whoever has NOT paid is who the venue rings. Derived from the side
         // that is missing, not from an unpaid row — there may not be one.
         owes: owingSide === "CHALLENGER" ? c.createdBy : c.acceptedBy,
         window: c.windows[0] ?? null,
       };
     })
-    .filter((c) => c.sidesPaid === 1);
+    // One side placed, or any money stuck without a booking at all.
+    .filter((c) => c.sidesPaid === 1 || c.stuck > 0);
 
   // One queue, two sources. The screen should not care which table a debt
   // came from — the venue's question is "who is owed what".
@@ -222,6 +235,12 @@ export async function getChallengeAdmin() {
     ? await db.user.findMany({
         where: { id: { in: [...new Set(owedOnOrders.map((o) => o.userId))] } },
         select: { id: true, name: true, phone: true },
+      })
+    : [];
+  const strandedChallenges = owedOnOrders.length
+    ? await db.challenge.findMany({
+        where: { id: { in: [...new Set(owedOnOrders.map((o) => o.challengeId))] } },
+        select: { id: true, teamName: true },
       })
     : [];
   const refundsOwed = [
@@ -238,6 +257,7 @@ export async function getChallengeAdmin() {
     })),
     ...owedOnOrders.map((o) => {
       const u = strandedUsers.find((x) => x.id === o.userId);
+      const ch = strandedChallenges.find((x) => x.id === o.challengeId);
       return {
         id: o.id,
         source: "order" as const,
@@ -247,7 +267,9 @@ export async function getChallengeAdmin() {
         reason: o.strandedReason,
         user: u ? { name: u.name, phone: u.phone } : null,
         challengeId: o.challengeId,
-        teamName: null as string | null,
+        // Was hard-coded null, so the venue saw a phone number and "no live
+        // slot" but not which match — even when the challenge still existed.
+        teamName: ch?.teamName ?? null,
       };
     }),
   ].sort((a, b) => a.owedAt.getTime() - b.owedAt.getTime());
@@ -586,10 +608,20 @@ export async function saveChallengeSettings(
     // most perversely, the switch that would STOP a 90% wheel was refused
     // *because* the wheel pays 90%. A kill switch that can be disabled by
     // the thing it kills is not a kill switch.
-    const touchesWheel =
-      input.spinSegments !== undefined ||
-      input.spinAvgMinPct !== undefined ||
-      input.spinAvgMaxPct !== undefined;
+    // A BAND EDIT IS NOT A WHEEL EDIT.
+    //
+    // Including the band fields here made the two guards block each other's
+    // repair: with floor 40 / ceiling 10 stored, every band edit that would
+    // make floor ≤ ceiling was ALSO judged against the live wheel's average
+    // versus the other, still-broken half — so all 23 possible single-field
+    // saves were refused and the only way out was a psql prompt. Since the
+    // form saves one field per blur, "repairable from the screen" has to mean
+    // repairable one field at a time.
+    //
+    // The wheel is still judged whenever the WHEEL changes, and the band is
+    // still judged against itself, so no bad state can be introduced — only
+    // escaped.
+    const touchesWheel = input.spinSegments !== undefined;
     const touchesAdjacent =
       input.spinAdjacentPushes !== undefined || input.spinAdjacentWindowMins !== undefined;
     const touchesFallback =
@@ -744,10 +776,28 @@ export async function markChallengePaymentRefunded(
   if (source === "order") {
     const o = await db.challengeOrder.findUnique({
       where: { id: paymentId },
-      select: { id: true, userId: true, challengeId: true, amount: true, side: true, refundedAt: true, strandedAt: true },
+      select: {
+        id: true,
+        userId: true,
+        challengeId: true,
+        amount: true,
+        side: true,
+        refundedAt: true,
+        strandedAt: true,
+        settledAt: true,
+      },
     });
     if (!o) return { ok: false, error: "That payment is gone." };
     if (!o.strandedAt) return { ok: false, error: "That one was never stranded." };
+    // A settled order's money reached a live booking. If it is ALSO flagged
+    // stranded, something replayed its capture — refunding it would pay for a
+    // court that was bought and played.
+    if (o.settledAt) {
+      return {
+        ok: false,
+        error: "That payment reached a booking — it is not owed back. Tell whoever flagged it.",
+      };
+    }
     if (o.refundedAt) return { ok: false, error: "That one is already marked refunded." };
     const done = await db.challengeOrder.updateMany({
       where: { id: o.id, refundedAt: null },
@@ -880,16 +930,26 @@ export async function adminWithdrawChallenge(
     return { ok: false, error: "That match is booked — cancel the booking instead." };
   }
   const held = c.payments.reduce((sum, p) => sum + p.amount, 0);
-  if (held > 0) {
+  // A BOOKED court is the booking's business — cancelling it there is what
+  // releases the hour and moves the money.
+  if (held > 0 && c.bookingId) {
     return {
       ok: false,
-      // Two different situations, two different instructions. Telling
-      // somebody to cancel a booking that was never created is an
-      // instruction they cannot follow, and there is no other route out.
-      error: c.bookingId
-        ? `₹${held} has been paid on this one and the court is held. Cancel the booking and refund first — that releases the hour.`
-        : `₹${held} has been paid on this one and no court was ever held. Refund it from the refunds panel first, then take this down.`,
+      error: `₹${held} has been paid on this one and the court is booked. Cancel the booking and refund first — that releases the hour.`,
     };
+  }
+  // No booking, but money in. This used to refuse with "refund it from the
+  // refunds panel first" — and the payment was not ON that panel, because
+  // nothing had flagged it. Nothing in the product could flag it either, so
+  // the challenge was permanently un-takedownable and the venue got a dead row
+  // with no button and an instruction it could not follow.
+  //
+  // Taking it down IS the venue deciding to unwind it, so the action does the
+  // unwinding: flag every capture as owed, tell each payer, and tell the arena
+  // whose money it is. Nothing is held, so there is no court to release.
+  if (held > 0) {
+    const { flagChallengeRefunds } = await import("@/lib/challenge-payments");
+    await flagChallengeRefunds(id, `the arena took this challenge down: ${reason.trim().slice(0, 120)}`);
   }
   await db.challenge.update({
     where: { id },

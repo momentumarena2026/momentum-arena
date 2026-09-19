@@ -140,7 +140,9 @@ export function postRefusal(
   }
   if (input.windows.length === 0) return "Offer at least one time you can play.";
   if (input.windows.length > limits.maxWindows) {
-    return `Offer at most ${limits.maxWindows} times.`;
+    return limits.maxWindows === 1
+      ? "Offer one time only."
+      : `Offer at most ${limits.maxWindows} times.`;
   }
   // Posting is gated by the same notice the venue needs to staff an hour.
   // The app's day picker starts at tomorrow so this was unreachable there,
@@ -424,7 +426,16 @@ export function payRefusal(
     return "Nobody has agreed a time yet — settle the time first.";
   }
   const side = sideOf(c, userId);
-  if (!side) return "You're not part of this match.";
+  if (!side) {
+    // A stranger who was one second too slow is not "not part of this match" —
+    // that reads as a permissions bug to somebody who was looking at the board
+    // a moment ago. This is the refusal they actually hit, and the friendlier
+    // wording added downstream in createChallengePaymentOrder never fired
+    // because THIS runs first.
+    return c.acceptedByUserId
+      ? "Somebody else has taken this one."
+      : "You're not part of this match.";
+  }
   if (paidSides.includes(side)) return "You've already paid your half.";
   if (c.status === "CONFIRMED") return "This match is already paid for.";
   return null;
@@ -588,5 +599,15 @@ export function leadTimeRefusal(
  * of this let a 0–1% band save against a live 17.75% wheel.
  */
 export function resolveWheel(stored: unknown): WheelSegment[] {
-  return Array.isArray(stored) && stored.length > 0 ? (stored as WheelSegment[]) : DEFAULT_WHEEL;
+  if (!Array.isArray(stored) || stored.length === 0) return DEFAULT_WHEEL;
+  // A segment saved without a weight — `[{pct:20}]`, reachable by writing the
+  // column directly — made the total weight 0, and `spinWheel` then returned 0,
+  // so EVERY spin won "0% off" while the odds disclosure came back empty. An
+  // absent weight is not a zero chance; it is an unspecified one, and one is
+  // the only reading that keeps the wheel winnable.
+  const fixed = (stored as WheelSegment[]).map((s) => ({
+    ...s,
+    weight: typeof s?.weight === "number" && Number.isFinite(s.weight) ? s.weight : 1,
+  }));
+  return fixed.some((s) => s.weight > 0) ? fixed : DEFAULT_WHEEL;
 }

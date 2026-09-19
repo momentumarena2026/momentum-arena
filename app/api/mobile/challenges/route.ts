@@ -149,12 +149,16 @@ export async function GET(request: NextRequest) {
       offer,
       spin,
       windowQuotes,
-      // The counter picker needs the same real hours the post form does.
+      // The counter picker needs the same real hours the post form does — and
+      // the same notice period, or it offers times the server then refuses.
       hours: await getOperatingHours(),
+      minLeadMins: (await challengeSettings()).minLeadMins,
       // The REAL segments, so the wheel on screen is the wheel that spun.
-      // Drawing a decorative one and landing it on a number from elsewhere
-      // is the kind of thing a player eventually notices.
-      wheel: (await spinConfig()).segments,
+      // Drawing a decorative one and landing it on a number from elsewhere is
+      // the kind of thing a player eventually notices. Once a spin EXISTS its
+      // own snapshot wins: the venue may retune the wheel, but it may not
+      // retune a wheel somebody has already spun.
+      wheel: spin?.segments?.length ? spin.segments : (await spinConfig()).segments,
     });
   }
 

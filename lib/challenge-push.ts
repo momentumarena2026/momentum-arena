@@ -296,18 +296,30 @@ export const LIFECYCLE_LABELS: Record<LifecyclePush, { title: string; desc: stri
 export function resolveTemplate(stored: unknown, fallback: PushTemplate): PushTemplate {
   if (!stored || typeof stored !== "object") return fallback;
   const t = stored as Partial<PushTemplate>;
-  return t.title?.trim() && t.body?.trim()
-    ? { title: t.title, body: t.body }
-    : fallback;
+  // Same blankness test the validator uses. Two definitions of "empty" is how
+  // an invisible-character template got past the save AND past the runtime.
+  return !blank(t.title) && !blank(t.body) ? { title: t.title!, body: t.body! } : fallback;
 }
 
 /** Why this single message cannot be saved — or null. */
+/**
+ * Is this string actually blank once invisible characters are removed?
+ *
+ * `String.trim()` does not strip U+200B and friends, so `{title:"\u200b"}`
+ * saved happily — which made "there is no way to switch a lifecycle message
+ * off" false, by the one route nobody would think to check. A captain then
+ * receives an empty notification instead of "your half is due".
+ */
+function blank(v: string | undefined): boolean {
+  return !v || v.replace(/[\s\u00a0\u180e\u200b-\u200f\u2028\u2029\u202f\u2060\ufeff]/g, "") === "";
+}
+
 export function templateRefusal(t: unknown): string | null {
   if (!t || typeof t !== "object") return "That message isn't a title and a body.";
   const x = t as Partial<PushTemplate>;
-  if (!x.title?.trim() || !x.body?.trim()) return "A message needs a title and a body.";
-  if (x.title.length > 120) return "That title is too long to send (120 characters).";
-  if (x.body.length > 300) return "That body is too long to send (300 characters).";
+  if (blank(x.title) || blank(x.body)) return "A message needs a title and a body.";
+  if ((x.title?.length ?? 0) > 120) return "That title is too long to send (120 characters).";
+  if ((x.body?.length ?? 0) > 300) return "That body is too long to send (300 characters).";
   return null;
 }
 

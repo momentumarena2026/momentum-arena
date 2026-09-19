@@ -850,11 +850,23 @@ export async function bookOfferHour(args: {
 export async function spinOutcomeFor(
   challengeId: string,
   userId: string,
-): Promise<{ pct: number; spentOn: string | null; hour: string | null; date: string | null } | null> {
+): Promise<{
+  pct: number;
+  spentOn: string | null;
+  hour: string | null;
+  date: string | null;
+  /** The wheel AS IT WAS when this spin happened. */
+  segments: { pct: number; weight: number }[];
+} | null> {
   const spin = await db.challengeSpin.findFirst({
     where: { challengeId, userId },
     select: {
       wonPct: true,
+      // `segmentsUsed` is snapshotted at spin time precisely so a dispute
+      // about a past spin can be answered. Drawing the wheel from live config
+      // instead meant any retune made every already-won prize card contradict
+      // itself: a "10% off" headline over a wheel whose only slice was 90%.
+      segmentsUsed: true,
       offer: {
         select: { bookingId: true, startHour: true, date: true, takenAt: true },
       },
@@ -862,6 +874,9 @@ export async function spinOutcomeFor(
   });
   if (!spin) return null;
   return {
+    segments: Array.isArray(spin.segmentsUsed)
+      ? (spin.segmentsUsed as { pct: number; weight: number }[])
+      : [],
     pct: spin.wonPct,
     spentOn: spin.offer?.bookingId ?? null,
     hour: spin.offer?.startHour !== null && spin.offer?.startHour !== undefined

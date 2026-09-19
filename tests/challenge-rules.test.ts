@@ -306,7 +306,10 @@ const PAY_NOW = new Date("2026-09-20T10:00:00Z");
 test("only the two captains can pay, and only once each", () => {
   assert.equal(payRefusal(agreed(), "poster", PAY_NOW, []), null);
   assert.equal(payRefusal(agreed(), "taker", PAY_NOW, []), null);
-  assert.match(payRefusal(agreed(), "stranger", PAY_NOW, []) ?? "", /not part of this match/);
+  // An AGREED challenge already has an acceptor, so a stranger here has lost
+  // a race rather than wandered into somebody else's match — see the
+  // dedicated test below for why the wording matters.
+  assert.match(payRefusal(agreed(), "stranger", PAY_NOW, []) ?? "", /Somebody else has taken/);
   assert.match(
     payRefusal(agreed(), "poster", PAY_NOW, ["CHALLENGER"]) ?? "",
     /already paid your half/,
@@ -674,4 +677,30 @@ test("both halves add to the advance the FIRST half was quoted against", () => {
       assert.ok(s.CHALLENGER > 0, "the outstanding half is never zero");
     }
   }
+});
+
+test("losing the race reads as losing the race, not as a permissions error", () => {
+  // The friendly wording was added one layer too deep: payRefusal runs first
+  // and returned "You're not part of this match." to a stranger who was a
+  // second too slow, so the fix never fired.
+  const base = {
+    status: "AGREED" as const,
+    createdByUserId: "poster",
+    acceptedByUserId: "somebody-else",
+    expiresAt: new Date("2030-01-01"),
+    counterCountChallenger: 0,
+    counterCountAcceptor: 0,
+  };
+  assert.equal(
+    payRefusal(base as never, "a-third-captain", new Date(), []),
+    "Somebody else has taken this one.",
+  );
+  // With nobody in the acceptor seat, "not part of this match" is the honest
+  // answer — there is no race to have lost.
+  assert.equal(
+    payRefusal({ ...base, acceptedByUserId: null } as never, "a-stranger", new Date(), []),
+    "You're not part of this match.",
+  );
+  // And a participant is never told either thing.
+  assert.equal(payRefusal(base as never, "poster", new Date(), []), null);
 });

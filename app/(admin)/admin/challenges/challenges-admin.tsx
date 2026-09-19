@@ -366,7 +366,7 @@ export function ChallengesAdmin({
             }`}
           >
             {t === "board"
-              ? `Challenges (${initial.challenges.length})`
+              ? `Challenges (${initial.challenges.length}${initial.challenges.length >= 200 ? "+" : ""})`
               : t === "activity"
                 ? `Activity (${initial.events.length})`
                 : t === "promo"
@@ -571,6 +571,15 @@ export function ChallengesAdmin({
               <Num label="Maximum players" value={s.maxPlayers} onSave={(v) => { setS({ ...s, maxPlayers: v }); save({ maxPlayers: v }); }} hint="Sanity ceiling on the squad size claimed." />
               <Num label="Times per challenge" value={s.maxWindows} onSave={(v) => { setS({ ...s, maxWindows: v }); save({ maxWindows: v }); }} hint="More windows means more matches made. One is allowed but mostly expires." />
               <Num label="Counter-offers per side" value={s.maxCountersPerSide} onSave={(v) => { setS({ ...s, maxCountersPerSide: v }); save({ maxCountersPerSide: v }); }} hint="Zero turns haggling off entirely — accept a time or leave it." />
+              <Num
+                label="Notice needed before a slot (minutes)"
+                value={s.minLeadMins}
+                onSave={(v) => {
+                  setS({ ...s, minLeadMins: v });
+                  save({ minLeadMins: v });
+                }}
+                hint="No posting or accepting inside this, and the payment that buys the court is refused inside it too. The next-hour prize is exempt — same session, staff already there. (This used to live on the Prize wheel tab, which is not where anybody looked for it: it gates posting and paying, and a venue running the board with the wheel switched off never saw it.)"
+              />
               <Num label="Days a challenge lives" value={s.ttlDays} onSave={(v) => { setS({ ...s, ttlDays: v }); save({ ttlDays: v }); }} hint="It dies at this, or at its last offered time, whichever comes first." />
             </div>
           </Panel>
@@ -832,7 +841,16 @@ export function ChallengesAdmin({
                                   : "border-amber-500/40 text-amber-300"
                             }`}
                           >
-                            {who}: ₹{pay.amount} {pay.refundedAt ? "refunded" : pay.paidAt ? "paid" : "started, unpaid"}
+                            {who}: ₹{pay.amount}{" "}
+                            {pay.refundedAt
+                              ? "refunded"
+                              : pay.refundOwedAt
+                                ? "refund owed"
+                                : pay.paidAt && !pay.placedAt
+                                  ? "captured, not on a booking"
+                                  : pay.paidAt
+                                    ? "paid"
+                                    : "started, unpaid"}
                           </span>
                         );
                       })}
@@ -970,6 +988,12 @@ function Txt({
   onSave: (v: string) => void;
 }) {
   const [v, setV] = useState(value ?? "");
+  // Re-sync from the server, exactly as `Num` and `PushEditor` do. Without it
+  // this editor showed what was TYPED rather than what was STORED: a
+  // 214-character message was displayed in full, "Saved." and all, while the
+  // app served the 200 characters the server had truncated it to. The
+  // page-level effect cannot reach into a mounted child.
+  useEffect(() => setV(value ?? ""), [value]);
   return (
     <div>
       <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">{label}</label>
@@ -1210,15 +1234,6 @@ function PromoTab({
               setS({ ...s, spinFallbackDays: v });
               save({ spinFallbackDays: v });
             }}
-          />
-          <Num
-            label="Notice needed before a slot (minutes)"
-            value={s.minLeadMins}
-            onSave={(v) => {
-              setS({ ...s, minLeadMins: v });
-              save({ minLeadMins: v });
-            }}
-            hint="No posting or accepting inside this. The next-hour prize is exempt — same session, staff already there."
           />
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">

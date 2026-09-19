@@ -12,20 +12,30 @@ import { getMobileUser } from "@/lib/mobile-auth";
  * grow as the user scrolls.
  */
 /**
- * Strip the gateway references from a booking the viewer does not own.
+ * Strip gateway references the viewer has no business holding.
  *
  * A challenge court is visible to BOTH captains, which is the point — but the
- * row belongs to whoever paid first, and its `Payment` carries that person's
- * Razorpay order id, payment id and signature. Handing one customer another's
- * full capture triple is no way to share a court: nothing in this module would
- * honour a replay of it, but it is somebody else's payment credential and it
- * has no business on this screen. The amounts, which are what the other
- * captain actually needs, all stay.
+ * row belongs to the POSTER while its `Payment` carries the triple of whoever
+ * paid FIRST, and in the headline flow ("a stranger accepts by paying") those
+ * are different people. So an owner-only guard fired exactly backwards: the
+ * captain who had paid nothing got the other one's complete
+ * order-id/payment-id/signature, and the captain whose money it was got the
+ * redacted copy. Replaying that triple was then worth real money.
+ *
+ * So the rule is not "unless you own it" — it is: a booking that came from a
+ * challenge carries NOBODY's gateway references, to anybody. The app has never
+ * needed them, and every amount, which is what both captains actually need,
+ * stays.
  */
-function withoutOthersGatewayRefs<
-  T extends { userId: string; payment: Record<string, unknown> | null },
+function withoutGatewayRefs<
+  T extends {
+    userId: string;
+    challenges?: unknown[];
+    payment: Record<string, unknown> | null;
+  },
 >(booking: T, viewerId: string): T {
-  if (!booking.payment || booking.userId === viewerId) return booking;
+  const shared = (booking.challenges?.length ?? 0) > 0;
+  if (!booking.payment || (!shared && booking.userId === viewerId)) return booking;
   const {
     razorpayOrderId: _o,
     razorpayPaymentId: _p,
@@ -38,7 +48,6 @@ function withoutOthersGatewayRefs<
   } = booking.payment;
   return { ...booking, payment: safe };
 }
-
 export async function GET(request: NextRequest) {
   const user = await getMobileUser(request);
   if (!user) {
@@ -86,6 +95,17 @@ export async function GET(request: NextRequest) {
       courtConfig: true,
       slots: { orderBy: { startHour: "asc" } },
       payment: true,
+      // So the app can say "challenge match vs X" rather than showing a court
+      // with no explanation of why it is in your list — and so the redaction
+      // below can tell a shared court from an ordinary one.
+      challenges: {
+        select: {
+          id: true,
+          teamName: true,
+          createdBy: { select: { id: true, name: true } },
+          acceptedBy: { select: { id: true, name: true } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: limit + 1,
@@ -124,9 +144,15 @@ export async function GET(request: NextRequest) {
         // Money spent is historical: a played (COMPLETED) or no-showed
         // (ABSENT) booking was still paid for, so closing a booking out
         // must not make the "Spent" tile drop. Only CANCELLED is excluded.
+        //
+        // OWNED bookings only, deliberately not the widened `where` above. A
+        // challenge court is visible to both captains but paid half each, so
+        // summing its total for both showed a captain who spent ₹500 a "SPENT
+        // ₹2K" tile — and counted the same court twice across two people.
         where: {
-          ...where,
+          userId: user.id,
           status: { in: ["CONFIRMED", "PENDING", "COMPLETED", "ABSENT"] },
+          ...(status ? { status: status as never } : {}),
         },
         _sum: { totalAmount: true },
       }),
@@ -141,7 +167,7 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    bookings: bookings.map((b) => withoutOthersGatewayRefs(b, user.id)),
+    bookings: bookings.map((b) => withoutGatewayRefs(b, user.id)),
     page,
     limit,
     hasMore,
