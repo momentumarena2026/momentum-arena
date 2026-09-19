@@ -444,12 +444,13 @@ export function payRefusal(
 /**
  * What a payment does to the challenge.
  *
- * The venue's decision (2026-09-18) is that the FIRST half blocks the
- * court. So the first payment is the one that creates a real booking and
- * takes the hour off the board; the second only settles the balance. That
- * ordering is what makes SLOT_LOST nearly unreachable — the old design
- * held no inventory until both had paid, which meant the second captain
- * could pay for an hour that had just gone.
+ * The venue's decision (2026-09-19, reversing 2026-09-18) is that the court
+ * is bought only when BOTH halves are paid. So neither payment creates a
+ * booking on its own: the first leaves the challenge PART_PAID with nothing
+ * held, and the SECOND buys the hour. SLOT_LOST is therefore a real outcome
+ * rather than a near-impossible one — an hour two captains are part-way
+ * through buying can be sold to a walk-in — which is why every path out of
+ * that case tells both captains, flags the money, and tells the arena.
  */
 export function statusAfterPayment(paidSidesIncludingThis: ChallengeSide[]): ChallengeStatus {
   // DISTINCT sides, not array length. Counting the array let the same side

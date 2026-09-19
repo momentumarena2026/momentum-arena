@@ -123,9 +123,19 @@ function sizeRank(size: string): number {
 // Get availability for all slots on a given date for a specific court config
 export async function getSlotAvailability(
   courtConfigId: string,
-  date: Date
+  date: Date,
+  /**
+   * Run every read on this client instead of the global one.
+   *
+   * Only needed by callers holding an advisory lock inside an interactive
+   * transaction: using the global client there takes a SECOND pooled
+   * connection while the first is held, which under load is how a pool is
+   * exhausted by the very code meant to serialise access. Defaults to the
+   * global client, so every existing call site is unchanged.
+   */
+  client: Pick<typeof db, "courtConfig" | "booking" | "slotHold"> = db
 ): Promise<SlotAvailability[]> {
-  const config = await db.courtConfig.findUnique({
+  const config = await client.courtConfig.findUnique({
     where: { id: courtConfigId },
   });
   if (!config) throw new Error("Court config not found");
@@ -136,7 +146,7 @@ export async function getSlotAvailability(
   // 1. Bookings that reserve the slot: anything not CANCELLED — CONFIRMED
   //    (paid), PENDING (awaiting admin verification) and the closed-out
   //    COMPLETED / ABSENT sessions (see OCCUPYING_BOOKING_STATUSES)
-  const conflictingBookings = await db.booking.findMany({
+  const conflictingBookings = await client.booking.findMany({
     where: {
       date: dateOnly,
       status: { in: [...OCCUPYING_BOOKING_STATUSES] },
@@ -169,7 +179,7 @@ export async function getSlotAvailability(
   // 2. Transient SlotHolds — another user is currently in checkout for this slot
   // Include the hold's courtConfig so we can surface "what's blocking
   // this hour?" labels for in-flight holds, not just confirmed bookings.
-  const activeHolds = await db.slotHold.findMany({
+  const activeHolds = await client.slotHold.findMany({
     where: {
       date: dateOnly,
       expiresAt: { gt: now },

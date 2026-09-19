@@ -1,32 +1,30 @@
 /**
  * Paying for an agreed challenge.
  *
- * THE VENUE'S DECISION (2026-09-18): the FIRST half paid blocks the court.
+ * THE VENUE'S DECISION (2026-09-19): the court is bought only when BOTH
+ * halves are paid. This REVERSES the 2026-09-18 decision that the first
+ * payment blocked it, and the text that argued for that is gone rather than
+ * left to be believed.
  *
- * That one choice settles the hardest question in this module. There is no
- * payment rail in India that can hold a UPI customer's money pending a
- * second stranger's decision — Razorpay auth/capture is card-only, and UPI
- * one-time mandates exclude PhonePe and GPay, which is most of Mathura. So
- * somebody's money is at risk no matter what, and the only real question is
- * whose and against what. Blocking on the first payment means the first
- * captain's money buys something real and immediate — the hour, held — and
- * the second captain is buying into a court that already exists.
+ * There is no payment rail in India that can hold a UPI customer's money
+ * pending a second stranger's decision — Razorpay auth/capture is card-only,
+ * and UPI one-time mandates exclude PhonePe and GPay, which is most of
+ * Mathura. So somebody's money is exposed no matter what, and the only real
+ * question is against what. The venue's answer is: against nothing. Neither
+ * half creates a booking; the hour stays on sale until both have paid.
  *
- * What this buys, concretely, is that `SLOT_LOST` becomes nearly
- * unreachable. The alternative design — hold nothing until both have paid —
- * has a failure mode where both captains pay and the hour has gone to a
- * walk-in in between, and then the venue owes two refunds and has no match.
- * Here the only way to lose the slot is to lose it before ANY money is
- * taken, which is a refusal, not a refund.
+ * What that costs is real and was chosen anyway: an hour two captains are
+ * part-way through buying CAN be sold to a walk-in, and then the arena owes
+ * refunds and there is no match. What it buys is that the venue never holds a
+ * court against half a payment, so "chase it or refund it" is a decision a
+ * person can take calmly instead of "cancel a slot I may already have sold on
+ * the phone".
  *
- * What it costs is the mirror case: one side pays, the other never does,
- * and the venue is holding a blocked court against half the money. That is
- * deliberately NOT automated away. It is operationally identical to an
- * ordinary advance booking where the customer never came back — the venue
- * either collects the rest at the gate or cancels and refunds by hand, and
- * `ChallengePayment.refundedAt` exists to record that it did. Automating a
- * refund here would mean automatically releasing a court the venue may
- * already have sold on the phone.
+ * Because the cost is real, the communication is the feature, not a courtesy.
+ * `discardForLostHour` tells both captains, flags every capture so the money
+ * is a QUERY rather than prose, and sends the arena its own push naming who is
+ * owed how much and on what number. Nothing here refunds automatically; if
+ * that message does not land, the refund does not happen.
  *
  * ── How the money is modelled ──────────────────────────────────────
  *
@@ -111,6 +109,7 @@ const challengeForPay = {
       placedAt: true,
       quotedAdvance: true,
       quotedTotal: true,
+      quotedCourtConfigId: true,
     },
   },
 } as const;
@@ -127,8 +126,10 @@ async function freeCourtFor(
   date: Date,
   hours: number[],
   preferredId: string | null,
+  /** Pass a transaction client when asking under an advisory lock. */
+  client: typeof db = db,
 ): Promise<string | null> {
-  const configs = await db.courtConfig.findMany({
+  const configs = await client.courtConfig.findMany({
     where: { sport: sport as never, isActive: true },
     select: { id: true, size: true },
   });
@@ -143,7 +144,7 @@ async function freeCourtFor(
   ];
 
   for (const c of ordered) {
-    const avail = await getSlotAvailability(c.id, date);
+    const avail = await getSlotAvailability(c.id, date, client);
     const allFree = hours.every((h) => avail.find((s) => s.hour === h)?.status === "available");
     if (allFree) return c.id;
   }
@@ -293,6 +294,10 @@ export async function challengeQuote(
 
   // Once a booking exists the court is decided; before that it is whatever
   // is still free, which is why this is re-asked on every quote.
+  // Once a half is placed, the court is DECIDED — it is the one that half was
+  // quoted against. Re-searching for "any free court" here is what let the
+  // second captain be quoted a different court from the first.
+  const placedPin = c.payments.find((p) => p.paidAt && p.placedAt)?.quotedCourtConfigId ?? null;
   const booked = c.bookingId
     ? await db.booking.findUnique({
         where: { id: c.bookingId },
@@ -304,7 +309,14 @@ export async function challengeQuote(
       })
     : null;
   const courtId =
-    booked?.courtConfigId ?? (await freeCourtFor(c.sport, win.date, hours, win.courtConfigId));
+    booked?.courtConfigId ??
+    (placedPin
+      ? // Still that court, or nothing. A downgrade the captains were never
+        // told about is not an outcome this may choose on their behalf.
+        (await freeCourtFor(c.sport, win.date, hours, placedPin)) === placedPin
+        ? placedPin
+        : null
+      : await freeCourtFor(c.sport, win.date, hours, win.courtConfigId));
 
   let total = 0;
   let courtLabel: string | null = null;
@@ -544,6 +556,8 @@ export async function createChallengePaymentOrder(
         paidAt: true,
         placedAt: true,
         refundOwedAt: true,
+        refundOwedReason: true,
+        razorpayPaymentId: true,
         createdAt: true,
         razorpayOrderId: true,
       },
@@ -560,7 +574,14 @@ export async function createChallengePaymentOrder(
       const windowMins =
         (await db.challengeSettings.findFirst({ select: { paymentWindowMins: true } }))
           ?.paymentWindowMins ?? 120;
-      if (Date.now() < current.createdAt.getTime() + windowMins * 60000) {
+      // A WRITTEN-OFF row is not somebody mid-payment. Running the staleness
+      // clock over it too turned the permanent dead card into a two-hour one:
+      // an OPEN, priced, un-takeable challenge answering strangers "someone
+      // else is paying for this right now" about a payment that was refunded.
+      if (
+        !current.refundOwedAt &&
+        Date.now() < current.createdAt.getTime() + windowMins * 60000
+      ) {
         return { ok: false, error: "Someone else is paying for this right now. Try again shortly." };
       }
       if (current.razorpayOrderId) {
@@ -586,6 +607,22 @@ export async function createChallengePaymentOrder(
     // un-takeable by anyone for ever. The capture's own record lives on the
     // order ledger, which is exactly why the row can be released: the debt
     // does not live here.
+    // MOVE THE DEBT BEFORE WIPING THE ROW.
+    //
+    // Releasing a written-off capture clears `refundOwedAt` along with
+    // everything else, and the comment justifying that said the capture's
+    // record "lives on the order ledger". It does not: `strandOrder` is only
+    // ever called for captures that arrive AFTER a takeover, so a capture
+    // written off BEFORE one had `strandedAt` null for ever and vanished from
+    // both worklists — a real ₹400, a customer told by push that a refund was
+    // coming, and no record anywhere the venue looks.
+    if (current.refundOwedAt && current.razorpayOrderId) {
+      await strandOrder(
+        current.razorpayOrderId,
+        current.razorpayPaymentId ?? "",
+        current.refundOwedReason ?? "this capture could not be honoured",
+      );
+    }
     const releasable = current.refundOwedAt
       ? { id: current.id, refundOwedAt: { not: null } }
       : { id: current.id, paidAt: null };
@@ -602,9 +639,15 @@ export async function createChallengePaymentOrder(
         // one left them instantly stale, so the slot could be ripped away
         // again immediately — and repeatedly, from whoever was mid-payment.
         createdAt: new Date(),
-        // The previous holder's order must not stay attached to a row that
-        // now names somebody else.
-        razorpayOrderId: null,
+        // ONLY on a genuine takeover. Clearing this unconditionally made the
+        // reuse branch below unreachable — the owner simply re-opening their
+        // own sheet had their order id wiped and a fresh one minted, so five
+        // taps produced five live payable Razorpay orders for one half, and
+        // paying any but the last was refused as "too late" and flagged for
+        // refund while the slot stayed unpaid. The previous holder's order
+        // must not stay attached to a row that now names somebody else; the
+        // CURRENT holder's must.
+        ...(current.userId !== userId ? { razorpayOrderId: null } : {}),
         // Released for a new holder: the old capture's paid/placed/written-off
         // marks are the PREVIOUS deal's, and the ledger keeps them.
         ...(current.refundOwedAt
@@ -636,9 +679,13 @@ export async function createChallengePaymentOrder(
           : "We're still finishing your last payment. Give it a minute, then pull to refresh.",
       };
     }
-    // A takeover always re-mints: the previous holder's order is not this
-    // person's deal, and `razorpayOrderId` was cleared above.
-    row = { id: current.id, paidAt: null, razorpayOrderId: null };
+    // A takeover re-mints; the owner re-opening keeps the order they already
+    // have, which is what makes the reuse branch below reachable at all.
+    row = {
+      id: current.id,
+      paidAt: null,
+      razorpayOrderId: current.userId === userId ? current.razorpayOrderId : null,
+    };
   }
 
   // ── REUSE the order this row already has ──
@@ -917,6 +964,21 @@ async function strandOrder(
   // captain's capture triple readable from a booking they could both see, that
   // was a way to be paid twice.
   if (order.settledAt) return null;
+  // And ask the money, not only the order. `settledAt` is the last write of a
+  // successful placement, so a crash in that final window leaves it null on a
+  // capture that IS placed and booked — and nothing repairs it, because both
+  // sweeps skip placed rows. Without this, replaying that triple turned a
+  // live, court-holding half into a refund debt the venue would pay.
+  const live = await db.challengePayment.findFirst({
+    where: {
+      challengeId: order.challengeId,
+      side: order.side,
+      placedAt: { not: null },
+      refundedAt: null,
+    },
+    select: { id: true },
+  });
+  if (live) return null;
   const claimed = await db.challengeOrder.updateMany({
     // `settledAt: null` in the predicate too, so a settle landing between the
     // read and the write cannot be overtaken by a strand.
@@ -1199,7 +1261,15 @@ async function placeMoney(ctx: {
     });
     return tx.challengePayment.findMany({
       where: { challengeId: ctx.challengeId, paidAt: { not: null }, placedAt: { not: null } },
-      select: { id: true, side: true, amount: true, userId: true, razorpayPaymentId: true },
+      select: {
+        id: true,
+        side: true,
+        amount: true,
+        userId: true,
+        razorpayPaymentId: true,
+        quotedCourtConfigId: true,
+        quotedTotal: true,
+      },
       orderBy: { placedAt: "asc" },
     });
   });
@@ -1314,7 +1384,16 @@ async function discardForLostHour(args: {
   // One discard per challenge. Two payers racing, or a sweep landing on the
   // same challenge as a capture, must not announce it twice.
   const claimed = await db.challenge.updateMany({
-    where: { id: args.challengeId, status: { notIn: ["SLOT_LOST", "WITHDRAWN", "EXPIRED"] } },
+    where: {
+      id: args.challengeId,
+      status: { notIn: ["SLOT_LOST", "WITHDRAWN", "EXPIRED"] },
+      // A CHALLENGE WITH A BOOKING HAS ITS HOUR. Without this, any caller who
+      // decided the hour was gone could overwrite CONFIRMED on a match whose
+      // court is bought and held — and then flag both halves for refund. The
+      // callers should not get that wrong, and this is the backstop for when
+      // one of them does.
+      bookingId: null,
+    },
     data: { status: "SLOT_LOST" },
   });
   if (claimed.count === 0) return false;
@@ -1565,6 +1644,8 @@ async function buyTheHour(
     amount: number;
     userId: string;
     razorpayPaymentId: string | null;
+    quotedCourtConfigId: string | null;
+    quotedTotal: number | null;
   }[],
 ): Promise<Placement> {
   const hours = windowHours(ctx.win.startHour, ctx.win.endHour);
@@ -1572,7 +1653,21 @@ async function buyTheHour(
   // The court both captains were quoted, or nothing. Silently moving a match
   // to a different court — cheaper, smaller, or just not the one they agreed
   // — is not a thing this may do on its own.
-  const quotedCourt = ctx.slot.quotedCourtConfigId ?? ctx.win.courtConfigId;
+  // THE FIRST HALF'S PIN IS THE DEAL — not whoever happens to land last.
+  //
+  // Both pins are per-row, and the second row is pinned from a fresh quote. So
+  // when a walk-in took one half of a ground between the two payments, the
+  // second captain's quote quietly re-searched, found the other half free, and
+  // `buyTheHour` booked THAT: two captains who were quoted a full pitch for an
+  // eleven-a-side match were sold half a pitch, and the first was never told.
+  // The same mechanism sold a court at the second half's re-priced total,
+  // which is how `Payment.amount` could exceed `Booking.totalAmount`.
+  //
+  // `placed` is ordered by `placedAt`, so `placed[0]` is the half that was
+  // quoted first and is what the other half was quoted against.
+  const firstPin = placed[0];
+  const quotedCourt =
+    firstPin?.quotedCourtConfigId ?? ctx.slot.quotedCourtConfigId ?? ctx.win.courtConfigId;
   const courtId = quotedCourt
     ? (await freeCourtFor(ctx.challenge.sport, ctx.win.date, hours, quotedCourt)) === quotedCourt
       ? quotedCourt
@@ -1605,7 +1700,7 @@ async function buyTheHour(
   // with ₹2200 due. Worse in the other direction — a price cut below the
   // advance produced a NEGATIVE `remainingAmount`, which every gate-collection
   // and revenue query reads as a credit.
-  const total = ctx.slot.quotedTotal ?? liveTotal;
+  const total = firstPin?.quotedTotal ?? ctx.slot.quotedTotal ?? liveTotal;
   // What was actually captured, from both sides. This IS the advance.
   const advance = placed.reduce((s, p) => s + p.amount, 0);
   const gateBalance = Math.max(0, total - advance);
@@ -1660,7 +1755,16 @@ async function buyTheHour(
       for (const h of [...hours].sort((a, b) => a - b)) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${advisoryLockKey(courtId, dateStr, h)}::bigint)`;
       }
-      const stillFree = await freeCourtFor(ctx.challenge.sport, ctx.win.date, hours, courtId);
+      // On the TRANSACTION's client: the lock is held on this connection, and
+      // asking the question on another one takes a second connection from the
+      // pool for the whole time it is held.
+      const stillFree = await freeCourtFor(
+        ctx.challenge.sport,
+        ctx.win.date,
+        hours,
+        courtId,
+        tx as unknown as typeof db,
+      );
       if (stillFree !== courtId) throw new HourGone();
 
       const created = await tx.booking.create({
@@ -1705,13 +1809,33 @@ async function buyTheHour(
     })
     .catch((e) => {
       if (e instanceof LostRace) return null;
-      // Somebody took the hour between the unlocked read and the locked
-      // re-check. Both halves are captured, so this is a full discard.
       if (e instanceof HourGone) return "gone" as const;
       throw e;
     });
 
-  if (bought === "gone") return { kind: "slotLost" };
+  if (bought === "gone") {
+    // WHOSE booking took the hour?
+    //
+    // Two placements of the same challenge run concurrently — a double-tapped
+    // verify, an app retry, or the repair sweep racing the payer. Both pass the
+    // unlocked availability read; one wins the lock and books; the loser then
+    // takes the lock, re-checks, and finds the hour occupied BY ITS OWN
+    // CHALLENGE'S BOOKING. Reporting that as "the hour went" announced a
+    // booked, paid, confirmed match as lost and put both halves on the refunds
+    // queue: the venue refunds ₹1000 by hand for an hour it has sold and will
+    // hand over, the hour cannot be resold, and the captains — told it was
+    // cancelled — never come to pay the gate balance.
+    //
+    // The `!courtId` branch has always asked this. This one did not.
+    const now = await db.challenge.findUnique({
+      where: { id: ctx.challengeId },
+      select: { bookingId: true },
+    });
+    if (now?.bookingId) {
+      return { kind: "settled", bookingId: now.bookingId, status: "CONFIRMED" };
+    }
+    return { kind: "slotLost" };
+  }
   if (!bought) return { kind: "lostRace" };
   return { kind: "booked", bookingId: bought.bookingId, status: "CONFIRMED" };
 }
@@ -2081,7 +2205,15 @@ async function placeClaimedPayment(args: {
   // Only the payment that BLOCKS the court is gated: once the hour is held,
   // the second half settling late costs the venue nothing, and refusing it
   // would strand money on a match that is already booked.
-  if ((await paidSides(challengeId)).length === 0) {
+  // THE SECOND HALF. Under the both-halves rule it is the second payment that
+  // commits the venue to staffing an hour, and the quote has always gated it
+  // that way (`blocksTheCourt = paidSides.length === 1`). The capture gate was
+  // still written for the old rule and fired on the FIRST half instead — the
+  // exact opposite pair. So the first payer, whose money holds nothing, could
+  // be charged and instantly refused with "your money is safe, the arena will
+  // refund it", while the captain whose payment actually buys the court could
+  // hold the sheet open and commit the venue with no notice at all.
+  if ((await paidSides(challengeId)).length === 1) {
     const settings = await db.challengeSettings.findFirst({ select: { minLeadMins: true } });
     // A grace of ten minutes, because this gate must catch somebody holding
     // the sheet for hours and must NOT punish an honest payer whose capture

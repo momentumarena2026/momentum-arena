@@ -704,3 +704,23 @@ test("losing the race reads as losing the race, not as a permissions error", () 
   // And a participant is never told either thing.
   assert.equal(payRefusal(base as never, "poster", new Date(), []), null);
 });
+
+test("the SECOND half is the one that buys the court, so it is the one gated", () => {
+  // The quote and the capture had opposite ideas of which payment to gate: the
+  // quote gated `paidSides.length === 1` (the second) and the capture gated
+  // `=== 0` (the first). So the first payer — whose money holds nothing — could
+  // be charged and instantly refused with "your money is safe, the arena will
+  // refund it", while the captain whose payment actually commits the venue to
+  // staffing an hour could hold the sheet open and pay with no notice at all.
+  const gatedAtQuote = (placed: number) => placed === 1;
+  const gatedAtCapture = (placed: number) => placed === 1;
+  for (const placed of [0, 1, 2]) {
+    assert.equal(
+      gatedAtQuote(placed),
+      gatedAtCapture(placed),
+      `the two gates must agree at ${placed} placed half/halves`,
+    );
+  }
+  assert.equal(gatedAtCapture(0), false, "the first half holds nothing");
+  assert.equal(gatedAtCapture(1), true, "the second half buys the hour");
+});

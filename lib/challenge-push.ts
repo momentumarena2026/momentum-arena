@@ -241,7 +241,7 @@ export const LIFECYCLE_VARIABLES: { name: keyof LifecycleVars; example: string; 
 export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
   agreed: {
     title: "Match on — your half is due",
-    body: "{name} is in for {date} {hour}. Whoever pays their half first blocks the court; the match is confirmed once both halves are in.",
+    body: "{name} is in for {date} {hour}. The court is NOT held until you have BOTH paid your half — so somebody else can still book it. Pay yours and nudge them to pay theirs.",
   },
   payHalf: {
     title: "Your half is due — the hour isn't held yet",

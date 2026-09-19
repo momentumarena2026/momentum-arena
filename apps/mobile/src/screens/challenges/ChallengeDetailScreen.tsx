@@ -580,7 +580,11 @@ export function ChallengeDetailScreen() {
                       // whole point of telling this captain anything is that
                       // their half is what buys the court.
                       "The other captain has paid. The hour is NOT held until your half is in too — pay it to lock the court."
-                    : "Whoever pays first blocks the court. Nothing is held until then."}
+                    : // Was "Whoever pays first blocks the court. Nothing is
+                      // held until then." — which contradicted itself inside
+                      // one sentence and told the first payer the thing this
+                      // design exists to stop them believing.
+                      "Nothing is held until you have BOTH paid. Whoever pays first is waiting on the other."}
                 </Text>
                 <Button
                   label={`Pay my half — ₹${quote.yourShare ?? 0}`}
