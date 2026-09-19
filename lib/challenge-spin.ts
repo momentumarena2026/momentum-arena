@@ -38,7 +38,8 @@
  */
 
 import { db } from "@/lib/db";
-import { getSlotAvailability } from "@/lib/availability";
+import { getSlotAvailability, OCCUPYING_BOOKING_STATUSES } from "@/lib/availability";
+import { lockCourtHours, findSlotClashes } from "@/lib/slot-hold";
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { notifyUser } from "@/lib/user-notifications";
 import {
@@ -764,6 +765,9 @@ export async function offerQuote(
  * The availability re-check inside this function is the one that matters.
  * Everything before it is a quote.
  */
+/** Thrown to abandon a prize booking whose hour went while it was being paid for. */
+class HourTaken extends Error {}
+
 export async function bookOfferHour(args: {
   offerId: string;
   userId: string;
@@ -788,7 +792,41 @@ export async function bookOfferHour(args: {
   // the ledger says was collected.
   const charged = pinnedPrice && pinnedPrice > 0 ? pinnedPrice : q.price;
 
-  const booking = await db.booking.create({
+  // LOCK THE GROUND, AND ASK AGAIN.
+  //
+  // This wrote the booking with a bare create: no transaction, no advisory
+  // lock, no re-check. The hour was judged free when the offer was quoted,
+  // which can be many minutes earlier — the whole point of an offer is that
+  // somebody thinks about it — and nothing stopped a walk-in taking that hour
+  // in between. The prize booking then landed on top of theirs.
+  //
+  // Same keys, same question, as every other path that writes a booking.
+  const zonesForOffer =
+    (
+      await db.courtConfig.findUnique({
+        where: { id: q.courtConfigId },
+        select: { zones: true },
+      })
+    )?.zones ?? [];
+  const booking = await db.$transaction(async (tx) => {
+    await lockCourtHours(
+      tx,
+      [{ configId: q.courtConfigId, zones: zonesForOffer as string[] }],
+      q.date.toISOString().slice(0, 10),
+      [q.startHour],
+    );
+    const rivals = await tx.booking.findMany({
+      where: {
+        date: q.date,
+        status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+        courtConfig: { zones: { hasSome: zonesForOffer } },
+      },
+      include: { slots: true },
+    });
+    if (findSlotClashes(rivals, { kind: "hours", hours: [q.startHour] }).length > 0) {
+      throw new HourTaken();
+    }
+    return tx.booking.create({
     data: {
       userId: args.userId,
       courtConfigId: q.courtConfigId,
@@ -811,7 +849,25 @@ export async function bookOfferHour(args: {
       },
     },
     select: { id: true },
+    });
+  }).catch((e) => {
+    if (e instanceof HourTaken) return null;
+    throw e;
   });
+
+  if (!booking) {
+    // Captured money with nowhere to go. The order is stranded rather than
+    // silently swallowed, so it reaches the venue's refunds queue — the same
+    // ending every other refused capture in this module gets.
+    await db.challengeOffer
+      .update({ where: { id: args.offerId }, data: { takenAt: null } })
+      .catch(() => undefined);
+    return {
+      ok: false as const,
+      error:
+        "Somebody took that hour while you were paying. The arena will refund you in full.",
+    };
+  }
 
   const offer = await db.challengeOffer.update({
     where: { id: args.offerId },
