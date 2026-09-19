@@ -56,7 +56,12 @@ import { getSlotPricesForDate } from "@/lib/pricing";
 import { getSlotAvailability } from "@/lib/availability";
 import { createRazorpayOrder, verifyRazorpaySignature, RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { notifyUser } from "@/lib/user-notifications";
-import { renderPush, resolveTemplate, DEFAULT_LIFECYCLE_PUSHES } from "@/lib/challenge-push";
+import {
+  renderPush,
+  resolveTemplate,
+  DEFAULT_LIFECYCLE_PUSHES,
+  DEFAULT_OWNER_REFUND_PUSH,
+} from "@/lib/challenge-push";
 import { istDayLabel } from "@/lib/challenge-spin";
 import { logChallengeEvent } from "@/lib/challenges";
 import {
@@ -95,7 +100,17 @@ const challengeForPay = {
   windows: {
     select: { id: true, date: true, startHour: true, endHour: true, courtConfigId: true, status: true },
   },
-  payments: { select: { id: true, side: true, userId: true, amount: true, paidAt: true, placedAt: true } },
+  payments: {
+    select: {
+      id: true,
+      side: true,
+      userId: true,
+      amount: true,
+      paidAt: true,
+      placedAt: true,
+      quotedAdvance: true,
+    },
+  },
 } as const;
 
 /**
@@ -329,13 +344,42 @@ export async function challengeQuote(
       paidSides.length === 1
         ? sharesAgainstBooking({ advanceAmount: advance, settled, paidSide: paidSides[0] })
         : shares;
+  } else if (paidSides.length === 1) {
+    // ── NO BOOKING YET, BUT ONE HALF IS PAID ──
+    //
+    // Now that the court is only bought once both halves are in, this is the
+    // normal middle state and it lasts as long as the second captain takes.
+    // The first captain's capture is the contract in the booking's place:
+    // their half was quoted against a particular advance, so the other half is
+    // the REST OF THAT SAME ADVANCE, not a fresh percentage of a fresh price.
+    //
+    // Without this the same defect the booking branch above exists to prevent
+    // simply moved earlier: a venue editing `advancePct` between the two
+    // payments would charge the second captain a share of a different deal
+    // from the one the first captain paid into, and the two halves would no
+    // longer add up to anything.
+    const first = c.payments.find(
+      (p) => p.paidAt && p.placedAt && p.side === paidSides[0],
+    );
+    if (first?.quotedAdvance) {
+      advance = first.quotedAdvance;
+      shares = sharesAgainstBooking({
+        advanceAmount: advance,
+        settled: first.amount,
+        paidSide: paidSides[0],
+      });
+    }
   }
-  // The lead-time gate belongs on whichever payment BLOCKS the court, not
-  // only on a stranger's first one. Once a challenge is AGREED with no money
-  // in it, either side's payment is the one that creates the booking — and
-  // both were being issued orders two hours before the slot. The exemption
-  // in the spec is for the SECOND half, where the hour is already held.
-  const blocksTheCourt = paidSides.length === 0;
+  // The lead-time gate applies to the payment that BUYS the court — which is
+  // now the second one, not the first. The exemption in the spec was written
+  // for a world where the first half already held the hour; with the court
+  // bought only once both halves are in, it is the second captain's payment
+  // that commits the venue to staffing that hour, so that is the one gated.
+  //
+  // Gating the first half as well would be worse than pointless: it would
+  // refuse a payment that holds nothing, on a challenge whose second half may
+  // well land in time.
+  const blocksTheCourt = paidSides.length === 1;
   const lateRefusal =
     blocksTheCourt && win && settings?.minLeadMins
       ? leadTimeRefusal(
@@ -365,8 +409,9 @@ export async function challengeQuote(
     unpayable ??
     (courtId
       ? null
-      : // Only reachable for the first payer: once one half is in, the
-        // booking exists and the court cannot be taken from under them.
+      : // Reachable for BOTH payers now. Until both halves are in, nothing
+        // holds the hour, so the second captain can arrive to find it sold —
+        // and must be told before paying, not after.
         "That hour has just gone. Nothing has been charged — agree another time.");
 
   return {
@@ -632,12 +677,18 @@ type ClaimedSlot = {
 
 /** Where the money ended up. Every branch is a value, not a flag. */
 type Placement =
-  | { kind: "blocked"; bookingId: string; status: ChallengeStatus }
+  // Both halves are in and the hour is bought. The match is on.
+  | { kind: "booked"; bookingId: string; status: ChallengeStatus }
+  // The booking already existed when we got here — a replay, or the loser of
+  // two halves landing in the same instant.
   | { kind: "settled"; bookingId: string; status: ChallengeStatus }
+  // One half in, nothing bought, nothing held. The normal middle state now.
+  | { kind: "halfPaid"; status: ChallengeStatus }
+  // The hour went before both halves could buy it. Everything captured on
+  // this challenge is owed back.
   | { kind: "slotLost" }
-  // The court was neither blocked by us nor available to settle against.
-  // Distinct from slotLost, which is a real "the hour went" for the FIRST
-  // half; this one means the placement could not be completed at all.
+  // The placement could not be completed at all — distinct from slotLost,
+  // which is a real answer about the hour.
   | { kind: "lostRace" };
 
 /**
@@ -1001,62 +1052,240 @@ async function placeMoney(ctx: {
     where: { id: ctx.challengeId },
     select: { bookingId: true },
   });
-  if (existing?.bookingId) return settleAgainst(ctx, existing.bookingId);
+  // The court is already bought and both halves are on it. Only a replay or
+  // a race loser gets here; stamp this half placed and agree.
+  if (existing?.bookingId) {
+    await db.challengePayment.updateMany({
+      where: { id: ctx.slot.rowId, placedAt: null },
+      data: { placedAt: new Date() },
+    });
+    return { kind: "settled", bookingId: existing.bookingId, status: "CONFIRMED" };
+  }
 
-  const blocked = await tryBlockCourt(ctx);
-  if (blocked.kind !== "lostRace") return blocked;
+  // Stamp this half placed and read who is placed NOW, in one transaction —
+  // otherwise two halves landing together both read "I am the first" and
+  // neither buys the court.
+  const placed = await db.$transaction(async (tx) => {
+    await tx.challengePayment.updateMany({
+      where: { id: ctx.slot.rowId, placedAt: null },
+      data: { placedAt: new Date() },
+    });
+    return tx.challengePayment.findMany({
+      where: { challengeId: ctx.challengeId, paidAt: { not: null }, placedAt: { not: null } },
+      select: { id: true, side: true, amount: true, userId: true, razorpayPaymentId: true },
+      orderBy: { placedAt: "asc" },
+    });
+  });
 
-  // Somebody else blocked it in the same instant. Their booking is the one
-  // that exists now; settle against it.
+  const sides = new Set(placed.map((p) => p.side as ChallengeSide));
+  if (sides.size < 2) {
+    // ── HALF PAID, AND THE HOUR IS NOT HELD ──
+    //
+    // This is the venue's decision, reversed from the earlier one: a court
+    // comes off sale only when BOTH captains have paid, never on the strength
+    // of one. It costs something — a walk-in can take an hour two captains are
+    // halfway through buying — and that case is why every path out of here
+    // tells both captains and tells the arena whose money it owes.
+    //
+    // What it buys is that the arena never holds a court against half a
+    // payment, so it never has to decide whether to release a slot somebody
+    // may already have been promised on the phone.
+    await db.challenge.updateMany({
+      where: { id: ctx.challengeId, bookingId: null },
+      data: { status: "PART_PAID" },
+    });
+    return { kind: "halfPaid", status: "PART_PAID" };
+  }
+
+  // Both halves are in. NOW buy the hour.
+  const bought = await buyTheHour(ctx, placed);
+  if (bought.kind !== "lostRace") return bought;
+
+  // Somebody else's request bought it in the same instant.
   const winner = await db.challenge.findUnique({
     where: { id: ctx.challengeId },
     select: { bookingId: true },
   });
-  // No booking and no court: there is nothing for this money to settle
-  // against, so say so rather than stamping the half placed and moving a
-  // ledger that does not exist.
   if (!winner?.bookingId) return { kind: "lostRace" };
-  return settleAgainst(ctx, winner.bookingId);
+  return { kind: "settled", bookingId: winner.bookingId, status: "CONFIRMED" };
 }
 
-/** Create the booking and try to attach it. The attach is the serialisation. */
-async function tryBlockCourt(ctx: {
+/**
+ * The hour went. Close the challenge out, completely and out loud.
+ *
+ * Since a court is only taken off sale once BOTH captains have paid, an hour
+ * somebody is halfway through buying can be sold to a walk-in. That is the
+ * cost the venue accepted, and this function is the whole of what makes it
+ * acceptable: nobody is left wondering, and nobody's money is left to be
+ * discovered later.
+ *
+ * Three audiences, deliberately:
+ *
+ *  - Both captains hear that the hour is gone, whether they paid or not,
+ *    because a match neither of them can play is news to both of them.
+ *  - Whoever paid hears that their money is coming back.
+ *  - The ARENA hears whose money it owes and how much, on its own admin push,
+ *    with a phone number in it — because there is no automatic refund in this
+ *    system and an owner who is not told will not make one.
+ *
+ * Idempotent: the challenge's status is the claim (conditional update), and
+ * each half's `refundOwedAt` is its own claim, so a replay or a second sweep
+ * re-tells nobody.
+ */
+async function discardForLostHour(args: {
   challengeId: string;
-  slot: ClaimedSlot;
-  challenge: { sport: string; createdByUserId: string };
-  win: { date: Date; startHour: number; endHour: number; courtConfigId: string | null };
-  razorpayOrderId: string;
-  razorpayPaymentId: string;
-  razorpaySignature: string;
-  platform?: string;
-}): Promise<Placement | { kind: "lostRace" }> {
+  reason: string;
+  captains: ({ id: string; name: string | null } | null)[];
+  pushVars: Record<string, string | number>;
+  slotLostTemplate: { title: string; body: string };
+}): Promise<boolean> {
+  // One discard per challenge. Two payers racing, or a sweep landing on the
+  // same challenge as a capture, must not announce it twice.
+  const claimed = await db.challenge.updateMany({
+    where: { id: args.challengeId, status: { notIn: ["SLOT_LOST", "WITHDRAWN", "EXPIRED"] } },
+    data: { status: "SLOT_LOST" },
+  });
+  if (claimed.count === 0) return false;
+
+  await logChallengeEvent({
+    type: "SLOT_LOST",
+    challengeId: args.challengeId,
+    detail: args.reason,
+  });
+
+  // Every captured half on this challenge is owed back.
+  const owed = await db.challengePayment.findMany({
+    where: { challengeId: args.challengeId, paidAt: { not: null }, refundedAt: null },
+    select: {
+      id: true,
+      amount: true,
+      side: true,
+      user: { select: { id: true, name: true, phone: true } },
+    },
+  });
+
+  for (const row of owed) {
+    const first = await markRefundOwed(row.id, args.reason);
+    if (!first) continue;
+    await logChallengeEvent({
+      type: "REFUSED",
+      userId: row.user.id,
+      challengeId: args.challengeId,
+      detail: `paid ₹${row.amount} as ${row.side.toLowerCase()} — refund owed, ${args.reason}`,
+    });
+    await notifyUser(row.user.id, {
+      type: "CHALLENGE_REFUND_OWED",
+      title: "We owe you a refund",
+      body: `₹${row.amount} for that hour is coming back to you in full. It was booked by somebody else before both halves were in.`,
+      link: `/challenges/${args.challengeId}`,
+    }).catch(() => undefined);
+    await tellTheArenaAboutARefund({
+      name: row.user.name ?? "A captain",
+      phone: row.user.phone ?? "",
+      amount: row.amount,
+      hour: String(args.pushVars.hour ?? ""),
+      date: String(args.pushVars.date ?? ""),
+      court: String(args.pushVars.court ?? ""),
+    });
+  }
+
+  // Both captains, paid or not. Sent AFTER the refund notices so the refund is
+  // the last thing whoever paid reads.
+  for (const u of args.captains) {
+    if (!u) continue;
+    await notifyUser(u.id, {
+      type: "CHALLENGE_SLOT_LOST",
+      title: renderPush(args.slotLostTemplate.title, args.pushVars),
+      body: renderPush(args.slotLostTemplate.body, args.pushVars),
+      link: `/challenges/${args.challengeId}`,
+    }).catch(() => undefined);
+  }
+  return true;
+}
+
+/**
+ * Tell the arena it owes somebody money.
+ *
+ * Its own admin push, with its own configurable wording, because this is the
+ * only message in the module addressed to the venue rather than to a player —
+ * and the only one that may carry a phone number, which it needs: whoever
+ * reads it has to ring that person and refund by hand.
+ */
+async function tellTheArenaAboutARefund(vars: {
+  name: string;
+  phone: string;
+  amount: number;
+  hour: string;
+  date: string;
+  court: string;
+}): Promise<void> {
+  const stored = (await db.challengeSettings.findFirst({ select: { ownerRefundPush: true } }))
+    ?.ownerRefundPush;
+  const tpl = resolveTemplate(stored, DEFAULT_OWNER_REFUND_PUSH);
+  const { sendToAdmins } = await import("@/lib/push");
+  await sendToAdmins({
+    title: renderPush(tpl.title, vars),
+    body: renderPush(tpl.body, vars),
+    data: { kind: "admin_challenge_refund_owed", amount: String(vars.amount) },
+  }).catch((e) => console.error("[challenges] could not tell the arena about a refund:", e));
+}
+
+/**
+ * Buy the hour, with BOTH halves' money, in one go.
+ *
+ * Replaces the old pair of functions — one that created a booking on the
+ * first payment and one that settled the second against it. There is no
+ * first-payment booking any more, so there is no half-settled booking to
+ * reconcile: the court is bought once, for the sum of what both captains
+ * actually paid, or it is not bought at all.
+ *
+ * Two things this must get right, because both have cost money before:
+ *
+ *  - The conditional attach is the serialisation point. Two halves landing in
+ *    the same instant both reach here; exactly one wins, and the loser's
+ *    booking is rolled back by its own transaction rather than deleted
+ *    afterwards, so no moment exists where a booking holds an hour without
+ *    being attached to the challenge that paid for it.
+ *  - `advanceAmount` is the sum of the two captures, never a recomputed
+ *    percentage. Whatever the venue did to `advancePct` or to the hour's
+ *    price between the two payments, what was collected online is what was
+ *    collected online. A repricing in between moves the GATE balance and
+ *    nothing else.
+ */
+async function buyTheHour(
+  ctx: {
+    challengeId: string;
+    slot: ClaimedSlot;
+    challenge: { sport: string; createdByUserId: string };
+    win: { date: Date; startHour: number; endHour: number; courtConfigId: string | null };
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+    platform?: string;
+  },
+  placed: { id: string; side: string; amount: number; razorpayPaymentId: string | null }[],
+): Promise<Placement> {
   const hours = windowHours(ctx.win.startHour, ctx.win.endHour);
 
-  // ONLY the court this half was quoted against. Re-searching let the
-  // booking land on a cheaper court when the quoted one went — two captains
-  // charged for a full pitch and given half of one, with `amount` no longer
-  // equal to `advanceAmount`. Losing the quoted court is SLOT_LOST, not a
-  // downgrade nobody is told about.
+  // The court both captains were quoted, or nothing. Silently moving a match
+  // to a different court — cheaper, smaller, or just not the one they agreed
+  // — is not a thing this may do on its own.
   const quotedCourt = ctx.slot.quotedCourtConfigId ?? ctx.win.courtConfigId;
   const courtId = quotedCourt
     ? (await freeCourtFor(ctx.challenge.sport, ctx.win.date, hours, quotedCourt)) === quotedCourt
       ? quotedCourt
       : null
     : await freeCourtFor(ctx.challenge.sport, ctx.win.date, hours, null);
+
   if (!courtId) {
-    // The court may be "taken" precisely because the other captain just
-    // booked it. Re-ask before writing SLOT_LOST — telling two paying
-    // customers their hour is gone, on a match that is booked, is the
-    // costliest wrong answer this function can give.
+    // THE HOUR WENT. Nothing was ever held, so this is the case the venue
+    // accepted when it chose to block only on the second payment — and every
+    // rupee on this challenge is now owed back.
     const now = await db.challenge.findUnique({
       where: { id: ctx.challengeId },
       select: { bookingId: true },
     });
     if (now?.bookingId) return { kind: "lostRace" };
-    await db.challenge.update({
-      where: { id: ctx.challengeId },
-      data: { status: "SLOT_LOST" },
-    });
     return { kind: "slotLost" };
   }
 
@@ -1066,183 +1295,156 @@ async function tryBlockCourt(ctx: {
     price: prices.find((p) => p.hour === h)?.price ?? 0,
   }));
   const total = slots.reduce((s, x) => s + x.price, 0);
-  // THE ADVANCE THIS HALF WAS QUOTED AGAINST, not a live read.
-  //
-  // Reading `advancePct` here meant the booking's advance was whatever the
-  // venue's setting happened to be at the instant the capture landed, while
-  // the money charged came from the quote taken when the sheet opened. Move
-  // the percentage in between and the two describe different deals: at
-  // 50→100 the first captain paid ₹500 of a ₹2000 advance and the second was
-  // asked for ₹1500 — a 1:3 split on a feature whose whole promise is "each
-  // pays half" — and at 50→10 the second half came to ₹0, which Razorpay
-  // refuses, so that captain could NEVER pay and the court stayed blocked
-  // and unconfirmed for ever.
-  //
-  // The fallback is only for rows written before this column existed.
-  const settings = await db.challengeSettings.findFirst({ select: { advancePct: true } });
-  const advance =
-    ctx.slot.quotedAdvance ?? Math.round((total * (settings?.advancePct ?? 50)) / 100);
+  // What was actually captured, from both sides. This IS the advance.
+  const advance = placed.reduce((s, p) => s + p.amount, 0);
+  const gateBalance = Math.max(0, total - advance);
+  // Deterministic: the first half placed is the booking's primary reference
+  // and the second is the secondary, so a settlement report reconciles the
+  // same way every time.
+  const [first, second] = placed;
 
-  // ONE transaction. Creating the booking and attaching it as two
-  // statements left a window where the hour was occupied by a PENDING
-  // booking while `challenge.bookingId` was still null — so a second
-  // captain paying in that instant found the court taken, was told "that
-  // hour went, your money is safe", and both captains were pushed
-  // SLOT_LOST for a match that was in fact booked and confirmed. It also
-  // meant any crash between the two left an orphan booking holding the hour
-  // for ever, after which EVERY later payment on that challenge returned
-  // SLOT_LOST against the challenge's own booking.
-  //
-  // Rolling the attach into the transaction makes the two facts atomic: the
-  // booking either exists AND is attached, or does not exist at all.
-  const placed = await db
+  const bought = await db
     .$transaction(async (tx) => {
       const created = await tx.booking.create({
         data: {
           userId: ctx.challenge.createdByUserId,
           courtConfigId: courtId,
           date: ctx.win.date,
-          // PENDING already occupies the slot (OCCUPYING_BOOKING_STATUSES),
-          // so creating this row IS the block.
-          status: "PENDING",
+          // CONFIRMED, not PENDING: both halves of the advance are in, so
+          // there is nothing provisional left about it. The old PENDING row
+          // existed to hold an hour against one payment, which is exactly
+          // what no longer happens.
+          status: "CONFIRMED",
           totalAmount: total,
           platform: ctx.platform ?? "ios",
           slots: { create: slots },
           payment: {
             create: {
               method: "RAZORPAY",
-              status: "PARTIAL",
-              amount: ctx.slot.amount,
-              isPartialPayment: true,
+              status: gateBalance > 0 ? "PARTIAL" : "COMPLETED",
+              amount: advance,
+              isPartialPayment: gateBalance > 0,
               advanceAmount: advance,
-              remainingAmount: total - ctx.slot.amount,
+              remainingAmount: gateBalance,
+              confirmedAt: new Date(),
               razorpayOrderId: ctx.razorpayOrderId,
-              razorpayPaymentId: ctx.razorpayPaymentId,
+              razorpayPaymentId: first?.razorpayPaymentId ?? ctx.razorpayPaymentId,
               razorpaySignature: ctx.razorpaySignature,
+              secondRazorpayPaymentId: second?.razorpayPaymentId ?? null,
             },
           },
         },
         select: { id: true },
       });
 
-      // This half is PLACED now, so it counts toward the status. Conditional
-      // for the same reason as the attach below: a retry racing the repair
-      // sweep must not place one capture twice.
-      const stamped = await tx.challengePayment.updateMany({
-        where: { id: ctx.slot.rowId, placedAt: null },
-        data: { placedAt: new Date() },
-      });
-      if (stamped.count === 0) throw new LostRace();
-      const sides = await tx.challengePayment.findMany({
-        where: { challengeId: ctx.challengeId, paidAt: { not: null }, placedAt: { not: null } },
-        select: { side: true },
-      });
-      const status = statusAfterPayment(sides.map((x) => x.side as ChallengeSide));
-
       const attached = await tx.challenge.updateMany({
         where: { id: ctx.challengeId, bookingId: null },
-        data: { status, bookingId: created.id },
+        data: { status: "CONFIRMED", bookingId: created.id },
       });
-      // Throwing rolls the booking back rather than deleting it afterwards,
-      // so there is no moment where it exists unattached.
+      // Throwing rolls the booking back rather than deleting it afterwards.
       if (attached.count === 0) throw new LostRace();
-      return { bookingId: created.id, status };
+      return { bookingId: created.id };
     })
     .catch((e) => {
       if (e instanceof LostRace) return null;
       throw e;
     });
 
-  if (!placed) return { kind: "lostRace" };
-  return { kind: "blocked", bookingId: placed.bookingId, status: placed.status };
+  if (!bought) return { kind: "lostRace" };
+  return { kind: "booked", bookingId: bought.bookingId, status: "CONFIRMED" };
 }
 
 /** Thrown to roll back a booking whose challenge was claimed by somebody else. */
 class LostRace extends Error {}
 
-/** Settle this half against a booking that already holds the hour. */
-async function settleAgainst(
-  ctx: { challengeId: string; slot: ClaimedSlot; razorpayPaymentId: string },
-  bookingId: string,
-): Promise<Placement> {
-  const booking = await db.booking.findUnique({
-    where: { id: bookingId },
+/**
+ * Challenges whose hour has been sold to somebody else.
+ *
+ * Nothing holds a court until both captains have paid, so between a challenge
+ * being posted and its second half landing, an ordinary booking can take the
+ * hour. Nobody finds out from the payment path, because nobody is paying —
+ * which is exactly the case the venue asked to be communicated: the captains
+ * must hear that the hour is gone, and if money is in, the arena must hear
+ * whose it owes.
+ *
+ * Runs on the per-minute cron, so "somebody else booked it" reaches both
+ * captains within a minute rather than when one of them next opens the app.
+ *
+ * A challenge with several times offered is NOT discarded because one of them
+ * went — the others are still playable, and killing a live challenge over one
+ * lost option would throw away the reason for offering three. It is discarded
+ * when there is nothing left to play: the agreed hour has gone, or every
+ * offered hour has.
+ */
+export async function discardChallengesWhoseHourWent(now = new Date()): Promise<number> {
+  const live = await db.challenge.findMany({
+    where: {
+      status: { in: ["OPEN", "COUNTERED", "AGREED", "PART_PAID"] },
+      bookingId: null,
+    },
     select: {
       id: true,
-      payment: {
-        select: { id: true, remainingAmount: true, advanceAmount: true, amount: true },
+      sport: true,
+      teamName: true,
+      agreedWindowId: true,
+      createdBy: { select: { id: true, name: true } },
+      acceptedBy: { select: { id: true, name: true } },
+      windows: {
+        where: { status: { in: ["OFFERED", "ACCEPTED"] } },
+        select: { id: true, date: true, startHour: true, endHour: true, courtConfigId: true },
       },
+      payments: { where: { paidAt: { not: null } }, select: { quotedCourtConfigId: true } },
     },
+    take: 200,
   });
-  if (!booking) return { kind: "lostRace" };
 
-  // Settle what the BOOKING says is outstanding, never a fresh quote. Live
-  // re-pricing meant any rate or advancePct edit inside the payment window
-  // overcharged the second captain, breaking the one arithmetic promise
-  // this module makes: the two halves add back to exactly the advance.
-  const owed = Math.max(
-    0,
-    (booking.payment?.advanceAmount ?? 0) - (booking.payment?.amount ?? 0),
-  );
-  // Nothing outstanding means nothing to move. The old fallback to
-  // `ctx.slot.amount` here was a double-count waiting for a second settle
-  // against an already-settled booking — two overlapping repair sweeps, for
-  // instance — and it would have pushed the ledger past the advance with no
-  // capture behind the excess.
-  const settling = owed;
-  // Computed from the POST-decrement figure: with advancePct at 100 there
-  // is no venue balance, and the pre-decrement value would leave the
-  // payment PARTIAL for ever with nothing left to collect.
-  const venueBalanceAfter = Math.max(0, (booking.payment?.remainingAmount ?? 0) - settling);
+  let discarded = 0;
+  for (const c of live) {
+    // The agreed hour if there is one, otherwise every hour still on offer.
+    const decisive = c.agreedWindowId
+      ? c.windows.filter((w) => w.id === c.agreedWindowId)
+      : c.windows;
+    if (decisive.length === 0) continue;
 
-  // The status is computed as "the sides already placed, plus this one",
-  // because this one is not placed until the transaction below commits.
-  const status = statusAfterPayment([...(await paidSides(ctx.challengeId)), ctx.slot.side]);
-
-  // ONE interactive transaction, because the stamp has to be BOTH the
-  // serialisation point and part of the same commit as the money.
-  //
-  // The previous version had the conditional stamp a round-trip ahead of the
-  // ledger writes, and a crash in that window marked the half placed while
-  // the money, the booking status and the challenge status all rolled back.
-  // That state was unreachable by every recovery path at once: a retry hit
-  // the already-done short-circuit, the repair sweep skips placed rows, the
-  // half-paid panel saw two paid sides, the refunds panel saw no flag, and
-  // the payer was told they had already paid. ₹500 captured against a
-  // booking that still wanted ₹1500 — the exact bug this round was called to
-  // close, moved one function down.
-  await db.$transaction(async (tx) => {
-    // Two callers holding the same claimed row — a retry racing the repair
-    // sweep — must not both move the ledger. Whoever stamps, settles.
-    const claimed = await tx.challengePayment.updateMany({
-      where: { id: ctx.slot.rowId, placedAt: null },
-      data: { placedAt: new Date() },
-    });
-    if (claimed.count === 0) return;
-
-    if (booking.payment) {
-      await tx.payment.update({
-        where: { id: booking.payment.id },
-        data: {
-          // PARTIAL while the gate balance is owed — marking it COMPLETED
-          // would tell the collect screens there is nothing to take on the
-          // day.
-          status: venueBalanceAfter > 0 ? "PARTIAL" : "COMPLETED",
-          amount: { increment: settling },
-          remainingAmount: { decrement: settling },
-          confirmedAt: new Date(),
-          // The second capture, on the venue-facing record. Reconciling a
-          // Razorpay settlement report against `razorpayPaymentId` left every
-          // second half unmatched.
-          secondRazorpayPaymentId: ctx.razorpayPaymentId,
-        },
-      });
-      await tx.booking.update({ where: { id: booking.id }, data: { status: "CONFIRMED" } });
+    // A window is dead if the court it was quoted on is gone, or — when no
+    // court was pinned — if no court of that sport is free for it any more.
+    const quotedCourt = c.payments.find((p) => p.quotedCourtConfigId)?.quotedCourtConfigId ?? null;
+    const alive: typeof decisive = [];
+    for (const w of decisive) {
+      // Only hours still in the future can be lost; a window already in the
+      // past is the expiry sweep's business, not this one's.
+      if (slotStart(w.date, w.startHour).getTime() <= now.getTime()) continue;
+      const want = quotedCourt ?? w.courtConfigId;
+      const free = await freeCourtFor(c.sport, w.date, windowHours(w.startHour, w.endHour), want);
+      if (want ? free === want : !!free) alive.push(w);
     }
-    await tx.challenge.update({ where: { id: ctx.challengeId }, data: { status } });
-  });
+    if (alive.length > 0) continue;
 
-  return { kind: "settled", bookingId, status };
+    const gone = decisive[0];
+    const court = quotedCourt ?? gone.courtConfigId;
+    const label = court
+      ? (await db.courtConfig.findUnique({ where: { id: court }, select: { label: true } }))?.label
+      : null;
+    const tpls = await db.challengeSettings.findFirst({ select: { slotLostPush: true } });
+    const ok = await discardForLostHour({
+      challengeId: c.id,
+      reason: "the hour was booked by somebody else before both halves were in",
+      captains: [c.createdBy, c.acceptedBy],
+      pushVars: {
+        name: "The other captain",
+        team: c.teamName ?? c.createdBy?.name ?? "the other side",
+        hour: `${hourWord(gone.startHour)}–${hourWord(gone.endHour)}`,
+        date: istDayLabel(gone.date),
+        court: label ?? "",
+        amount: 0,
+        total: 0,
+        balance: 0,
+      },
+      slotLostTemplate: resolveTemplate(tpls?.slotLostPush, DEFAULT_LIFECYCLE_PUSHES.slotLost),
+    });
+    if (ok) discarded += 1;
+  }
+  return discarded;
 }
 
 /**
@@ -1287,8 +1489,41 @@ export async function resumeStalledPayments(now = new Date()): Promise<number> {
     take: 50,
   });
 
+  // A challenge can also stall with BOTH halves placed and no booking — the
+  // request that should have bought the hour died after stamping. Those rows
+  // are not selected above (they are placed), so ask for them separately and
+  // re-run the payer's own path, which is idempotent.
+  const unbought = await db.challengePayment.findMany({
+    where: {
+      placedAt: { not: null, lt: new Date(now.getTime() - 2 * 60000) },
+      refundOwedAt: null,
+      refundedAt: null,
+      razorpayOrderId: { not: null },
+      razorpayPaymentId: { not: null },
+      challenge: { bookingId: null, status: { in: ["AGREED", "PART_PAID"] } },
+    },
+    select: {
+      id: true,
+      challengeId: true,
+      userId: true,
+      side: true,
+      amount: true,
+      acceptWindowId: true,
+      quotedCourtConfigId: true,
+      quotedAdvance: true,
+      razorpayOrderId: true,
+      razorpayPaymentId: true,
+      razorpaySignature: true,
+      challenge: { select: { payments: { where: { placedAt: { not: null } }, select: { side: true } } } },
+    },
+    take: 50,
+  });
+  const bothIn = unbought.filter(
+    (r) => new Set(r.challenge.payments.map((p) => p.side)).size >= 2,
+  );
+
   let finished = 0;
-  for (const row of stalled) {
+  for (const row of [...stalled, ...bothIn]) {
     const result = await placeClaimedPayment({
       challengeId: row.challengeId,
       userId: row.userId,
@@ -1503,38 +1738,24 @@ async function placeClaimedPayment(args: {
   };
 
   if (placement.kind === "slotLost") {
-    // Same dedupe as `refundOwed`: a replayed capture must not re-announce a
-    // lost hour to both captains or re-state the debt in the feed.
-    const firstTime = await markRefundOwed(
-      slot.rowId,
-      "the hour went before the first half landed",
-    );
-    if (!firstTime) {
-      return {
-        ok: false,
-        error: "That hour went before we could hold it. Your money is safe — the arena will refund it.",
-      };
-    }
-    await logChallengeEvent({
-      type: "SLOT_LOST",
-      userId,
+    // THE HOUR WENT, AND BOTH CAPTAINS HAVE PAID.
+    //
+    // Nothing was holding the court, which is the deal the venue chose. So
+    // this is the one outcome that has to be handled completely rather than
+    // merely handled: every captured half is flagged, both captains are told,
+    // and the arena is told whose money it owes and how much — because no
+    // refund here happens by itself.
+    await discardForLostHour({
       challengeId,
-      detail: "the hour went before the first half landed — refund owed",
+      reason: "the hour was booked by somebody else before both halves were in",
+      captains: [c.createdBy, c.acceptedBy],
+      pushVars,
+      slotLostTemplate: resolveTemplate(tpls?.slotLostPush, DEFAULT_LIFECYCLE_PUSHES.slotLost),
     });
-    const lost = resolveTemplate(tpls?.slotLostPush, DEFAULT_LIFECYCLE_PUSHES.slotLost);
-    for (const u of [c.createdBy, c.acceptedBy]) {
-      if (u) {
-        await notifyUser(u.id, {
-          type: "CHALLENGE_SLOT_LOST",
-          title: renderPush(lost.title, pushVars),
-          body: renderPush(lost.body, pushVars),
-          link: `/challenges/${challengeId}`,
-        });
-      }
-    }
     return {
       ok: false,
-      error: "That hour went before we could hold it. Your money is safe — the arena will refund it.",
+      error:
+        "That hour was taken before both halves were in. Nothing is held — the arena will refund you in full.",
     };
   }
 
@@ -1544,7 +1765,9 @@ async function placeClaimedPayment(args: {
     userId,
     challengeId,
     detail: `${slot.side.toLowerCase()} paid ₹${slot.amount}${
-      placement.kind === "blocked" ? " · court blocked" : " · balance settled"
+      placement.kind === "halfPaid"
+        ? " · waiting on the other half, the hour is NOT held"
+        : " · both halves in, court booked"
     }`,
   });
 
@@ -1583,13 +1806,19 @@ async function placeClaimedPayment(args: {
           type: "CHALLENGE_CONFIRMED",
           title: renderPush(done.title, pushVars),
           body: renderPush(done.body, pushVars),
-          link: placement.bookingId
-            ? `/bookings/${placement.bookingId}`
-            : `/challenges/${challengeId}`,
+          link:
+            placement.kind === "booked" || placement.kind === "settled"
+              ? `/bookings/${placement.bookingId}`
+              : `/challenges/${challengeId}`,
         });
       }
     }
   }
 
-  return { ok: true, status: placement.status, bookingId: placement.bookingId };
+  return {
+    ok: true,
+    status: placement.status,
+    bookingId:
+      placement.kind === "booked" || placement.kind === "settled" ? placement.bookingId : null,
+  };
 }

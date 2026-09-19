@@ -221,8 +221,8 @@ export function ChallengeDetailScreen() {
         res.status === "CONFIRMED"
           ? "Both halves are in and the court is booked. See you there."
           : acceptWindowId
-            ? "You're in, and the hour is now blocked. We've told the other captain their half is due."
-            : "Your half is paid and the hour is now blocked. We've told the other captain theirs is due.",
+            ? "You're in. We've told the other captain their half is due — the hour is only held once both halves are in."
+            : "Your half is paid. We've told the other captain theirs is due — the hour is only held once both halves are in.",
       );
     } catch (e) {
       Alert.alert("Payment problem", challengeErrorMessage(e));
@@ -365,7 +365,7 @@ export function ChallengeDetailScreen() {
                 : c.status === "PART_PAID"
                   ? quote.youHavePaid
                     ? "Your half is in"
-                    : "The court is held — your half is due"
+                    : "Your half is due — the hour isn't held yet"
                   : "Match agreed"}
             </Text>
 

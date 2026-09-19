@@ -9,6 +9,8 @@ import {
   LIFECYCLE_VARIABLES,
   LIFECYCLE_LABELS,
   DEFAULT_LIFECYCLE_PUSHES,
+  OWNER_VARIABLES,
+  DEFAULT_OWNER_REFUND_PUSH,
   type LifecyclePush,
   DEFAULT_WON_PUSH,
   DEFAULT_ADJACENT_PUSHES,
@@ -64,6 +66,7 @@ type Settings = {
   spinsPerPosterCap: number;
   spinsPerPosterPerDays: number;
   spinWonPush: unknown;
+  ownerRefundPush: unknown;
   agreedPush: unknown;
   payHalfPush: unknown;
   confirmedPush: unknown;
@@ -693,13 +696,17 @@ export function ChallengesAdmin({
             </div>
           )}
 
-          {/* The consequence of "block the court on the first payment". One
-              captain's money is in, the hour is off the board, and the other
-              half may never arrive — so the venue has a real decision to
-              make on each of these: chase it, take the balance at the gate,
-              or cancel the booking and refund. Nothing here resolves itself,
-              deliberately: auto-cancelling would release a court the venue
-              may already have promised on the phone.
+          {/* The consequence of "the court is bought only when BOTH have
+              paid". One captain's money is in, the hour is still on sale, and
+              the second half may never arrive — so the venue is holding money
+              against nothing. Two ways out, and both need a person: chase the
+              other captain, or refund the half that paid.
+
+              The urgent case is the reverse one: if the hour gets sold to
+              somebody else while a challenge sits here, the cron discards the
+              challenge, refunds are flagged, and you get a push naming whose
+              money you owe. This panel is what you work through BEFORE that
+              happens.
 
               Computed on the server now, from DISTINCT SIDES PAID rather
               than from a count of rows. Rows are created lazily, one per
@@ -710,11 +717,13 @@ export function ChallengesAdmin({
           {initial.halfPaid.length > 0 && (
             <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
               <p className="text-sm font-medium text-amber-300">
-                Half paid — the court is blocked and someone still owes
+                Half paid — money in, hour NOT held
               </p>
               <p className="mt-0.5 text-xs text-zinc-400">
-                One side has paid and the hour is held. Chase the other half, take it at the gate,
-                or cancel the booking and refund what was paid.
+                One side has paid and the court is still on sale, because it is only taken off
+                sale once both halves are in. Chase the other captain, or refund what was paid.
+                If somebody else books the hour first, the challenge is discarded automatically
+                and you will be told whose money to return.
               </p>
               <div className="mt-3 space-y-2">
                 {initial.halfPaid.map((c) => (
@@ -832,7 +841,7 @@ export function ChallengesAdmin({
                           href={`/admin/bookings/${c.bookingId}`}
                           className="rounded border border-sky-500/40 px-2 py-0.5 text-sky-300 hover:bg-sky-500/10"
                         >
-                          court blocked → booking
+                          booked → open booking
                         </a>
                       )}
                     </div>
@@ -1057,7 +1066,7 @@ function PromoTab({
 
       <Panel
         title="Segments and weights"
-        desc="Edit these; the average is what follows from them. A higher weight means that slice wins more often."
+        desc="Edit these; the average is what follows from them. A higher weight means that slice wins more often — but NOT a bigger slice on screen: the app draws every segment as an equal wedge, so the weights decide the odds and nothing else. Keep the list short enough to read on a phone; past a dozen segments the labels stop fitting."
       >
         {usingBuiltInWheel && (
           <p className="mb-3 rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
@@ -1313,7 +1322,7 @@ function PromoTab({
 
       <Panel
         title="What the match itself says"
-        desc="The five messages a match sends as it moves. These are the ones every captain reads, so they are the venue's words, not the code's. There is no way to switch one off — a captain whose court is held and who is never told has lost money to silence — only different words."
+        desc="The five messages a match sends as it moves. These are the ones every captain reads, so they are the venue's words, not the code's. There is no way to switch one off — a captain who is never told is a captain whose money sits there while the hour gets sold to somebody else — only different words."
       >
         <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
           {LIFECYCLE_VARIABLES.map((v) => (
@@ -1340,6 +1349,32 @@ function PromoTab({
             }}
           />
         ))}
+      </Panel>
+
+      <Panel
+        title="What YOU are told"
+        desc="The one message in this module addressed to the arena rather than to a player. It goes to the admin app when a captain's money has to be given back — because a court is only taken off sale once both halves are in, so an hour somebody is halfway through buying can be sold to a walk-in. Nothing refunds automatically: if this message does not reach you, the refund does not happen."
+      >
+        <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
+          {OWNER_VARIABLES.map((v) => (
+            <span key={v.name} className="rounded bg-zinc-900 px-1.5 py-0.5">
+              {"{"}
+              {v.name}
+              {"}"} → {v.example}
+            </span>
+          ))}
+        </div>
+        <PushEditor
+          title="Refund owed"
+          desc="Keep the amount and the phone number in it. Whoever reads this has to ring that person and refund by hand, and a message that makes them go and look the number up is a message that gets postponed."
+          single
+          variables={OWNER_VARIABLES}
+          value={asPushList(s.ownerRefundPush, [DEFAULT_OWNER_REFUND_PUSH])}
+          onSave={(list) => {
+            setS({ ...s, ownerRefundPush: list[0] });
+            save({ ownerRefundPush: { title: list[0].title, body: list[0].body } });
+          }}
+        />
       </Panel>
 
       <Panel

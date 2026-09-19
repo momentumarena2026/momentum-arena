@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7).
+**Last substantive update:** 2026-09-19 · accurate as of `main` = `48b83d0d` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -650,35 +650,57 @@ them, which is a worse first impression of a feature they have never heard of.
 Notifications precedent), so Back from the Home card returns to Home rather
 than stranding the user on a tab they never chose.
 
-**Paying: the first half blocks the court** (venue's decision, 2026-09-18;
-`lib/challenge-payments.ts`). No Indian rail can hold a UPI customer's money
-pending a stranger's decision — Razorpay auth/capture is card-only, UPI
-mandates exclude PhonePe and GPay — so somebody's money is exposed whatever
-you do, and the only question is against what. Blocking on the first payment
-means that captain's money buys the hour immediately.
+**Paying: the court is bought only when BOTH halves are in** (venue's
+decision, 2026-09-19, reversing the 2026-09-18 decision that the first payment
+blocked it; `lib/challenge-payments.ts`).
 
-Three consequences worth knowing before touching this:
+No Indian rail can hold a UPI customer's money pending a stranger's decision —
+Razorpay auth/capture is card-only and UPI mandates exclude PhonePe and GPay —
+so somebody's money is exposed whatever you do, and the only question is
+against what. The venue's answer is: **against nothing**. A court stays on sale
+until both captains have paid, and neither half creates a booking on its own.
 
-- **A PENDING `Booking` IS the block.** `OCCUPYING_BOOKING_STATUSES` already
-  includes PENDING, so creating the booking takes the hour off the board with
-  no new hold concept. Do not add one.
-- **It is an ordinary booking, which is why analytics needed no changes.**
-  Money reaches revenue through the same `Booking`-joined queries as
-  everything else, so the module adds no new stream and escapes the
-  four-surface trap (gotcha 1) that has caught every previous one.
-- **`SLOT_LOST` is now nearly unreachable**, which was the point. The
-  alternative — hold nothing until both pay — had a case where both paid and a
-  walk-in had taken the hour in between: two refunds, no match. Now losing the
-  slot happens before any money moves, so it is a refusal rather than a refund.
+What that costs, and why it was chosen anyway: an hour two captains are halfway
+through buying **can be sold to a walk-in**. The venue accepted that in
+exchange for never holding a court against half a payment — which is what makes
+"chase it, or refund it" a decision a human can take calmly, instead of "cancel
+a slot I may already have promised on the phone".
 
-The mirror case is deliberately NOT automated: one side pays, the other never
-does, and the venue holds a blocked court against half the money. That is
-operationally identical to an advance booking whose customer never returned —
-chase it, take the balance at the gate, or cancel and refund by hand. The
-admin board has a "half paid" panel listing exactly these. **Do not add a
-timer that releases the court**: it would drop a slot the venue may already
-have sold on the phone, and it would take money for something it then
-un-booked.
+Because the cost is real, the communication is the feature, and all of it is
+load-bearing:
+
+- **`buyTheHour`** creates ONE booking, CONFIRMED, for the sum of both
+  captures. There is no PENDING challenge booking any more and no
+  second-half-settles-against-the-first path: the conditional attach is still
+  the serialisation point, and the loser's booking is rolled back by its own
+  transaction.
+- **`advanceAmount` is the sum of what was actually captured**, never a
+  recomputed percentage. A venue repricing between the two payments moves the
+  GATE balance and nothing else.
+- **The second half is quoted off the FIRST half's `quotedAdvance`**, because
+  there is no booking to read. Same invariant as before — the two halves add to
+  one advance — sourced from the first capture instead.
+- **`discardForLostHour`** is the whole of what makes the trade acceptable:
+  both captains are told the hour is gone (paid or not), everyone who paid is
+  told their money is coming back and has `refundOwedAt` stamped, and **the
+  arena gets its own admin push naming who is owed how much, with a phone
+  number in it**. Nothing here refunds automatically; if that message does not
+  land, the refund does not happen. Its wording is `ownerRefundPush` in
+  `ChallengeSettings` — the one template that may carry `{phone}`, kept out of
+  the shared customer variable set so the venue cannot leak one captain's
+  number to the other.
+- **`discardChallengesWhoseHourWent`** on the per-minute cron is the only path
+  by which "somebody booked your hour" reaches two captains who are not
+  currently paying. A challenge offering three times is NOT discarded because
+  one went — only when the agreed hour has gone, or every offered hour has.
+- **The lead-time gate moved to the SECOND payment.** It follows the money that
+  commits the venue to staffing an hour. Gating the first half would refuse a
+  payment that holds nothing.
+
+The mirror case is deliberately NOT automated: one side pays and the other
+never does. The venue is holding money against nothing, which is a phone call,
+not a timer. The admin board's "Half paid — money in, hour NOT held" panel
+lists exactly these.
 
 **Four invariants in `confirmChallengePayment` that testing paid for.** Each
 of these was a real defect found by a zero-context agent against staging, and
@@ -694,20 +716,22 @@ each is the kind that reads as fine in a diff:
    looser `paidAt` — there a claimed capture is still real money that must
    block the sweep.)
 2. **Create-and-attach is one transaction.** As two statements it left a
-   window where a PENDING booking occupied the hour while `challenge.bookingId`
-   was still null; a second captain paying inside it was told the hour was
-   gone and promised a refund on a match that was booked and confirmed. A
-   crash in that window also orphaned a booking that held the hour for ever,
-   after which every later payment read as `SLOT_LOST`.
-3. **Once the court is sold, every number comes off the BOOKING.** The
-   second half's charge, the quote the app shows, and the ledger move must be
-   one number. Re-quoting live meant an `advancePct` edit between the halves
-   charged ₹750 against a ₹500 ledger move (customer pays ₹2250 for a ₹2000
-   court) or ₹250 against ₹500 (₹250 of revenue nobody paid).
-   `sharesAgainstBooking` in `lib/challenge-rules.ts` holds the invariant and
-   is property-tested: the two halves always add to the booking's advance.
-4. **The lead-time gate runs at capture, not only at order.** Otherwise a
-   captain opens the sheet at T−4h01m and presses pay at T−5m.
+   window where a booking occupied the hour while `challenge.bookingId` was
+   still null; the other captain paying inside it was told the hour was gone
+   and promised a refund on a match that was in fact booked. A crash in that
+   window also orphaned a booking that held the hour for ever. Still true
+   under the both-halves rule — `buyTheHour` is the single transaction now.
+3. **The second half owes the rest of the FIRST half's advance.** Its charge,
+   the quote the app shows, and what lands on the booking must be one number.
+   Re-quoting live meant an `advancePct` edit between the halves charged ₹750
+   against a ₹500 ledger move (₹2250 for a ₹2000 court) or ₹250 against ₹500
+   (₹250 of revenue nobody paid). `sharesAgainstBooking` holds the invariant
+   and is property-tested; it now reads `ChallengePayment.quotedAdvance` from
+   the first capture, since under the both-halves rule there is no booking to
+   read until the end.
+4. **The lead-time gate runs at capture, not only at order** — otherwise a
+   captain opens the sheet at T−4h01m and presses pay at T−5m — and it gates
+   the SECOND half, the one that buys the hour.
 
 **Two rules about the admin screen that testing kept re-teaching.**
 

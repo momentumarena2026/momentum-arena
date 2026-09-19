@@ -287,7 +287,7 @@ export function statusLabel(status: string): string {
     case "AGREED":
       return "matched, both halves due";
     case "PART_PAID":
-      return "half paid, court held";
+      return "half paid — hour not held yet";
     case "CONFIRMED":
       return "paid, court booked";
     case "SLOT_LOST":

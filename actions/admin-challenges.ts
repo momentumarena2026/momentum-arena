@@ -10,17 +10,19 @@ import {
   DEFAULT_ADJACENT_PUSHES,
   DEFAULT_FALLBACK_PUSHES,
   templateRefusal,
-  type LifecyclePush,
 } from "@/lib/challenge-push";
 
 /** The five match-lifecycle messages, as settings keys. */
 const LIFECYCLE_KEYS = [
+  // The arena's own message is validated and stored exactly like the five
+  // customer ones; only its variable list differs, and that lives in the UI.
+  "ownerRefundPush",
   "agreedPush",
   "payHalfPush",
   "confirmedPush",
   "slotLostPush",
   "refundOwedPush",
-] as const satisfies readonly `${LifecyclePush}Push`[];
+] as const;
 import { challengeSettings } from "@/lib/challenges";
 
 /**
@@ -366,6 +368,7 @@ export type ChallengeSettingsInput = {
   ttlDays?: number;
   advancePct?: number;
   paymentWindowMins?: number;
+  ownerRefundPush?: unknown;
   agreedPush?: unknown;
   payHalfPush?: unknown;
   confirmedPush?: unknown;

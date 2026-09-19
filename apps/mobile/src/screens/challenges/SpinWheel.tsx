@@ -21,14 +21,20 @@ export type WheelSegment = { pct: number; weight: number };
  * of thing a player eventually notices, and once they do, every prize the
  * arena has ever given away looks rigged.
  *
- * ── Why the slices are proportional ────────────────────────────────
+ * ── The slices are EQUAL ───────────────────────────────────────────
  *
- * Each slice is sized by its WEIGHT, not split evenly. So the 50% slice is
- * visibly a sliver and the 10% slice is visibly fat. That is honest — the
- * odds are on the wheel, in front of you — and it is better theatre than
- * equal slices, because the needle sweeping past that thin band of gold is
- * the whole feeling the promo is selling. Equal slices would make a 1-in-10
- * jackpot look like a 1-in-6 one, which is a small lie told repeatedly.
+ * Every segment takes the same wedge of the circle, whatever its odds. That
+ * is a deliberate product decision: a wheel whose slices are sized by their
+ * weights draws the jackpot as a 3° splinter, which reads as a wheel that
+ * cannot be won rather than as a wheel with a rare prize.
+ *
+ * The ODDS are untouched — they still come from the venue's weights, and the
+ * server has already drawn the number before this screen renders. So the
+ * geometry is presentation and the weighting is the rule, and the two are
+ * deliberately not the same thing. The consequence is that nothing here may
+ * claim the picture shows the odds: the caption states the real chance in
+ * words ("about 1 in 12") instead, which is true and legible in a way a
+ * splinter of gold never was.
  *
  * ── The physics ───────────────────────────────────────────────────
  *
@@ -95,17 +101,18 @@ export function SpinWheel({
     }
   }, [visible, landOn, rotation]);
 
-  // Slice geometry, derived once from the venue's real weights.
+  // Slice geometry: one equal wedge per winnable segment. A zero-weight
+  // segment is not drawn at all — it cannot be landed on, so putting it on
+  // the wheel would promise a prize that never comes up.
   const slices = useMemo(() => {
     const live = segments.filter((s) => s.weight > 0);
-    const total = live.reduce((t, s) => t + s.weight, 0) || 1;
-    let cursor = 0;
-    return live.map((s) => {
-      const sweep = (s.weight / total) * 360;
-      const slice = { ...s, start: cursor, end: cursor + sweep, mid: cursor + sweep / 2 };
-      cursor += sweep;
-      return slice;
-    });
+    const sweep = 360 / (live.length || 1);
+    return live.map((s, i) => ({
+      ...s,
+      start: i * sweep,
+      end: (i + 1) * sweep,
+      mid: i * sweep + sweep / 2,
+    }));
   }, [segments]);
 
   const maxPct = useMemo(() => Math.max(...slices.map((s) => s.pct), 0), [slices]);
@@ -115,7 +122,12 @@ export function SpinWheel({
     const total = slices.reduce((t, x) => t + x.weight, 0) || 1;
     const top = slices.find((x) => x.pct === maxPct);
     const chance = top ? top.weight / total : 0;
-    return chance > 0 ? `1 in ${Math.round(1 / chance)}` : "never";
+    // Phrased as a whole sentence, because "about never spins" is what
+    // stitching a fragment into the caption produced when a wheel had the
+    // top prize weighted to zero.
+    return chance > 0
+      ? `about 1 spin in ${Math.round(1 / chance)}`
+      : "not on this wheel right now";
   }, [slices, maxPct]);
 
   useEffect(() => {
@@ -209,8 +221,10 @@ export function SpinWheel({
             <Svg width={SIZE} height={SIZE}>
               <G>
                 {slices.map((s, i) => {
-                  // A label only where the slice is wide enough to hold one;
-                  // a 3° sliver with "50%" printed across it reads as noise.
+                  // Every wedge is the same width now, so this is one
+                  // decision for the whole wheel rather than per slice: a
+                  // twelve-segment wheel gives 30° each, which holds a label
+                  // comfortably; past about twenty it stops doing so.
                   const sweep = s.end - s.start;
                   const rad = ((s.mid - 90) * Math.PI) / 180;
                   const lx = CENTRE + R * 0.68 * Math.cos(rad);
@@ -249,13 +263,12 @@ export function SpinWheel({
           </Animated.View>
         </View>
 
-        {/* The thin gold sliver is the point of the whole promo, so say what
-            it is rather than leaving people to squint at it. */}
+        {/* The slices are equal, so the chance has to be said in words. The
+            previous copy ("exactly as narrow as it looks") described a
+            proportional wheel and would now be simply false. */}
         {maxPct > 0 && (
-          <Text variant="tiny" color={colors.zinc500}>
-            {settled
-              ? `The gold sliver is ${maxPct}% — about ${jackpotOdds} of spins.`
-              : `The gold sliver is ${maxPct}%. It is exactly as narrow as it looks.`}
+          <Text variant="tiny" color={colors.zinc500} style={{ textAlign: "center" }}>
+            {`Gold is ${maxPct}% off — ${jackpotOdds}.`}
           </Text>
         )}
 

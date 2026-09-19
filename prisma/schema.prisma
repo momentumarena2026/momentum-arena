@@ -4522,6 +4522,13 @@ model ChallengeSettings {
   /// Null means the built-in copy. Unlike the promo nudges there is no "off":
   /// a captain whose court is held and who is never told has lost money to
   /// silence, so the venue can only change the words.
+  /// The message to the ARENA when a captain's money has to be given back —
+  /// `{title, body}` with {name} {phone} {amount} {hour} {date} {court}.
+  /// Its own template, and its own variable list, because it is the only one
+  /// that may name a customer's phone number: putting {phone} in the shared
+  /// customer set would let the venue leak one captain's number to the other.
+  ownerRefundPush Json?
+
   agreedPush     Json?
   payHalfPush    Json?
   confirmedPush  Json?

@@ -114,7 +114,12 @@ export type PushKind =
   | "admin_tournament_paid"
   | "admin_pass_purchased"
   // Someone registered for a coaching camp (online or entered at the desk).
-  | "admin_camp_registration";
+  | "admin_camp_registration"
+  // A challenge captain's money has to be given back: the hour they were
+  // buying went to somebody else before both halves were in. Carries the
+  // payer's name, number and amount, because whoever reads it has to act on
+  // it by hand — there is no automatic refund here.
+  | "admin_challenge_refund_owed";
 
 export interface PushPayload {
   title: string;

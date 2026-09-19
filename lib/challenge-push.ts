@@ -244,16 +244,16 @@ export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
     body: "{name} is in for {date} {hour}. Whoever pays their half first blocks the court; the match is confirmed once both halves are in.",
   },
   payHalf: {
-    title: "The court is held — your half is due",
-    body: "{name} paid their half and {date} {hour} is booked. Pay your ₹{amount} to confirm the match.",
+    title: "Your half is due — the hour isn't held yet",
+    body: "{name} has paid their half for {date} {hour}. The court is NOT held until both halves are in, so pay your ₹{amount} to lock it before somebody else books it.",
   },
   confirmed: {
     title: "Match confirmed",
     body: "Both halves are in and {court} is booked for {date} {hour}. ₹{balance} at the venue on the day. See you there.",
   },
   slotLost: {
-    title: "That hour went before we could hold it",
-    body: "Your payment is safe and the arena will refund it. Agree another time and we'll try again.",
+    title: "{date} {hour} has gone",
+    body: "Somebody else booked that hour before both halves were in. Anything you paid is being refunded in full. Agree another time and we'll try again.",
   },
   refundOwed: {
     title: "We owe you a refund",
@@ -271,12 +271,12 @@ export const LIFECYCLE_LABELS: Record<LifecyclePush, { title: string; desc: stri
   },
   payHalf: {
     title: "The other side paid — your half is due",
-    desc: "To the captain who still owes, once the first half has blocked the court. This is the message the whole flow depends on.",
+    desc: "To the captain who still owes, once the other half is in. The hour is NOT held yet at this point — this is the message the whole flow depends on, and it should say so.",
   },
   confirmed: { title: "Match confirmed", desc: "To both captains once both halves are in." },
   slotLost: {
     title: "The hour went",
-    desc: "To both captains when a walk-in took the court before the first half landed. Money is refunded.",
+    desc: "To BOTH captains when somebody else booked the court before both halves were in. Anyone who had paid is refunded, and you get your own notification saying whose money to return.",
   },
   refundOwed: {
     title: "A refund is owed",
@@ -289,8 +289,9 @@ export const LIFECYCLE_LABELS: Record<LifecyclePush, { title: string; desc: stri
  *
  * Deliberately unlike `resolvePushes`: an EMPTY object is not a way to switch
  * a lifecycle message off. "Your half is due" is transactional — a captain
- * whose court is held and who is never told has simply lost their money to
- * silence — so there is no off, only different words.
+ * who is never told is a captain whose money sits there while the hour they
+ * were buying gets sold to somebody else — so there is no off, only
+ * different words.
  */
 export function resolveTemplate(stored: unknown, fallback: PushTemplate): PushTemplate {
   if (!stored || typeof stored !== "object") return fallback;
@@ -309,3 +310,40 @@ export function templateRefusal(t: unknown): string | null {
   if (x.body.length > 300) return "That body is too long to send (300 characters).";
   return null;
 }
+
+/**
+ * What the ARENA is told when it owes somebody their money back.
+ *
+ * Separate from the customer templates and from their variable list. This is
+ * the only message in the module that may carry a phone number, and it needs
+ * one — an owner reading "we owe Rahul ₹500" at 9pm has to be able to ring
+ * Rahul without going and finding him in the admin panel first.
+ */
+export type OwnerVars = {
+  /** Who is owed. */
+  name: string;
+  /** Their number, so the arena can just call. */
+  phone: string;
+  /** How much, in whole rupees. */
+  amount: number;
+  /** "9pm–10pm". */
+  hour: string;
+  /** "Sun, 20 Sep". */
+  date: string;
+  /** "Full Field". */
+  court: string;
+};
+
+export const OWNER_VARIABLES: { name: keyof OwnerVars; example: string; note: string }[] = [
+  { name: "name", example: "Rahul", note: "who is owed the money" },
+  { name: "phone", example: "98765 43210", note: "their number, so you can ring them" },
+  { name: "amount", example: "500", note: "how much you owe them" },
+  { name: "hour", example: "9pm–10pm", note: "the hour that fell through" },
+  { name: "date", example: "Sun, 20 Sep", note: "the day it was for" },
+  { name: "court", example: "Full Field", note: "which court" },
+];
+
+export const DEFAULT_OWNER_REFUND_PUSH: PushTemplate = {
+  title: "Refund owed — ₹{amount} to {name}",
+  body: "{date} {hour} on {court} was booked by somebody else before both captains had paid. Refund ₹{amount} to {name} ({phone}).",
+};

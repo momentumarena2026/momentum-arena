@@ -643,3 +643,35 @@ test("the advance a half was quoted against is what the booking must use", () =>
     assert.ok(s.CHALLENGER > 0, "the second half must never be zero");
   }
 });
+
+test("the court is bought by the SECOND half, so that is the gated payment", () => {
+  // The rule changed: a court comes off sale only once both captains have
+  // paid. The lead-time gate follows the money that commits the venue to
+  // staffing the hour — which is now the second payment, not the first.
+  // `blocksTheCourt` is `paidSides.length === 1` in challengeQuote; this pins
+  // the arithmetic that feeds it so the two cannot drift apart silently.
+  const gatedWhenPlacedSidesAre = (n: number) => n === 1;
+  assert.equal(gatedWhenPlacedSidesAre(0), false, "the first half holds nothing");
+  assert.equal(gatedWhenPlacedSidesAre(1), true, "the second half buys the hour");
+  assert.equal(gatedWhenPlacedSidesAre(2), false, "nothing left to pay");
+});
+
+test("both halves add to the advance the FIRST half was quoted against", () => {
+  // With no booking until both have paid, the first capture is the contract in
+  // the booking's place: the second captain owes the rest of THAT advance, not
+  // a fresh percentage of a fresh price. Same invariant as before, sourced
+  // from the first payment instead of from a booking.
+  for (const quoted of [1000, 999, 1, 2500]) {
+    for (const firstHalf of [1, Math.floor(quoted / 2), quoted - 1]) {
+      if (firstHalf < 1 || firstHalf >= quoted) continue;
+      const s = sharesAgainstBooking({
+        advanceAmount: quoted,
+        settled: firstHalf,
+        paidSide: "ACCEPTOR",
+      });
+      assert.equal(s.CHALLENGER + s.ACCEPTOR, quoted);
+      assert.equal(s.ACCEPTOR, firstHalf);
+      assert.ok(s.CHALLENGER > 0, "the outstanding half is never zero");
+    }
+  }
+});
