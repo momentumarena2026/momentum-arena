@@ -230,13 +230,18 @@ function ResultCard({ result }: { result: RecoverRazorpayResult }) {
     const headline =
       result.state === "created"
         ? "Booking created from captured payment"
-        : "Booking already linked to this payment";
+        : result.note
+          ? "This payment is already accounted for"
+          : "Booking already linked to this payment";
     return (
       <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-5 space-y-3">
         <div className="flex items-center gap-2 text-emerald-300 font-semibold">
           <CheckCircle2 className="h-5 w-5" />
           {headline}
         </div>
+        {/* Challenge money may have no booking of its own yet — say why, so
+            nobody "recovers" it by building a second booking for it. */}
+        {result.note && <p className="text-sm text-zinc-300">{result.note}</p>}
         {result.bookingId && (
           <Link
             href={`/admin/bookings/${result.bookingId}`}

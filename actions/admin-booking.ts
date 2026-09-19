@@ -4052,6 +4052,10 @@ export interface RecoverRazorpayResult {
    *  needs to use the manual "+ New Booking" path. */
   state?: "created" | "already-linked" | "no-hold";
   bookingId?: string;
+  /** Extra context when the money is accounted for somewhere this tool does
+   *  not own — a challenge half, for instance, which may legitimately have no
+   *  booking yet because the court is bought only when both captains pay. */
+  note?: string;
   payment?: {
     id: string;
     orderId: string;
@@ -4104,7 +4108,13 @@ export async function recoverRazorpayPayment(
   //    Booking, return immediately. Saves a Razorpay round-trip when
   //    the admin pastes the same ID twice.
   const existing = await db.payment.findFirst({
-    where: { razorpayPaymentId: trimmed },
+    where: {
+      // A challenge court is paid for by TWO captures; the second lives in
+      // `secondRazorpayPaymentId`. Matching only the first told the admin that
+      // a perfectly accounted-for payment was unreconstructible, which invites
+      // them to build a second booking for money that already has one.
+      OR: [{ razorpayPaymentId: trimmed }, { secondRazorpayPaymentId: trimmed }],
+    },
     select: { bookingId: true },
   });
   if (existing) {
@@ -4154,6 +4164,31 @@ export async function recoverRazorpayPayment(
   // 3. Look up our SlotHold via the Razorpay order id we stamped at
   //    create-order time. If it's gone, the admin needs the manual
   //    path (slot info isn't reconstructible from Razorpay alone).
+  // Challenge money has no SlotHold and may legitimately have no booking yet —
+  // the court is bought only once both captains have paid. Say so, rather than
+  // reporting it as unreconstructible.
+  const challengeOrder = await db.challengeOrder.findUnique({
+    where: { razorpayOrderId: rzpPayment.order_id },
+    select: { challengeId: true, amount: true, side: true, settledAt: true, strandedAt: true },
+  });
+  if (challengeOrder) {
+    const c = await db.challenge.findUnique({
+      where: { id: challengeOrder.challengeId },
+      select: { bookingId: true, status: true },
+    });
+    return {
+      success: true,
+      state: "already-linked" as const,
+      bookingId: c?.bookingId ?? undefined,
+      note: challengeOrder.strandedAt
+        ? `Challenge money (${challengeOrder.side.toLowerCase()}, ₹${challengeOrder.amount}) that could not be honoured — it is on the challenges refunds queue. Do not create a booking for it.`
+        : challengeOrder.settledAt
+          ? `Challenge money (${challengeOrder.side.toLowerCase()}, ₹${challengeOrder.amount}) — already on the match's booking.`
+          : `Challenge money (${challengeOrder.side.toLowerCase()}, ₹${challengeOrder.amount}) waiting on the other captain's half. The court is bought only when both have paid. Do not create a booking for it.`,
+      payment: paymentMeta,
+    };
+  }
+
   const hold = await db.slotHold.findFirst({
     where: { razorpayOrderId: rzpPayment.order_id },
   });
