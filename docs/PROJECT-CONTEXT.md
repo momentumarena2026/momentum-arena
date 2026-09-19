@@ -750,6 +750,14 @@ venue's band. Four things about it are load-bearing:
   minute must still send the last call, which is the one that converts;
   each marker is recorded on the offer so an overlapping run cannot
   double-send. `/api/cron/challenge-offers` runs every minute.
+- **That cron also repairs money, so it is not optional.** It sweeps
+  `ChallengePayment` rows that were claimed and never placed and finishes
+  them (`resumeStalledPayments`). A capture is claimed before any booking
+  work, and the app verifies once, so without the sweep a request that died
+  in between leaves real money holding no court until a human notices.
+  GitHub only schedules `on: schedule` workflows from the **default branch**,
+  which means `cron-challenge-offers.yml` does nothing on `development` —
+  **it must be confirmed running before this module carries real money.**
 
 **ACCEPTING IS PAYING** (2026-09-19). There is no free AGREED state any
 more: a stranger buys into a challenge by paying their half, and that
