@@ -24,6 +24,8 @@ import {
   templateRefusal,
   DEFAULT_LIFECYCLE_PUSHES,
   LIFECYCLE_VARIABLES,
+  OWNER_VARIABLES,
+  DEFAULT_OWNER_REFUND_PUSH,
 } from "../lib/challenge-push";
 
 const vars: PushVars = {
@@ -261,4 +263,51 @@ test("an invisible character is not a way to switch a lifecycle message off", ()
   }
   // Ordinary copy still saves and still resolves.
   assert.equal(templateRefusal({ title: "Your half is due", body: "Pay ₹{amount}" }), null);
+});
+
+test("nothing that renders as nothing can switch a lifecycle message off", () => {
+  // Enumerating invisible characters one at a time let U+2800 (braille blank)
+  // and U+00AD (soft hyphen) through — the same "there is no off switch"
+  // promise failing by two characters instead of one. The rule is now the
+  // CATEGORY (every Unicode format char) plus the blanks `\s` does not cover.
+  const ghosts = [
+    "​", "‌", "‍", "‎", "‏", "﻿", " ",
+    "­", "⠀", "　", "⁠", "᠎", " ", " ",
+    " ", " ", " ", " ", " ", " ", "\t", "\n",
+    "​­⠀",
+  ];
+  for (const g of ghosts) {
+    assert.match(
+      templateRefusal({ title: g, body: "b" }) ?? "",
+      /title and a body/,
+      `${JSON.stringify(g)} must not pass as a title`,
+    );
+    assert.match(templateRefusal({ title: "t", body: g }) ?? "", /title and a body/);
+    assert.deepEqual(
+      resolveTemplate({ title: g, body: "b" }, DEFAULT_LIFECYCLE_PUSHES.payHalf),
+      DEFAULT_LIFECYCLE_PUSHES.payHalf,
+      `${JSON.stringify(g)} must fall back at runtime too`,
+    );
+  }
+  // Real copy still passes, including copy that merely CONTAINS one.
+  assert.equal(templateRefusal({ title: "Your half is due", body: "Pay ₹{amount}" }), null);
+  assert.equal(templateRefusal({ title: "Match­confirmed", body: "b" }), null);
+});
+
+test("the arena's own message can say why, because the cause is not always the same", () => {
+  // It is sent from three places — the hour went, the arena took the challenge
+  // down, the payer's slot was reassigned — and the default asserted the first
+  // of those as fact on all three.
+  assert.ok(OWNER_VARIABLES.some((v) => v.name === "reason"));
+  const vars = {
+    name: "Rahul", phone: "98765 43210", amount: 500,
+    hour: "9pm–10pm", date: "Sun, 20 Sep", court: "Full Field",
+    reason: "the arena took this challenge down",
+  };
+  const out = renderPush(DEFAULT_OWNER_REFUND_PUSH.body, vars);
+  assert.ok(!/\{\w+\}/.test(out), `unresolved placeholder in: ${out}`);
+  assert.ok(out.includes("the arena took this challenge down"));
+  assert.ok(out.includes("Full Field") && out.includes("98765 43210"));
+  // And it no longer asserts a cause of its own.
+  assert.ok(!DEFAULT_OWNER_REFUND_PUSH.body.includes("booked by somebody else"));
 });

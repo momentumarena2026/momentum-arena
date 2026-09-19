@@ -311,7 +311,15 @@ export function resolveTemplate(stored: unknown, fallback: PushTemplate): PushTe
  * receives an empty notification instead of "your half is due".
  */
 function blank(v: string | undefined): boolean {
-  return !v || v.replace(/[\s\u00a0\u180e\u200b-\u200f\u2028\u2029\u202f\u2060\ufeff]/g, "") === "";
+  // Every Unicode FORMAT character (\p{Cf} — soft hyphen, zero-widths, bidi
+  // marks) plus the blanks that are not whitespace to `\s`: braille blank and
+  // the rest of the space block. Enumerating them one by one let U+2800 and
+  // U+00AD through, which is the same "there is no off switch" claim failing
+  // by two characters instead of one.
+  return (
+    !v ||
+    v.replace(/[\s\p{Cf}\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u2800\u3000]/gu, "") === ""
+  );
 }
 
 export function templateRefusal(t: unknown): string | null {
@@ -344,6 +352,8 @@ export type OwnerVars = {
   date: string;
   /** "Full Field". */
   court: string;
+  /** Why it is owed — the cause differs by path. */
+  reason: string;
 };
 
 export const OWNER_VARIABLES: { name: keyof OwnerVars; example: string; note: string }[] = [
@@ -353,9 +363,18 @@ export const OWNER_VARIABLES: { name: keyof OwnerVars; example: string; note: st
   { name: "hour", example: "9pm–10pm", note: "the hour that fell through" },
   { name: "date", example: "Sun, 20 Sep", note: "the day it was for" },
   { name: "court", example: "Full Field", note: "which court" },
+  {
+    name: "reason",
+    example: "the hour was booked by somebody else before both captains had paid",
+    note: "why the money is owed back — it is not always the same cause",
+  },
 ];
 
 export const DEFAULT_OWNER_REFUND_PUSH: PushTemplate = {
   title: "Refund owed — ₹{amount} to {name}",
-  body: "{date} {hour} on {court} was booked by somebody else before both captains had paid. Refund ₹{amount} to {name} ({phone}).",
+  // {reason} rather than a hard-coded cause. This message is sent from three
+  // places — the hour went, the arena took the challenge down, the payer's
+  // slot was reassigned — and asserting "was booked by somebody else" told the
+  // person doing the refunding the wrong story about two of them.
+  body: "{date} {hour} on {court} — {reason}. Refund ₹{amount} to {name} ({phone}).",
 };

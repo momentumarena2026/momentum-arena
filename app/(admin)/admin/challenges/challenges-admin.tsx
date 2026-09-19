@@ -250,6 +250,8 @@ export function ChallengesAdmin({
       teamName: string | null;
       bookingId: string | null;
       held: number;
+      /** Of `held`, how much never reached a booking. Needs a person. */
+      stuck: number;
       owes: { name: string | null; phone: string | null } | null;
       window: { date: string; startHour: number; endHour: number } | null;
     }[];
@@ -368,7 +370,7 @@ export function ChallengesAdmin({
             {t === "board"
               ? `Challenges (${initial.challenges.length}${initial.challenges.length >= 200 ? "+" : ""})`
               : t === "activity"
-                ? `Activity (${initial.events.length})`
+                ? `Activity (${initial.events.length}${initial.events.length >= 300 ? "+" : ""})`
                 : t === "promo"
                   ? `Prize wheel (${initial.promo.spins})`
                   : "Settings"}
@@ -672,7 +674,9 @@ export function ChallengesAdmin({
             ))}
             {initial.challenges.length === 0 && (
               <p className="text-sm text-zinc-500">
-                Nothing posted yet. Switch the board on and it&apos;ll show up here.
+                {initial.settings.enabled
+                  ? "Nothing posted yet. It'll show up here the moment somebody puts a match up."
+                  : "Nothing posted yet — and the board is switched off, so nobody can."}
               </p>
             )}
           </div>
@@ -755,6 +759,14 @@ export function ChallengesAdmin({
                       </span>
                     )}
                     <span className="text-emerald-300">₹{c.held} held</span>
+                    {/* The breakdown was computed server-side and never shown,
+                        so a stuck capture was invisible inside a single
+                        "₹1000 held" — and it is the half that needs a person. */}
+                    {c.stuck > 0 && (
+                      <span className="text-rose-300">
+                        ₹{c.stuck} of it captured but not on a booking
+                      </span>
+                    )}
                     {c.owes ? (
                       <span className="text-amber-300">
                         {c.owes.name ?? "the other captain"} owes
@@ -868,10 +880,21 @@ export function ChallengesAdmin({
                     <p className="mt-2 text-xs text-amber-400">Taken down: {c.withdrawReason}</p>
                   )}
                 </div>
-                {/* PART_PAID is excluded: money is in and a PENDING booking holds the
-                    hour, so this has to go through the booking, not the board. */}
+                {/* SHOWN WHEN MONEY IS IN — that is the case it exists for.
+                    The old condition hid the button whenever any capture was
+                    unrefunded, which is precisely the state `adminWithdrawChallenge`
+                    was rewritten to handle: it flags every capture, tells each
+                    payer and tells the arena. Hiding it left a PART_PAID
+                    challenge as a permanent dead row whose only on-screen
+                    instruction pointed at a refunds panel the payment was not
+                    on and nothing could put it on. The comment that used to sit
+                    here described the pre-redesign model, where a first payment
+                    created a PENDING booking; it does not any more.
+
+                    A challenge that HAS a booking still goes through the
+                    booking — the server says so in its own words. */}
                 {!["CONFIRMED", "WITHDRAWN", "EXPIRED"].includes(c.status) &&
-                  !c.payments.some((p) => p.paidAt && !p.refundedAt) && (
+                  !c.bookingId && (
                   <button
                     disabled={pending}
                     onClick={() => {

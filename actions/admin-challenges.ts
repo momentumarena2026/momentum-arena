@@ -209,15 +209,19 @@ export async function getChallengeAdmin() {
       // A half that was claimed and never placed is money with no court and no
       // queue. It belongs here too, flagged for what it is.
       const stuck = c.payments.filter((p) => p.paidAt && !p.placedAt);
-      const sides = new Set(paid.map((p) => p.side));
-      const owingSide = sides.has("CHALLENGER") ? "ACCEPTOR" : "CHALLENGER";
+      // WHO OWES is whoever has put in no money at all — not merely whoever is
+      // missing from `paid`. Deriving it from `paid` alone named the captain
+      // whose capture was stuck as the one to chase, on the same row that said
+      // their money was captured.
+      const withMoney = new Set([...paid, ...stuck].map((p) => p.side));
+      const owingSide = withMoney.has("CHALLENGER") ? "ACCEPTOR" : "CHALLENGER";
       return {
         id: c.id,
         status: c.status,
         teamName: c.teamName,
         bookingId: c.bookingId,
         held: [...paid, ...stuck].reduce((sum, p) => sum + p.amount, 0),
-        sidesPaid: sides.size,
+        sidesPaid: new Set(paid.map((p) => p.side)).size,
         /** Captured money that never reached a booking. Needs a person. */
         stuck: stuck.reduce((sum, p) => sum + p.amount, 0),
         // Whoever has NOT paid is who the venue rings. Derived from the side
@@ -629,6 +633,23 @@ export async function saveChallengeSettings(
 
     // The SAME resolver the runtime uses. Two copies of this rule have now
     // disagreed twice; there is one.
+    // Judge what the venue TYPED before resolving it, or the resolver hides
+    // the mistake: `resolveWheel` falls back to the built-in wheel whenever
+    // nothing has a positive weight, so an all-zero or empty wheel saved with
+    // `{ok:true}` and was silently discarded — and `wheelRefusal`'s own rule
+    // "at least one segment needs a weight above zero" could never fire.
+    if (Array.isArray(input.spinSegments)) {
+      const typed = input.spinSegments as { weight?: unknown }[];
+      if (
+        typed.length > 0 &&
+        !typed.some((x) => typeof x?.weight === "number" && x.weight > 0)
+      ) {
+        return {
+          ok: false,
+          error: "At least one segment needs a weight above zero, or nothing can be won.",
+        };
+      }
+    }
     const effSegs = resolveWheel(next.spinSegments);
     const badWheel = touchesWheel
       ? wheelRefusal(effSegs, n("spinAvgMinPct", 15), n("spinAvgMaxPct", 25))
@@ -837,12 +858,28 @@ export async function markChallengePaymentRefunded(
       userId: true,
       challengeId: true,
       paidAt: true,
+      refundOwedAt: true,
       refundedAt: true,
     },
   });
   if (!row) return { ok: false, error: "That payment is gone." };
   if (!row.paidAt) return { ok: false, error: "Nothing was ever captured on that one." };
   if (row.refundedAt) return { ok: false, error: "That one is already marked refunded." };
+  // ONLY money that is actually owed back.
+  //
+  // This branch checked `paidAt` and `refundedAt` and nothing else, while its
+  // sibling ten lines above correctly refuses a settled order. So a healthy
+  // half of a CONFIRMED match — money sitting on a real, booked court — could
+  // be marked refunded: the challenge ledger and the booking ledger then
+  // disagree about that court, and the customer is pushed "your refund is on
+  // its way" for money nobody is returning.
+  if (!row.refundOwedAt) {
+    return {
+      ok: false,
+      error:
+        "That payment isn't owed back — it's on a live booking. Cancel the booking if you need to refund it.",
+    };
+  }
 
   // Conditional, because this is a public POST endpoint and two clicks a
   // second apart must not write two audit lines for one refund.

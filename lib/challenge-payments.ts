@@ -1010,6 +1010,15 @@ async function claimSlot(args: {
         body: `Your ₹${ours.amount} went through but the match could no longer take it. The arena will refund you in full.`,
         amount: ours.amount,
       });
+      // AND the arena. Its sibling branch below tells them; this one did not,
+      // so the case the refunds panel labels "no live slot" reached the venue
+      // only if somebody happened to open that panel.
+      await tellTheArenaAboutARefundFor(
+        ours.userId,
+        ours.amount,
+        ours.challengeId,
+        "their payment landed with no live slot left to honour it",
+      );
       return {
         kind: "refused",
         error: "That payment arrived too late to be used. The arena will refund you in full.",
@@ -1070,7 +1079,12 @@ async function claimSlot(args: {
         body: "Somebody else had taken that half by the time your payment landed. The arena will refund you in full.",
         amount: stranded.amount,
       });
-      await tellTheArenaAboutARefundFor(stranded.userId, stranded.amount, challengeId);
+      await tellTheArenaAboutARefundFor(
+        stranded.userId,
+        stranded.amount,
+        challengeId,
+        "their payment slot had been reassigned by the time this capture landed",
+      );
     }
     return {
       kind: "refused",
@@ -1263,7 +1277,7 @@ export async function flagChallengeRefunds(
       body: `₹${row.amount} for that match is coming back to you in full.`,
       amount: row.amount,
     });
-    await tellTheArenaAboutARefundFor(row.user.id, row.amount, challengeId);
+    await tellTheArenaAboutARefundFor(row.user.id, row.amount, challengeId, reason);
   }
   return flagged;
 }
@@ -1341,6 +1355,7 @@ async function discardForLostHour(args: {
       name: row.user.name ?? "A captain",
       phone: row.user.phone ?? "",
       amount: row.amount,
+      reason: args.reason,
       hour: String(args.pushVars.hour ?? ""),
       date: String(args.pushVars.date ?? ""),
       court: String(args.pushVars.court ?? ""),
@@ -1384,22 +1399,54 @@ async function notifyRefundOwed(
         teamName: true,
         windows: {
           where: { status: "ACCEPTED" },
-          select: { date: true, startHour: true, endHour: true },
+          select: { date: true, startHour: true, endHour: true, courtConfigId: true },
           take: 1,
+        },
+        payments: {
+          select: { quotedCourtConfigId: true, quotedTotal: true, quotedAdvance: true },
         },
       },
     }),
   ]);
   const w = c?.windows[0];
+  // REAL values for everything the editor advertises. `court` was "" and both
+  // money variables were 0, on the one message whose subject is money — a
+  // venue writing "₹{total} court, ₹{balance} at the gate" shipped "₹0" twice.
+  // And `{name}` was the READER, while the editor documents it as the other
+  // captain, so "{name} couldn't make it" addressed people by their own name.
+  const courtId =
+    c?.payments.find((p) => p.quotedCourtConfigId)?.quotedCourtConfigId ??
+    w?.courtConfigId ??
+    null;
+  const [court, other] = await Promise.all([
+    courtId
+      ? db.courtConfig
+          .findUnique({ where: { id: courtId }, select: { label: true } })
+          .then((x) => x?.label ?? "")
+      : Promise.resolve(""),
+    (async () => {
+      const ch = await db.challenge.findUnique({
+        where: { id: challengeId },
+        select: {
+          createdBy: { select: { id: true, name: true } },
+          acceptedBy: { select: { id: true, name: true } },
+        },
+      });
+      const them = ch?.createdBy?.id === userId ? ch?.acceptedBy : ch?.createdBy;
+      return them?.name ?? "the other captain";
+    })(),
+  ]);
+  const pinned = c?.payments.find((p) => p.quotedTotal)?.quotedTotal ?? 0;
+  const pinnedAdvance = c?.payments.find((p) => p.quotedAdvance)?.quotedAdvance ?? 0;
   const vars = {
-    name: u?.name ?? "",
+    name: other,
     team: c?.teamName ?? "",
     hour: w ? `${hourWord(w.startHour)}–${hourWord(w.endHour)}` : "",
     date: w ? istDayLabel(w.date) : "",
-    court: "",
+    court,
     amount: fallback.amount,
-    total: 0,
-    balance: 0,
+    total: pinned,
+    balance: Math.max(0, pinned - pinnedAdvance),
   };
   await notifyUser(userId, {
     type: "CHALLENGE_REFUND_OWED",
@@ -1414,6 +1461,7 @@ async function tellTheArenaAboutARefundFor(
   userId: string,
   amount: number,
   challengeId: string,
+  reason: string,
 ): Promise<void> {
   const [u, c] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { name: true, phone: true } }),
@@ -1422,20 +1470,31 @@ async function tellTheArenaAboutARefundFor(
       select: {
         windows: {
           where: { status: "ACCEPTED" },
-          select: { date: true, startHour: true, endHour: true },
+          select: { date: true, startHour: true, endHour: true, courtConfigId: true },
           take: 1,
         },
+        payments: { select: { quotedCourtConfigId: true } },
       },
     }),
   ]);
   const w = c?.windows[0];
+  // The court the halves were quoted on. Hard-coding "" here put a blank into
+  // the middle of the venue's own message — "on  was booked by somebody else" —
+  // on the one notification whose reader has to act on it.
+  const courtId =
+    c?.payments.find((p) => p.quotedCourtConfigId)?.quotedCourtConfigId ?? w?.courtConfigId ?? null;
+  const court = courtId
+    ? ((await db.courtConfig.findUnique({ where: { id: courtId }, select: { label: true } }))
+        ?.label ?? "")
+    : "";
   await tellTheArenaAboutARefund({
     name: u?.name ?? "A captain",
     phone: u?.phone ?? "",
     amount,
     hour: w ? `${hourWord(w.startHour)}–${hourWord(w.endHour)}` : "",
     date: w ? istDayLabel(w.date) : "",
-    court: "",
+    court,
+    reason,
   });
 }
 
@@ -1454,6 +1513,7 @@ async function tellTheArenaAboutARefund(vars: {
   hour: string;
   date: string;
   court: string;
+  reason: string;
 }): Promise<void> {
   const stored = (await db.challengeSettings.findFirst({ select: { ownerRefundPush: true } }))
     ?.ownerRefundPush;
@@ -1499,7 +1559,13 @@ async function buyTheHour(
     razorpaySignature: string;
     platform?: string;
   },
-  placed: { id: string; side: string; amount: number; razorpayPaymentId: string | null }[],
+  placed: {
+    id: string;
+    side: string;
+    amount: number;
+    userId: string;
+    razorpayPaymentId: string | null;
+  }[],
 ): Promise<Placement> {
   const hours = windowHours(ctx.win.startHour, ctx.win.endHour);
 
@@ -1547,11 +1613,28 @@ async function buyTheHour(
   // back. Rare, and always an admin editing the rate card mid-flight — but it
   // must not be silent, because nothing else in the system would notice.
   if (advance > total) {
+    const over = advance - total;
     await logChallengeEvent({
       type: "REFUSED",
       challengeId: ctx.challengeId,
-      detail: `collected ₹${advance} online for a court now priced ₹${total} — ₹${advance - total} owed back`,
+      detail: `collected ₹${advance} online for a court now priced ₹${total} — ₹${over} owed back`,
     });
+    // AND tell the arena. A line in the activity feed is exactly the "money
+    // discoverable only by reading prose" that `refundOwedAt` was added to end;
+    // this overage has no half of its own to flag, so the notification is the
+    // whole of the trail. It is split across the two captains, because that is
+    // who over-paid.
+    for (const p of placed) {
+      const share = Math.round((over * p.amount) / Math.max(1, advance));
+      if (share > 0) {
+        await tellTheArenaAboutARefundFor(
+          p.userId,
+          share,
+          ctx.challengeId,
+          `the court was re-priced to ₹${total} after ₹${advance} had been collected online`,
+        );
+      }
+    }
   }
   // Deterministic: the first half placed is the booking's primary reference
   // and the second is the secondary, so a settlement report reconciles the
@@ -1677,6 +1760,12 @@ export async function discardChallengesWhoseHourWent(now = new Date()): Promise<
       },
       payments: { where: { paidAt: { not: null } }, select: { quotedCourtConfigId: true } },
     },
+    // OLDEST FIRST, and bounded. Unordered, a venue with more than 200 live
+    // challenges could have the same page returned every tick while others were
+    // never examined — and this is the sweep that tells two captains their hour
+    // has gone. Ordered, every discarded challenge leaves the set, so the queue
+    // drains instead of circling.
+    orderBy: { createdAt: "asc" },
     take: 200,
   });
 
