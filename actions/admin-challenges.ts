@@ -9,7 +9,18 @@ import {
   resolvePushes,
   DEFAULT_ADJACENT_PUSHES,
   DEFAULT_FALLBACK_PUSHES,
+  templateRefusal,
+  type LifecyclePush,
 } from "@/lib/challenge-push";
+
+/** The five match-lifecycle messages, as settings keys. */
+const LIFECYCLE_KEYS = [
+  "agreedPush",
+  "payHalfPush",
+  "confirmedPush",
+  "slotLostPush",
+  "refundOwedPush",
+] as const satisfies readonly `${LifecyclePush}Push`[];
 import { challengeSettings } from "@/lib/challenges";
 
 /**
@@ -293,6 +304,11 @@ export type ChallengeSettingsInput = {
   ttlDays?: number;
   advancePct?: number;
   paymentWindowMins?: number;
+  agreedPush?: unknown;
+  payHalfPush?: unknown;
+  confirmedPush?: unknown;
+  slotLostPush?: unknown;
+  refundOwedPush?: unknown;
   pushAudience?: string;
   pushDailyCap?: number;
   boardTitle?: string | null;
@@ -362,6 +378,9 @@ export async function saveChallengeSettings(
       ...(num(input.paymentWindowMins, 5, 1440, "Payment window") !== undefined
         ? { paymentWindowMins: input.paymentWindowMins }
         : {}),
+      ...Object.fromEntries(
+        LIFECYCLE_KEYS.filter((k) => input[k] !== undefined).map((k) => [k, input[k] as never]),
+      ),
       ...(input.pushAudience ? { pushAudience: input.pushAudience } : {}),
       ...(num(input.pushDailyCap, 0, 50, "Push cap") !== undefined
         ? { pushDailyCap: input.pushDailyCap }
@@ -594,6 +613,12 @@ export async function saveChallengeSettings(
       return { ok: false, error: "That isn't a sport the arena runs." };
     }
 
+    // Each lifecycle message is judged on its own, and only when touched.
+    for (const k of LIFECYCLE_KEYS) {
+      if (input[k] === undefined) continue;
+      const bad = templateRefusal(input[k]);
+      if (bad) return { ok: false, error: bad };
+    }
     if (input.pushAudience && !["ALL", "SPORT", "RECENT"].includes(input.pushAudience)) {
       return { ok: false, error: "Audience must be ALL, SPORT or RECENT." };
     }

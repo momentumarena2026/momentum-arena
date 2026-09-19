@@ -52,7 +52,10 @@ export type PushVars = {
  * with "undefined" — a typo in the admin's copy should look like a typo to
  * whoever proofreads the notification, not like a bug in the promo.
  */
-export function renderPush(template: string, vars: PushVars): string {
+export function renderPush(
+  template: string,
+  vars: PushVars | LifecycleVars | Record<string, string | number>,
+): string {
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => {
     const v = (vars as unknown as Record<string, unknown>)[key];
     return v === undefined || v === null ? whole : String(v);
@@ -186,4 +189,123 @@ export function pushScheduleRefusal(
  */
 export function resolvePushes(stored: unknown, fallback: PushTemplate[]): PushTemplate[] {
   return Array.isArray(stored) ? (stored as PushTemplate[]) : fallback;
+}
+
+/**
+ * What the MATCH-LIFECYCLE messages may refer to.
+ *
+ * Separate from `PushVars` because the two sets have almost nothing in
+ * common: a prize nudge is about a discount and a deadline, and "your half is
+ * due" is about a court, a price and the other captain. One merged set would
+ * advertise `{pct}` on a message that can never have a discount in it.
+ */
+export type LifecycleVars = {
+  /** The other captain's name, or "The other captain". */
+  name: string;
+  /** The team that posted, or their name. */
+  team: string;
+  /** "9pm–10pm". */
+  hour: string;
+  /** "Sun, 20 Sep". */
+  date: string;
+  /** "Full Field". */
+  court: string;
+  /** What this person owes or paid, in whole rupees. */
+  amount: number;
+  /** The whole court, in whole rupees. */
+  total: number;
+  /** What is still due at the venue on the day. */
+  balance: number;
+};
+
+export const LIFECYCLE_VARIABLES: { name: keyof LifecycleVars; example: string; note: string }[] = [
+  { name: "name", example: "Rahul", note: "the other captain" },
+  { name: "team", example: "Mathura Strikers", note: "the team that posted" },
+  { name: "hour", example: "9pm–10pm", note: "the agreed hour" },
+  { name: "date", example: "Sun, 20 Sep", note: "the day of the match" },
+  { name: "court", example: "Full Field", note: "which court" },
+  { name: "amount", example: "500", note: "what this person owes or paid" },
+  { name: "total", example: "2000", note: "the whole court" },
+  { name: "balance", example: "1000", note: "still due at the venue on the day" },
+];
+
+/**
+ * The five messages a match sends as it moves.
+ *
+ * These were hard-coded strings in three different files. The module's whole
+ * premise is that the person who knows what to say to a Mathura cricket
+ * captain at 9pm does not need a developer — and these are the messages that
+ * actually reach a captain, so leaving them in TypeScript put the most-read
+ * copy in the module beyond the venue's reach.
+ */
+export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
+  agreed: {
+    title: "Match on — your half is due",
+    body: "{name} is in for {date} {hour}. Whoever pays their half first blocks the court; the match is confirmed once both halves are in.",
+  },
+  payHalf: {
+    title: "The court is held — your half is due",
+    body: "{name} paid their half and {date} {hour} is booked. Pay your ₹{amount} to confirm the match.",
+  },
+  confirmed: {
+    title: "Match confirmed",
+    body: "Both halves are in and {court} is booked for {date} {hour}. ₹{balance} at the venue on the day. See you there.",
+  },
+  slotLost: {
+    title: "That hour went before we could hold it",
+    body: "Your payment is safe and the arena will refund it. Agree another time and we'll try again.",
+  },
+  refundOwed: {
+    title: "We owe you a refund",
+    body: "Your payment went through but the match could not be held. The arena will refund you in full.",
+  },
+};
+
+export type LifecyclePush = "agreed" | "payHalf" | "confirmed" | "slotLost" | "refundOwed";
+
+/** How each of the five reads in the admin screen. */
+export const LIFECYCLE_LABELS: Record<LifecyclePush, { title: string; desc: string }> = {
+  agreed: {
+    title: "A time is agreed",
+    desc: "To both captains, the moment somebody accepts a time. Nobody has paid yet.",
+  },
+  payHalf: {
+    title: "The other side paid — your half is due",
+    desc: "To the captain who still owes, once the first half has blocked the court. This is the message the whole flow depends on.",
+  },
+  confirmed: { title: "Match confirmed", desc: "To both captains once both halves are in." },
+  slotLost: {
+    title: "The hour went",
+    desc: "To both captains when a walk-in took the court before the first half landed. Money is refunded.",
+  },
+  refundOwed: {
+    title: "A refund is owed",
+    desc: "To one captain when their payment landed on a match that could no longer be held.",
+  },
+};
+
+/**
+ * One stored template, or the built-in.
+ *
+ * Deliberately unlike `resolvePushes`: an EMPTY object is not a way to switch
+ * a lifecycle message off. "Your half is due" is transactional — a captain
+ * whose court is held and who is never told has simply lost their money to
+ * silence — so there is no off, only different words.
+ */
+export function resolveTemplate(stored: unknown, fallback: PushTemplate): PushTemplate {
+  if (!stored || typeof stored !== "object") return fallback;
+  const t = stored as Partial<PushTemplate>;
+  return t.title?.trim() && t.body?.trim()
+    ? { title: t.title, body: t.body }
+    : fallback;
+}
+
+/** Why this single message cannot be saved — or null. */
+export function templateRefusal(t: unknown): string | null {
+  if (!t || typeof t !== "object") return "That message isn't a title and a body.";
+  const x = t as Partial<PushTemplate>;
+  if (!x.title?.trim() || !x.body?.trim()) return "A message needs a title and a body.";
+  if (x.title.length > 120) return "That title is too long to send (120 characters).";
+  if (x.body.length > 300) return "That body is too long to send (300 characters).";
+  return null;
 }

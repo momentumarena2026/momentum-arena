@@ -14,9 +14,12 @@ import {
   KNOWN_SPORTS,
   windowRefusal,
   sideOf,
+  hourWord,
   type ChallengeLimits,
   type ProposedWindow,
 } from "@/lib/challenge-rules";
+import { renderPush, resolveTemplate, DEFAULT_LIFECYCLE_PUSHES } from "@/lib/challenge-push";
+import { istDayLabel } from "@/lib/challenge-spin";
 
 /**
  * The challenge board's data layer.
@@ -280,7 +283,17 @@ export async function acceptChallengeWindow(
       expiresAt: true,
       counterCountChallenger: true,
       counterCountAcceptor: true,
-      windows: { select: { id: true, status: true, proposedBy: true, date: true, startHour: true } },
+      teamName: true,
+      windows: {
+        select: {
+          id: true,
+          status: true,
+          proposedBy: true,
+          date: true,
+          startHour: true,
+          endHour: true,
+        },
+      },
     },
   });
   if (!c) return { ok: false, error: "That challenge is gone." };
@@ -338,15 +351,33 @@ export async function acceptChallengeWindow(
     db.user.findUnique({ where: { id: c.createdByUserId }, select: { id: true, name: true } }),
     db.user.findUnique({ where: { id: c.acceptedByUserId ?? userId }, select: { id: true, name: true } }),
   ]);
+  // The venue's words, not the code's. These are the messages a captain
+  // actually reads, so leaving them in a TypeScript literal put the
+  // most-read copy in the module beyond the reach of the person who knows
+  // what to say.
+  const tpl = resolveTemplate(
+    (await db.challengeSettings.findFirst({ select: { agreedPush: true } }))?.agreedPush,
+    DEFAULT_LIFECYCLE_PUSHES.agreed,
+  );
   for (const [who, other] of [
     [poster, taker],
     [taker, poster],
   ] as const) {
     if (!who) continue;
+    const vars = {
+      name: other?.name ?? "The other captain",
+      team: c.teamName ?? poster?.name ?? "the other side",
+      hour: `${hourWord(w.startHour)}–${hourWord(w.endHour)}`,
+      date: istDayLabel(w.date),
+      court: "",
+      amount: 0,
+      total: 0,
+      balance: 0,
+    };
     await notifyUser(who.id, {
       type: "CHALLENGE_AGREED",
-      title: "Match on — your half is due",
-      body: `${other?.name ?? "The other captain"} is in. Whoever pays their half first blocks the court; the match is confirmed once both halves are in.`,
+      title: renderPush(tpl.title, vars),
+      body: renderPush(tpl.body, vars),
       link: `/challenges/${challengeId}`,
     });
   }

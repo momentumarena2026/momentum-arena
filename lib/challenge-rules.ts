@@ -24,7 +24,7 @@ export type ChallengeSide = "CHALLENGER" | "ACCEPTOR";
  * expiry a full day before its own match.
  */
 /** "5am", "1am" — for a sentence, not a schedule. */
-function hourWord(h: number): string {
+export function hourWord(h: number): string {
   const x = h % 24;
   const ampm = x >= 12 ? "pm" : "am";
   return `${x % 12 === 0 ? 12 : x % 12}${ampm}`;

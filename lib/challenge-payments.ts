@@ -56,12 +56,15 @@ import { getSlotPricesForDate } from "@/lib/pricing";
 import { getSlotAvailability } from "@/lib/availability";
 import { createRazorpayOrder, verifyRazorpaySignature, RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { notifyUser } from "@/lib/user-notifications";
+import { renderPush, resolveTemplate, DEFAULT_LIFECYCLE_PUSHES } from "@/lib/challenge-push";
+import { istDayLabel } from "@/lib/challenge-spin";
 import { logChallengeEvent } from "@/lib/challenges";
 import {
   leadTimeRefusal,
   payRefusal,
   splitShare,
   sharesAgainstBooking,
+  hourWord,
   statusAfterPayment,
   sideOf,
   type ChallengeSide,
@@ -615,10 +618,17 @@ async function refundOwed(args: {
     challengeId: args.challengeId,
     detail: args.detail,
   });
+  // The venue may override these words with one message for every
+  // refund-owed case. Absent that, each caller's own specific sentence is
+  // kept — "that match was called off" tells the customer more than a
+  // generic apology, so the default is deliberately NOT one template.
+  const stored = (await db.challengeSettings.findFirst({ select: { refundOwedPush: true } }))
+    ?.refundOwedPush;
+  const tpl = resolveTemplate(stored, { title: args.title, body: args.body });
   await notifyUser(args.userId, {
     type: "CHALLENGE_REFUND_OWED",
-    title: args.title,
-    body: args.body,
+    title: tpl.title,
+    body: tpl.body,
     link: `/challenges/${args.challengeId}`,
   });
   return { ok: false, error: args.error };
@@ -1291,6 +1301,27 @@ async function placeClaimedPayment(args: {
     });
   }
 
+  // ── The venue's words for all of this ──
+  //
+  // Four of the five match-lifecycle messages are sent from this function.
+  // They were hard-coded strings, which put the most-read copy in the module
+  // beyond the reach of the person who knows what to say to a captain at 9pm
+  // — the exact thing this module was built not to do.
+  const tpls = await db.challengeSettings.findFirst({
+    select: { payHalfPush: true, confirmedPush: true, slotLostPush: true },
+  });
+  const quoted = await challengeQuote(challengeId, userId).catch(() => null);
+  const pushVars = {
+    name: "The other captain",
+    team: c.teamName ?? c.createdBy?.name ?? "the other side",
+    hour: `${hourWord(win.startHour)}–${hourWord(win.endHour)}`,
+    date: istDayLabel(win.date),
+    court: quoted?.courtLabel ?? "",
+    amount: slot.amount,
+    total: quoted?.total ?? 0,
+    balance: quoted?.venueBalance ?? 0,
+  };
+
   if (placement.kind === "slotLost") {
     await markRefundOwed(slot.rowId, "the hour went before the first half landed");
     await logChallengeEvent({
@@ -1299,12 +1330,13 @@ async function placeClaimedPayment(args: {
       challengeId,
       detail: "the hour went before the first half landed — refund owed",
     });
+    const lost = resolveTemplate(tpls?.slotLostPush, DEFAULT_LIFECYCLE_PUSHES.slotLost);
     for (const u of [c.createdBy, c.acceptedBy]) {
       if (u) {
         await notifyUser(u.id, {
           type: "CHALLENGE_SLOT_LOST",
-          title: "That hour went before we could hold it",
-          body: "Your payment is safe and the arena will refund it. Agree another time and we'll try again.",
+          title: renderPush(lost.title, pushVars),
+          body: renderPush(lost.body, pushVars),
           link: `/challenges/${challengeId}`,
         });
       }
@@ -1328,10 +1360,19 @@ async function placeClaimedPayment(args: {
   const other = slot.side === "CHALLENGER" ? c.acceptedBy : c.createdBy;
   const payer = slot.side === "CHALLENGER" ? c.createdBy : c.acceptedBy;
   if (placement.status !== "CONFIRMED" && other) {
+    const half = resolveTemplate(tpls?.payHalfPush, DEFAULT_LIFECYCLE_PUSHES.payHalf);
+    // {name} is whoever just PAID, and {amount} is what the recipient owes —
+    // not what the payer paid. With a mid-window rate change those two
+    // numbers differ, and the one that matters to the reader is theirs.
+    const theirs = {
+      ...pushVars,
+      name: payer?.name ?? "The other captain",
+      amount: Math.max(0, (quoted?.advance ?? 0) - slot.amount) || slot.amount,
+    };
     await notifyUser(other.id, {
       type: "CHALLENGE_PAY_YOUR_HALF",
-      title: "The court is held — your half is due",
-      body: `${payer?.name ?? "The other captain"} paid their half and the hour is booked. Pay yours to confirm the match.`,
+      title: renderPush(half.title, theirs),
+      body: renderPush(half.body, theirs),
       link: `/challenges/${challengeId}`,
     });
   }
@@ -1344,12 +1385,13 @@ async function placeClaimedPayment(args: {
       where: { id: challengeId, confirmedNotifiedAt: null },
       data: { confirmedNotifiedAt: new Date() },
     });
+    const done = resolveTemplate(tpls?.confirmedPush, DEFAULT_LIFECYCLE_PUSHES.confirmed);
     for (const u of announce.count === 1 ? [c.createdBy, c.acceptedBy] : []) {
       if (u) {
         await notifyUser(u.id, {
           type: "CHALLENGE_CONFIRMED",
-          title: "Match confirmed",
-          body: "Both halves are in and the court is booked. See you there.",
+          title: renderPush(done.title, pushVars),
+          body: renderPush(done.body, pushVars),
           link: placement.bookingId
             ? `/bookings/${placement.bookingId}`
             : `/challenges/${challengeId}`,

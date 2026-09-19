@@ -6,6 +6,10 @@ import { Loader2, Swords, Settings2 } from "lucide-react";
 import {
   resolvePushes,
   PUSH_VARIABLES,
+  LIFECYCLE_VARIABLES,
+  LIFECYCLE_LABELS,
+  DEFAULT_LIFECYCLE_PUSHES,
+  type LifecyclePush,
   DEFAULT_WON_PUSH,
   DEFAULT_ADJACENT_PUSHES,
   DEFAULT_FALLBACK_PUSHES,
@@ -60,6 +64,11 @@ type Settings = {
   spinsPerPosterCap: number;
   spinsPerPosterPerDays: number;
   spinWonPush: unknown;
+  agreedPush: unknown;
+  payHalfPush: unknown;
+  confirmedPush: unknown;
+  slotLostPush: unknown;
+  refundOwedPush: unknown;
   spinAdjacentPushes: unknown;
   spinFallbackPushes: unknown;
 };
@@ -121,6 +130,15 @@ type Row = {
     user: { name: string | null; phone: string | null } | null;
   }[];
 };
+
+/** The five lifecycle messages, as settings keys. Mirrors the server's list. */
+const LIFECYCLE_KEYS = [
+  "agreedPush",
+  "payHalfPush",
+  "confirmedPush",
+  "slotLostPush",
+  "refundOwedPush",
+] as const;
 
 const SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 
@@ -1287,6 +1305,37 @@ function PromoTab({
       </Panel>
 
       <Panel
+        title="What the match itself says"
+        desc="The five messages a match sends as it moves. These are the ones every captain reads, so they are the venue's words, not the code's. There is no way to switch one off — a captain whose court is held and who is never told has lost money to silence — only different words."
+      >
+        <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
+          {LIFECYCLE_VARIABLES.map((v) => (
+            <span key={v.name} className="rounded bg-zinc-900 px-1.5 py-0.5">
+              {"{"}
+              {v.name}
+              {"}"} → {v.example}
+            </span>
+          ))}
+        </div>
+        {LIFECYCLE_KEYS.map((k) => (
+          <PushEditor
+            key={k}
+            title={LIFECYCLE_LABELS[k.replace(/Push$/, "") as LifecyclePush].title}
+            desc={LIFECYCLE_LABELS[k.replace(/Push$/, "") as LifecyclePush].desc}
+            single
+            variables={LIFECYCLE_VARIABLES}
+            value={asPushList(s[k], [
+              DEFAULT_LIFECYCLE_PUSHES[k.replace(/Push$/, "") as LifecyclePush],
+            ])}
+            onSave={(list) => {
+              setS({ ...s, [k]: list[0] });
+              save({ [k]: { title: list[0].title, body: list[0].body } });
+            }}
+          />
+        ))}
+      </Panel>
+
+      <Panel
         title="What it has actually cost"
         desc="Two averages, deliberately. What the wheel LANDS on across all spins, and what it actually COST you — discount over rack price, on the offers people took. Only the second matches the books."
       >
@@ -1405,6 +1454,7 @@ function PushEditor({
   onSave,
   windowMins,
   single,
+  variables,
 }: {
   title: string;
   desc: string;
@@ -1412,6 +1462,8 @@ function PushEditor({
   onSave: (v: Push[]) => void;
   windowMins?: number;
   single?: boolean;
+  /** Which placeholder set this message may use. Defaults to the promo's. */
+  variables?: { name: string; example: string; note: string }[];
 }) {
   const [list, setList] = useState<Push[]>(value);
   // Re-sync when the SERVER's copy changes — after a successful save, and
@@ -1424,7 +1476,7 @@ function PushEditor({
   // Built from PUSH_VARIABLES so the preview can never advertise a
   // placeholder it cannot substitute.
   const sample: Record<string, string> = Object.fromEntries(
-    PUSH_VARIABLES.map((v) => [v.name, v.example]),
+    (variables ?? PUSH_VARIABLES).map((v) => [v.name, v.example]),
   );
   /**
    * Preview one template, using ITS OWN marker for {minsLeft}.

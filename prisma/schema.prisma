@@ -4451,6 +4451,17 @@ model ChallengeSettings {
 
   // ── Push. Stored now, used in phase 4.
   /// ALL | SPORT | RECENT — who hears about a new challenge.
+  /// The five match-lifecycle messages, each `{title, body}` with
+  /// {name} {team} {hour} {date} {court} {amount} {total} {balance}.
+  /// Null means the built-in copy. Unlike the promo nudges there is no "off":
+  /// a captain whose court is held and who is never told has lost money to
+  /// silence, so the venue can only change the words.
+  agreedPush     Json?
+  payHalfPush    Json?
+  confirmedPush  Json?
+  slotLostPush   Json?
+  refundOwedPush Json?
+
   pushAudience String @default("SPORT")
   /// Broadcasts per day. Past it, challenges still post, they just go quiet.
   pushDailyCap Int @default(3)

@@ -20,6 +20,10 @@ import {
   PUSH_VARIABLES,
   type PushVars,
   resolvePushes,
+  resolveTemplate,
+  templateRefusal,
+  DEFAULT_LIFECYCLE_PUSHES,
+  LIFECYCLE_VARIABLES,
 } from "../lib/challenge-push";
 
 const vars: PushVars = {
@@ -199,4 +203,47 @@ test("the window is judged against the schedule that SENDS, whatever is stored",
   }
   // An empty schedule fits any window — there is nothing to fire.
   assert.equal(pushScheduleRefusal(resolvePushes([], DEFAULT_ADJACENT_PUSHES), 1), null);
+});
+
+test("a lifecycle message falls back rather than sending a blank", () => {
+  // These are transactional: "your half is due" reaching nobody is how a
+  // captain loses money to silence. So there is no EMPTY-means-off here —
+  // anything that is not a usable {title, body} resolves to the built-in.
+  const fb = DEFAULT_LIFECYCLE_PUSHES.payHalf;
+  for (const junk of [null, undefined, "x", 5, {}, { title: "t" }, { body: "b" }, { title: " ", body: "b" }]) {
+    assert.deepEqual(resolveTemplate(junk, fb), fb, `${JSON.stringify(junk)} must fall back`);
+  }
+  const mine = { title: "Oi", body: "pay up" };
+  assert.deepEqual(resolveTemplate(mine, fb), mine);
+});
+
+test("every lifecycle default renders with no leftover placeholders", () => {
+  const vars = {
+    name: "Rahul", team: "Mathura Strikers", hour: "9pm–10pm", date: "Sun, 20 Sep",
+    court: "Full Field", amount: 500, total: 2000, balance: 1000,
+  };
+  for (const t of Object.values(DEFAULT_LIFECYCLE_PUSHES)) {
+    for (const str of [t.title, t.body]) {
+      const out = renderPush(str, vars);
+      assert.ok(!/\{\w+\}/.test(out), `unresolved placeholder in: ${out}`);
+      assert.ok(out.trim().length > 0);
+    }
+    assert.ok(t.title.length <= 120 && t.body.length <= 300);
+  }
+});
+
+test("every lifecycle variable the admin screen advertises substitutes", () => {
+  const sample = Object.fromEntries(LIFECYCLE_VARIABLES.map((v) => [v.name, v.example]));
+  for (const v of LIFECYCLE_VARIABLES) {
+    assert.equal(renderPush(`{${v.name}}`, sample), v.example, `${v.name} did not substitute`);
+  }
+});
+
+test("a lifecycle message that could not send is refused at save time", () => {
+  assert.match(templateRefusal({ title: "", body: "b" }) ?? "", /title and a body/);
+  assert.match(templateRefusal({ title: "t", body: "  " }) ?? "", /title and a body/);
+  assert.match(templateRefusal({ title: "t".repeat(121), body: "b" }) ?? "", /title is too long/);
+  assert.match(templateRefusal({ title: "t", body: "b".repeat(301) }) ?? "", /body is too long/);
+  assert.equal(templateRefusal({ title: "t", body: "b" }), null);
+  assert.match(templateRefusal(null) ?? "", /title and a body/);
 });
