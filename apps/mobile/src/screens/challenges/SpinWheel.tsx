@@ -260,11 +260,16 @@ export function SpinWheel({
                           fontSize={sweep >= 40 ? 17 : 13}
                           fontWeight="700"
                           textAnchor="middle"
-                          // Flip on the lower half. A label rotated to its
-                          // slice's own angle reads upside down for every
-                          // slice past the 3 o'clock mark, which is half the
-                          // wheel.
-                          transform={`rotate(${s.mid > 90 && s.mid < 270 ? s.mid + 180 : s.mid} ${lx} ${ly})`}
+                          // RADIAL: the label runs out along its own slice,
+                          // like a fairground wheel. The previous rule flipped
+                          // lower-half labels so they read upright AT REST —
+                          // but the wheel stops at an arbitrary angle, and
+                          // "lower half" is defined in the wheel's own frame,
+                          // so after a spin the labels sat at arbitrary angles
+                          // and looked accidental. Radial looks deliberate
+                          // wherever it stops, which is the only orientation
+                          // that can be true at every angle.
+                          transform={`rotate(${s.mid - 90} ${lx} ${ly})`}
                         >
                           {s.pct}%
                         </SvgText>

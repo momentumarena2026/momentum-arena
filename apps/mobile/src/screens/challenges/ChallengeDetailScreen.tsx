@@ -89,6 +89,7 @@ export function ChallengeDetailScreen() {
     return () => clearInterval(t);
   }, []);
 
+
   const chip = (on: boolean) => ({
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -100,6 +101,25 @@ export function ChallengeDetailScreen() {
 
   const q = useQuery({ queryKey: ["challenge", id], queryFn: () => fetchChallenge(id) });
   const c = q.data?.challenge;
+
+  // Keep the counter picker's selection legal.
+  //
+  // THIS HOOK MUST STAY ABOVE THE EARLY RETURNS. It was written down beside
+  // the values it reads, which sit after `if (!c) return …` — so on a render
+  // where the challenge had not loaded, React saw fewer hooks than the render
+  // before and threw "Rendered more hooks than during the previous render".
+  // The screen died on open. Hooks are positional; derived values are not.
+  useEffect(() => {
+    const close = q.data?.hours?.end ?? 25;
+    const open = q.data?.hours?.start ?? 5;
+    const earliest = Math.ceil((getCurrentMinutesIST() + (q.data?.minLeadMins ?? 240)) / 60);
+    const strip = getUpcomingDatesIST(8).slice(earliest < close ? 0 : 1, 8);
+    const all = Array.from({ length: Math.max(1, close - open) }, (_, i) => i + open);
+    const legal = all.filter((h) => (day || strip[0]) !== getTodayIST() || h >= earliest);
+    if (!day && strip[0]) setDay(strip[0]);
+    if (legal.length > 0 && !legal.includes(hour)) setHour(legal[0]);
+    if (hour + len > close) setLen(Math.max(1, close - hour));
+  }, [q.data, day, hour, len]);
   const me = q.data?.viewerId;
 
   const refresh = async () => {
@@ -134,11 +154,6 @@ export function ChallengeDetailScreen() {
   const days = getUpcomingDatesIST(8).slice(earliestHourToday < closeHour ? 0 : 1, 8);
   // Today offers fewer hours than the rest of the strip does.
   const legalHours = hours.filter((h) => day !== getTodayIST() || h >= earliestHourToday);
-  useEffect(() => {
-    if (!day && days[0]) setDay(days[0]);
-    if (legalHours.length > 0 && !legalHours.includes(hour)) setHour(legalHours[0]);
-    if (hour + len > closeHour) setLen(Math.max(1, closeHour - hour));
-  }, [day, days, legalHours, hour, len, closeHour]);
   const boardEnabled = q.data?.boardEnabled ?? true;
   // The prize comes from the SERVER, not from state left over in this
   // component. Spin, background the app, come back — it is still here, and
@@ -238,7 +253,9 @@ export function ChallengeDetailScreen() {
       await refresh();
       await qc.invalidateQueries({ queryKey: ["challenges"] });
       Alert.alert(
-        res.status === "CONFIRMED" ? "Match confirmed" : "Court held",
+        // NOT "Court held" — it is not, until both halves are in, and this
+        // alert's own body says so three lines later.
+        res.status === "CONFIRMED" ? "Match confirmed" : "Your half is in",
         res.status === "CONFIRMED"
           ? "Both halves are in and the court is booked. See you there."
           : acceptWindowId
@@ -542,8 +559,13 @@ export function ChallengeDetailScreen() {
               </>
             ) : quote.youHavePaid ? (
               <Text variant="small" color={colors.zinc300}>
-                Waiting on the other captain's half. The hour is held either way —
-                if they never pay, the arena will sort it out with you.
+                {/* "The hour is held either way" was true under the old rule and
+                    is the single most dangerous thing this screen could now
+                    say: nothing holds the court until both halves are in, and a
+                    captain who believes otherwise will not chase the other one. */}
+                Waiting on the other captain&apos;s half. The hour is NOT held until
+                both halves are in, so somebody else can still book it — give them a
+                nudge. If it goes, or they never pay, the arena refunds you in full.
               </Text>
             ) : quote.refusal ? (
               <Text variant="small" color={colors.zinc300}>
@@ -553,7 +575,11 @@ export function ChallengeDetailScreen() {
               <>
                 <Text variant="small" color={colors.zinc300}>
                   {quote.paidSides.length > 0
-                    ? "The other captain has paid and the hour is booked. Pay your half to confirm the match."
+                    ? // NOT "the hour is booked" — it is not, and this sat
+                      // directly under a heading that correctly said so. The
+                      // whole point of telling this captain anything is that
+                      // their half is what buys the court.
+                      "The other captain has paid. The hour is NOT held until your half is in too — pay it to lock the court."
                     : "Whoever pays first blocks the court. Nothing is held until then."}
                 </Text>
                 <Button
