@@ -194,6 +194,42 @@ export async function getChallenge(id: string) {
 
 // ── Writes ─────────────────────────────────────────────────────────
 
+/**
+ * Why a named court cannot be pinned to a window — or null.
+ *
+ * `postRefusal` checks the sport against the arena's real list precisely
+ * because an unknown string once reached Prisma and 500'd the board for
+ * everyone. The court id one field over was never checked at all: it goes
+ * straight into a foreign key, so an id naming nothing threw a raw
+ * `PrismaClientKnownRequestError` out of the create, and the route has no
+ * catch around its dispatch, so the caller got a 500. The realistic route to
+ * it is not an attacker — it is the venue retiring a court while an app still
+ * holds its id.
+ *
+ * A court is only pinnable if it is one the arena would actually have chosen:
+ * active, and for this sport. `freeCourtFor` already ignores a preference that
+ * fails that test, so accepting one here would silently book a different court
+ * than the captain named, which is worse than saying so.
+ *
+ * Pure rules cannot do this — it needs the court table — so it lives here
+ * rather than in `challenge-rules.ts`.
+ */
+async function pinnedCourtRefusal(
+  sport: string,
+  windows: { courtConfigId?: string | null }[],
+): Promise<string | null> {
+  const ids = [...new Set(windows.map((w) => w.courtConfigId).filter(Boolean))] as string[];
+  if (ids.length === 0) return null;
+  const found = await db.courtConfig.findMany({
+    where: { id: { in: ids }, isActive: true, sport: sport as never },
+    select: { id: true },
+  });
+  const ok = new Set(found.map((c) => c.id));
+  return ids.every((id) => ok.has(id))
+    ? null
+    : "That court isn't one the arena is running for this sport right now.";
+}
+
 export async function postChallenge(input: {
   userId: string;
   sport: string;
@@ -212,6 +248,12 @@ export async function postChallenge(input: {
   if (refusal) {
     await logChallengeEvent({ type: "REFUSED", userId: input.userId, detail: refusal });
     return { ok: false, error: refusal };
+  }
+
+  const badCourt = await pinnedCourtRefusal(input.sport, input.windows);
+  if (badCourt) {
+    await logChallengeEvent({ type: "REFUSED", userId: input.userId, detail: badCourt });
+    return { ok: false, error: badCourt };
   }
 
   // One challenge ON THE BOARD at a time per person. Without it the board
@@ -409,6 +451,9 @@ export async function counterChallenge(
     where: { id: challengeId },
     select: {
       status: true,
+      // Needed to judge a court the counter names: a court is only pinnable
+      // if it is active AND for this challenge's sport.
+      sport: true,
       createdByUserId: true,
       acceptedByUserId: true,
       expiresAt: true,
@@ -439,6 +484,12 @@ export async function counterChallenge(
   if (bad) {
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: bad });
     return { ok: false, error: bad };
+  }
+  // The counter writes a window too, into the same foreign key.
+  const badCourt = await pinnedCourtRefusal(c.sport, [window]);
+  if (badCourt) {
+    await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: badCourt });
+    return { ok: false, error: badCourt };
   }
 
   const side = sideOf(c, userId) ?? "ACCEPTOR";
