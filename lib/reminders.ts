@@ -129,6 +129,25 @@ export async function sendBookingReminders(): Promise<{
 
       const message = `Reminder: Your ${sportName} booking at Momentum Arena is tomorrow at ${timeStr}. Booking ID: ${booking.id}`;
 
+      // CLAIM BEFORE SENDING.
+      //
+      // This selected on `reminder24SentAt: null`, sent the SMS, and only
+      // then stamped — a read followed by a write with a real network call
+      // in between. Two passes overlapping both saw null and both texted the
+      // same customer, which costs money per message and reads as spam. The
+      // window was live: GitHub fired this hourly and Vercel also had it at
+      // 08:00, so the two coincided once a day by design.
+      //
+      // The conditional update is the serialisation point — exactly one
+      // caller sees count 1. A send that then FAILS releases the claim, so a
+      // failed text is still retried on the next pass rather than being
+      // marked sent for ever.
+      const claimed = await db.booking.updateMany({
+        where: { id: booking.id, reminder24SentAt: null },
+        data: { reminder24SentAt: new Date() },
+      });
+      if (claimed.count === 0) continue;
+
       const sent = await sendSmsReminder(booking.user.phone, message);
 
       // Push goes out alongside SMS — best-effort, doesn't gate the
@@ -142,12 +161,12 @@ export async function sendBookingReminders(): Promise<{
       });
 
       if (sent) {
-        await db.booking.update({
-          where: { id: booking.id },
-          data: { reminder24SentAt: new Date() },
-        });
         results.sent24h++;
       } else {
+        await db.booking.updateMany({
+          where: { id: booking.id },
+          data: { reminder24SentAt: null },
+        });
         results.errors++;
       }
     } catch (error) {
@@ -198,6 +217,13 @@ export async function sendBookingReminders(): Promise<{
 
       const message = `Your ${sportName} booking at Momentum Arena starts in 2 hours at ${timeStr}. Court ready for you!`;
 
+      // Claimed before sending, for the same reason as the 24h stage.
+      const claimed2 = await db.booking.updateMany({
+        where: { id: booking.id, reminder2SentAt: null },
+        data: { reminder2SentAt: new Date() },
+      });
+      if (claimed2.count === 0) continue;
+
       const sent = await sendSmsReminder(booking.user.phone, message);
 
       // Awaited for the same reason as the 24h stage above — the
@@ -208,12 +234,12 @@ export async function sendBookingReminders(): Promise<{
       });
 
       if (sent) {
-        await db.booking.update({
-          where: { id: booking.id },
-          data: { reminder2SentAt: new Date() },
-        });
         results.sent2h++;
       } else {
+        await db.booking.updateMany({
+          where: { id: booking.id },
+          data: { reminder2SentAt: null },
+        });
         results.errors++;
       }
     } catch (error) {
@@ -257,14 +283,18 @@ export async function sendBookingReminders(): Promise<{
         booking.courtConfig.sport;
       const timeStr = formatHourRangeCompact(startHour);
 
+      // Claimed first, so two overlapping passes cannot both push. No
+      // release on failure here: this stage is push-only and its window is
+      // a single hour, so a retry would land after the slot has started.
+      const claimed1 = await db.booking.updateMany({
+        where: { id: booking.id, reminder1SentAt: null },
+        data: { reminder1SentAt: new Date() },
+      });
+      if (claimed1.count === 0) continue;
+
       await sendPushReminder(booking.userId, booking.id, "booking_reminder_1h", {
         sport: sportName,
         time: timeStr,
-      });
-
-      await db.booking.update({
-        where: { id: booking.id },
-        data: { reminder1SentAt: new Date() },
       });
       results.sent1h++;
     } catch (error) {
