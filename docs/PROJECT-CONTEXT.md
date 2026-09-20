@@ -358,6 +358,35 @@ Anything else means main has drifted — stop and investigate, do not push.
     per-challenge advisory lock (`challengeLockKey`, a band above 2^31 so it
     cannot meet a court-hour key) so the second payer waits and then sees both.
 
+18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
+    you ask for.** Not a challenges problem — every `cron-*.yml` in this repo
+    is affected, and the schedule in the file is not what happens. Measured
+    over 24 hours on 2026-09-20:
+
+        cron-process-reports       * * * * *   (1440)  ->  7    [moved to Vercel]
+        cron-challenge-offers      * * * * *   (1440)  ->  6    [moved to Vercel]
+        cron-send-reminders        0 * * * *     (24)  ->  6
+        cron-rollup-metrics        5 * * * *     (24)  ->  7
+        cron-store-availability    20 * * * *    (24)  ->  6
+
+    Scheduled Actions are explicitly best-effort and dropped under load, and
+    the shortfall does not care whether you asked for hourly or per-minute.
+    **Cost is not the reason to avoid them here** — this repo is public, so
+    Actions minutes are free. Reliability is.
+
+    Vercel cron honours the schedule: the two challenge routes and the report
+    queue were moved there and verified firing every minute and every five.
+    The three above are still on GitHub — `cron-send-reminders` is the one
+    that matters most, because those are customer booking reminders going out
+    six times a day instead of hourly.
+
+    When moving one: put the schedule in `vercel.json`, give the route an
+    explicit `maxDuration` (the platform default is 60s), make the auth
+    REFUSE on a missing `CRON_SECRET` rather than run open, and DELETE the
+    workflow rather than leaving it as a "backup" — a job firing 7 times a
+    day while claiming every minute is worse than none, because it looks
+    like coverage.
+
 16. **`getSlotAvailability` is the hottest read in the codebase — keep its
     reads parallel AND on the caller's client.** It backs every availability grid the venue and its
     customers look at, and the challenges sweep asks it once per court-day.
