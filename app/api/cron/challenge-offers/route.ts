@@ -21,8 +21,14 @@ import { sendOfferReminders, expireOffers } from "@/lib/challenge-spin";
  * than running open, like every other cron route here.
  */
 
-// This half is small — two narrow queries over live offers — but the ceiling
-// is cheap insurance against a backlog after an outage.
+// Runs EVERY MINUTE, and the reason is arithmetic rather than taste: the
+// last-call nudge fires at 5 minutes left, so on a five-minute tick it can
+// fall between ticks and never be sent at all — the previous tick sees 5.x
+// minutes remaining and the next sees an offer already expired. A one-minute
+// tick is what this half was separated out to get; it costs about a second a
+// run because it is two narrow queries over live offers.
+//
+// The ceiling below is insurance against a backlog after an outage.
 export const maxDuration = 120;
 
 async function handle(request: Request) {
