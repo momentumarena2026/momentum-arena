@@ -4,9 +4,11 @@
  *
  * CI records a freshly-uploaded build with latestIsLive=false (see
  * scripts/set-version-gate.ts), so the app shows no "update available" prompt
- * while the build sits in App Store review or as a Play draft. This job — run
- * hourly by .github/workflows/cron-store-availability.yml — is what ends that
- * wait without anyone watching.
+ * while the build sits in App Store review or as a Play draft.
+ *
+ * The SCHEDULED copy of this now lives at `app/api/cron/store-availability`,
+ * run hourly at :20 from vercel.json. This script is kept for manual runs —
+ * chiefly `--dry-run`, to see what would flip without touching live gates.
  *
  *   tsx scripts/check-store-availability.ts [--dry-run]
  *
