@@ -374,11 +374,21 @@ Anything else means main has drifted — stop and investigate, do not push.
     **Cost is not the reason to avoid them here** — this repo is public, so
     Actions minutes are free. Reliability is.
 
-    Vercel cron honours the schedule: the two challenge routes and the report
-    queue were moved there and verified firing every minute and every five.
-    The three above are still on GitHub — `cron-send-reminders` is the one
-    that matters most, because those are customer booking reminders going out
-    six times a day instead of hourly.
+    Vercel cron honours the schedule. Moved there and verified firing:
+    `challenge-offers` and `process-reports` every minute, `challenge-money`
+    every five, `send-reminders` hourly.
+
+    **`send-reminders` was the worst of them, and the reason is worth
+    keeping.** Its 2h stage only looks at bookings starting at
+    `currentHour + 2` and its 1h stage at `currentHour + 1`, so a missed run
+    is not a late reminder — it is a reminder that never goes out, because
+    the next pass is looking at a different slot. At 6 runs a day, most
+    hours' 2h and 1h reminders were simply never sent. **A cron whose work is
+    keyed to the current hour cannot survive a scheduler that drops runs.**
+
+    Still on GitHub: `cron-rollup-metrics` and `cron-store-availability`,
+    both hourly on paper and both getting 6–7 a day. Neither is
+    customer-facing.
 
     When moving one: put the schedule in `vercel.json`, give the route an
     explicit `maxDuration` (the platform default is 60s), make the auth
