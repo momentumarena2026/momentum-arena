@@ -48,6 +48,10 @@
     {
       "path": "/api/cron/challenge-offers",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/process-reports",
+      "schedule": "* * * * *"
     }
   ]
 }
