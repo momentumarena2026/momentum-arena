@@ -52,6 +52,10 @@
     {
       "path": "/api/cron/process-reports",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/rollup-metrics",
+      "schedule": "5 * * * *"
     }
   ]
 }
