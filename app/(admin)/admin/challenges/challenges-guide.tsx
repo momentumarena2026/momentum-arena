@@ -400,6 +400,25 @@ export function ChallengesGuide({
           />
         </div>
 
+        <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          <Shot
+            src="/help/challenges/confirmed.webp"
+            alt="A confirmed match showing the court, the split and the spin button"
+            w={620}
+            h={351}
+            caption="Both halves in. The court is booked, the whole split is restated, and the poster — only the poster — is offered their spin."
+            by="Advance % · the confirmed message · Prize wheel running"
+          />
+          <Shot
+            src="/help/challenges/wheel.webp"
+            alt="The prize wheel as a customer sees it"
+            w={620}
+            h={778}
+            caption="The wheel itself. Six equal slices whatever the odds — and the line underneath states the real chance in words, which is how the picture stays even without misleading anybody."
+            by="Segments and weights — see section 5"
+          />
+        </div>
+
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
           <Shot
             src="/help/challenges/post-form.webp"
@@ -577,16 +596,36 @@ export function ChallengesGuide({
           <WheelPreview segments={wheel} />
         </div>
 
-        <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-          <p className="text-sm font-semibold text-white">
-            Why every slice is drawn the same size
-          </p>
-          <p className="mt-1 text-sm text-zinc-400">
-            A jackpot drawn as a hair-thin sliver reads as a wheel that cannot be won, so
-            the picture is even while the odds stay exactly your weights. Nothing is
-            hidden: the caption under the wheel tells the player the true chance in words
-            — &ldquo;about 1 spin in 20&rdquo;.
-          </p>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] lg:items-start">
+          <Shot
+            src="/help/challenges/wheel.webp"
+            alt="The prize wheel in the app, with equal slices"
+            w={620}
+            h={778}
+            caption="The built-in wheel as a player sees it."
+          />
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+            <p className="text-sm font-semibold text-white">
+              Why every slice is drawn the same size
+            </p>
+            <p className="mt-1 text-sm text-zinc-400">
+              A jackpot drawn as a hair-thin sliver reads as a wheel that cannot be won,
+              so the picture is even while the odds stay exactly your weights.
+            </p>
+            <p className="mt-2 text-sm text-zinc-400">
+              Nothing is hidden. Look at the line under the wheel in that screenshot:{" "}
+              <span className="text-white">
+                &ldquo;Gold is 50% off — about 1 spin in 10.&rdquo;
+              </span>{" "}
+              That sentence is generated from your weights, so it always tells the truth
+              even though the slices are even. On the built-in wheel the 50% segment has a
+              weight of 10 out of 100, which is exactly 1 in 10.
+            </p>
+            <p className="mt-2 text-sm text-zinc-400">
+              A segment with weight 0 is not drawn at all — it cannot be landed on, so
+              putting it on the wheel would promise a prize that never comes up.
+            </p>
+          </div>
         </div>
 
         <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
