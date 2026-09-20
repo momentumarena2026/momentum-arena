@@ -40,6 +40,14 @@
     {
       "path": "/api/cron/generator-check",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/challenge-money",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/challenge-offers",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
