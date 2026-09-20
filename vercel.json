@@ -47,7 +47,7 @@
     },
     {
       "path": "/api/cron/challenge-offers",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }
