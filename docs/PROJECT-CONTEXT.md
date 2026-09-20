@@ -391,13 +391,21 @@ Anything else means main has drifted — stop and investigate, do not push.
     `challenge-money` at :00 and :05, `send-reminders` at 20:00:12,
     `rollup-metrics` at 20:05:44.
 
-    **Still on GitHub: `cron-store-availability` only**, hourly at :20,
-    getting ~6 a day. It cannot move as-is — it is not a ping, it checks out
-    the repo and runs `scripts/check-store-availability.ts` against
-    `PRODUCTION_DB_URL` with a `GOOGLE_PLAY_JSON_KEY` service-account
-    credential, so that key has to exist in Vercel's environment first.
-    Lowest urgency of the set: it only flips the "update available" nag on
-    after a store release, so a late run costs a few quiet hours post-launch.
+    **Nothing is scheduled from GitHub Actions any more.**
+    `cron-store-availability` was the last and the awkward one: not a ping,
+    it ran a script against the production database with a
+    `GOOGLE_PLAY_JSON_KEY` service-account credential, so it could not move
+    until that key was added to Vercel's environment. It is now
+    `/api/cron/store-availability`, hourly at :20.
+
+    That route also fixes a diagnostic trap worth remembering.
+    `fetchLivePlayTrack` returns null both for "no credential" and for "the
+    call failed", and the caller treats both as "leave the gate alone" —
+    correct for safety, useless for telling whether anything is wrong, since
+    a missing credential looks exactly like a healthy run with nothing to do.
+    The route reports `playLookup` (not-needed / no-credential / failed / ok)
+    and warns on the bad ones. **When a safe fallback and a broken config
+    produce the same output, you have no way to know which you have.**
 
     **`/api/cron/expire-utrs` is called hourly at :00 by something OUTSIDE
     this repo.** It is not in `vercel.json` and no workflow calls it, yet it
