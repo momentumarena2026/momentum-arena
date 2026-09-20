@@ -1,0 +1,70 @@
+name: Challenges board — on/off (production)
+
+# Switches the Challenges board, and separately the prize wheel, on or off in
+# PRODUCTION. Both ship off; turning the board on is the moment the feature
+# starts carrying customers' money, so it is a deliberate dispatch with a name
+# against it rather than something a deploy does by itself.
+#
+# The same change can be made by the venue at /admin/challenges with the
+# master switch. This exists for when it has to be done without an admin
+# session, and because a dispatch leaves an audit trail.
+#
+# Reversible: run it again with enabled=false.
+
+on:
+  workflow_dispatch:
+    inputs:
+      enabled:
+        description: "Challenges board"
+        required: true
+        type: choice
+        default: "unchanged"
+        options:
+          - unchanged
+          - "true"
+          - "false"
+      spin_enabled:
+        description: "Prize wheel (separate from the board)"
+        required: true
+        type: choice
+        default: "unchanged"
+        options:
+          - unchanged
+          - "true"
+          - "false"
+
+jobs:
+  toggle:
+    name: Set the board state
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+      ENABLED: ${{ inputs.enabled }}
+      SPIN_ENABLED: ${{ inputs.spin_enabled }}
+    steps:
+      - name: Verify the production secret exists
+        run: |
+          if [ -z "${{ secrets.PRODUCTION_DB_URL }}" ]; then
+            echo "PRODUCTION_DB_URL is not set — refusing to run."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsx scripts/set-challenge-board.ts 2>&1 | tee board.log
+      - if: always()
+        run: |
+          {
+            echo "### Challenges board"
+            echo ""
+            echo "Requested — board: \`${{ inputs.enabled }}\`, prize wheel: \`${{ inputs.spin_enabled }}\`"
+            echo ""
+            echo '```'
+            cat board.log 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
