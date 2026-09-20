@@ -73,24 +73,39 @@ function Section({
   );
 }
 
-function Phone({ caption, children }: { caption: string; children: React.ReactNode }) {
+/**
+ * A real screenshot of the app, with the setting that controls it named
+ * underneath. Taken from the running iOS build against staging data; the
+ * team names and times are demo rows, everything else is the real screen.
+ */
+function Shot({
+  src,
+  alt,
+  caption,
+  by,
+  w,
+  h,
+}: {
+  src: string;
+  alt: string;
+  caption: string;
+  by?: string;
+  w: number;
+  h: number;
+}) {
   return (
-    <figure className="w-full max-w-[210px] shrink-0">
-      <div className="rounded-[1.4rem] border-4 border-zinc-800 bg-black p-2">
-        <div className="min-h-[160px] rounded-[0.9rem] bg-zinc-950 p-2.5">{children}</div>
+    <figure className="min-w-0">
+      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-black">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} width={w} height={h} className="block h-auto w-full" />
       </div>
-      <figcaption className="mt-2 text-center text-[11px] leading-snug text-zinc-500">
-        {caption}
-      </figcaption>
+      <figcaption className="mt-2 text-xs leading-snug text-zinc-400">{caption}</figcaption>
+      {by && (
+        <p className="mt-1 text-[11px] leading-tight text-emerald-500/90">
+          Controlled by <span className="font-medium">{by}</span>
+        </p>
+      )}
     </figure>
-  );
-}
-
-function Controls({ by }: { by: string }) {
-  return (
-    <p className="mt-1 text-[10px] leading-tight text-emerald-500/80">
-      ↑ set by <span className="font-medium">{by}</span>
-    </p>
   );
 }
 
@@ -358,87 +373,66 @@ export function ChallengesGuide({
         title="What the customer actually sees"
         lead="Every word below is yours to change. The green note under each screen says which setting controls it."
       >
-        <div className="flex flex-wrap gap-5">
-          <Phone caption="Home screen. Appears only while the board is switched on.">
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-600/10 p-2">
-              <div className="flex items-center gap-1.5">
-                <span className="rounded bg-emerald-500 px-1 py-0.5 text-[8px] font-bold text-black">
-                  NEW
-                </span>
-                <span className="text-[10px] font-semibold text-white">Challenge a team</span>
-              </div>
-              <p className="mt-1 text-[9px] leading-tight text-zinc-400">
-                Post a match, split the court
-              </p>
-            </div>
-            <Controls by="Home screen card" />
-          </Phone>
-
-          <Phone caption="The board — everything currently open to take.">
-            <p className="text-[10px] font-semibold text-white">Open challenges</p>
-            <p className="text-[8px] text-zinc-500">Take one and split the court</p>
-            <Controls by="Wording" />
-            <div className="mt-2 space-y-1.5">
-              {["Rohit's XI · 8 players", "Box Kings · 6 players"].map((t) => (
-                <div key={t} className="rounded border border-zinc-800 bg-zinc-900 p-1.5">
-                  <p className="text-[9px] font-medium text-white">{t}</p>
-                  <p className="text-[8px] text-zinc-500">Sat 7–8pm · ₹500 your half</p>
-                </div>
-              ))}
-            </div>
-          </Phone>
-
-          <Phone caption="Opening one. Paying IS accepting.">
-            <p className="text-[10px] font-semibold text-white">Rohit&apos;s XI</p>
-            <p className="text-[8px] text-zinc-500">Cricket · 8 players</p>
-            <div className="mt-2 space-y-1">
-              {["Sat 7–8pm", "Sun 6–7pm"].map((t, i) => (
-                <div
-                  key={t}
-                  className={`rounded border p-1.5 ${
-                    i === 0
-                      ? "border-emerald-500/40 bg-emerald-600/10"
-                      : "border-zinc-800 bg-zinc-900"
-                  }`}
-                >
-                  <p className="text-[9px] text-white">{t}</p>
-                  <p className="text-[8px] text-zinc-500">₹500 now · ₹1,000 at the venue</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 rounded bg-emerald-500 py-1 text-center text-[9px] font-bold text-black">
-              Pay ₹500 &amp; take it
-            </div>
-            <Controls by="Advance %" />
-          </Phone>
-
-          <Phone caption="A push at each step. Five of them, all your words.">
-            <div className="space-y-1.5">
-              {[
-                ["Match on!", "Rohit's XI took your 7pm"],
-                ["Pay your half", "₹500 to lock Saturday"],
-                ["Court booked", "Sat 7–8pm, Full Field"],
-              ].map(([t, b]) => (
-                <div key={t} className="rounded border border-zinc-800 bg-zinc-900 p-1.5">
-                  <p className="text-[9px] font-semibold text-white">{t}</p>
-                  <p className="text-[8px] text-zinc-500">{b}</p>
-                </div>
-              ))}
-            </div>
-            <Controls by="What the match itself says" />
-          </Phone>
-
-          <Phone caption="The poster gets one spin once the match is confirmed.">
-            <p className="text-center text-[10px] font-semibold text-white">
-              Spin for your next hour
-            </p>
-            <div className="mx-auto mt-2 h-16 w-16 rounded-full border-4 border-emerald-500/40 bg-gradient-to-br from-emerald-600/40 to-amber-500/40" />
-            <p className="mt-2 text-center text-[8px] text-zinc-500">
-              Up to 50% off the next hour
-            </p>
-            <Controls by="Prize wheel" />
-          </Phone>
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          <Shot
+            src="/help/challenges/home-card.webp"
+            alt="The Challenge a team card on the app's Home screen"
+            w={620}
+            h={222}
+            caption="Home screen. The card appears only while the board is switched on — and only in the app, never on the website."
+            by="Home screen card (title, subtitle, badge) and the Master switch"
+          />
+          <Shot
+            src="/help/challenges/board.webp"
+            alt="The challenges board listing open matches"
+            w={620}
+            h={939}
+            caption="The board. Everything currently open to take, newest first, filterable by sport. A captain's own posts appear under YOURS instead."
+            by="Wording (title, subtitle, empty message) and Which sports"
+          />
+          <Shot
+            src="/help/challenges/detail-pay.webp"
+            alt="A challenge showing the court price, the split and the pay button"
+            w={620}
+            h={385}
+            caption="Opening one. Note the whole money story in one line — ₹2,000 court, ₹500 now, ₹1,000 at the venue. Paying IS accepting; there is no separate accept button."
+            by="Advance % — see section 4"
+          />
         </div>
+
+        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+          <Shot
+            src="/help/challenges/post-form.webp"
+            alt="The form a captain fills in to post a challenge"
+            w={620}
+            h={770}
+            caption="What a captain fills in to post."
+            by="Which sports · Minimum and maximum players · Times per challenge"
+          />
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+            <p className="text-sm font-semibold text-white">Reading that form against your settings</p>
+            <ul className="mt-2 space-y-2 text-sm text-zinc-400">
+              <li>
+                <span className="font-medium text-white">The sport chips</span> are exactly
+                the sports you allowed. Allow none and every sport the arena runs appears.
+              </li>
+              <li>
+                <span className="font-medium text-white">&ldquo;When can you play? (0/3)&rdquo;</span>{" "}
+                — that 3 is your <span className="text-emerald-300">Times per challenge</span>.
+                Set it to 1 and the counter reads (0/1).
+              </li>
+              <li>
+                <span className="font-medium text-white">How many players</span> is checked
+                against your minimum and maximum before the post is accepted.
+              </li>
+              <li>
+                Times inside your <span className="text-emerald-300">notice period</span>{" "}
+                are simply not offered, so nobody can arrange a game you cannot staff.
+              </li>
+            </ul>
+          </div>
+        </div>
+
       </Section>
 
       {/* 4 ── the money */}
@@ -513,6 +507,27 @@ export function ChallengesGuide({
             )}
           </div>
         </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:items-center">
+          <Shot
+            src="/help/challenges/detail-pay.webp"
+            alt="The same numbers as the customer sees them"
+            w={620}
+            h={385}
+            caption="The same three numbers as a captain sees them, in one line."
+          />
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
+            <p>
+              At 50% on a ₹2,000 court that reads{" "}
+              <span className="text-white">
+                &ldquo;₹2000 for the court · your half now, ₹1000 at the venue&rdquo;
+              </span>{" "}
+              with a <span className="text-white">Take it — pay ₹500</span> button. Change
+              the advance to 100% and the same screen asks for ₹1,000 with nothing due at
+              the gate.
+            </p>
+          </div>
+        </div>
+
         <p className="mt-4 text-sm text-zinc-400">
           The split is halved and rounded, so an odd advance leaves a rupee in the
           venue&apos;s favour at the gate. Once the court is booked the{" "}
