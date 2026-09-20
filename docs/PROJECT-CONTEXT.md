@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-20 · accurate as of `main` = `2273751f` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone and taken through one function (gotcha 15); availability must stay on the caller's client (16).
+**Last substantive update:** 2026-09-20 · accurate as of `main` = `878e0e09` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone and taken through one function (gotcha 15); availability must stay on the caller's client (16).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -651,7 +651,31 @@ its templates here, or it ships with no push voice at all.
 
 ---
 
-## 7b. Challenges (team matchmaking) — ON MAIN, switched OFF
+## 7b. Challenges (team matchmaking) — LIVE IN PRODUCTION
+
+**Board switched ON in production 2026-09-20** (dispatch of
+`challenges-board.yml`, run 35522413934). Customers can post, take and pay
+from the app right now. The **prize wheel is still OFF** — deliberately, see
+the cron note below. Turn either back off by dispatching that workflow the
+other way, or with the master switch on `/admin/challenges`.
+
+⚠️ **The money-repair cron does not run as often as it looks.** The workflow
+asks for `* * * * *` but GitHub throttles scheduled runs hard: measured, it
+fires roughly **6 times in 24 hours**, not 1,440. Consequences worth knowing
+before tuning anything:
+
+- `resumeStalledPayments` repairs a captured-but-unplaced payment within a few
+  hours rather than a minute. Money is not lost, it is delayed.
+- `discardChallengesWhoseHourWent` can take hours to tell two captains their
+  hour went, and during that window the second captain can still pay into an
+  hour that is already sold — making a second refund.
+- The prize wheel's shortest offer window is 30 minutes by default, so its
+  last-call nudges **cannot fire in time at this cadence**. That is why the
+  wheel was left off when the board went on.
+
+Fixing it means moving this cron off GitHub's scheduler (Vercel Cron honours
+per-minute) or accepting a coarser-but-reliable interval and widening the
+offer windows to match.
 
 **Promoted 2026-09-20 (merge `2273751f`), arriving dark.**
 `ChallengeSettings.enabled` and `spinEnabled` both default to `false` and gate
