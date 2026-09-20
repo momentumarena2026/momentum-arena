@@ -56,6 +56,10 @@
     {
       "path": "/api/cron/rollup-metrics",
       "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/store-availability",
+      "schedule": "20 * * * *"
     }
   ]
 }
