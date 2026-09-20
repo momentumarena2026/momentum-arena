@@ -386,9 +386,26 @@ Anything else means main has drifted — stop and investigate, do not push.
     hours' 2h and 1h reminders were simply never sent. **A cron whose work is
     keyed to the current hour cannot survive a scheduler that drops runs.**
 
-    Still on GitHub: `cron-rollup-metrics` and `cron-store-availability`,
-    both hourly on paper and both getting 6–7 a day. Neither is
-    customer-facing.
+    All the ping-style jobs are moved. Verified firing 2026-09-20 20:00–20:07:
+    `challenge-offers` and `process-reports` every minute unbroken,
+    `challenge-money` at :00 and :05, `send-reminders` at 20:00:12,
+    `rollup-metrics` at 20:05:44.
+
+    **Still on GitHub: `cron-store-availability` only**, hourly at :20,
+    getting ~6 a day. It cannot move as-is — it is not a ping, it checks out
+    the repo and runs `scripts/check-store-availability.ts` against
+    `PRODUCTION_DB_URL` with a `GOOGLE_PLAY_JSON_KEY` service-account
+    credential, so that key has to exist in Vercel's environment first.
+    Lowest urgency of the set: it only flips the "update available" nag on
+    after a store release, so a late run costs a few quiet hours post-launch.
+
+    **`/api/cron/expire-utrs` is called hourly at :00 by something OUTSIDE
+    this repo.** It is not in `vercel.json` and no workflow calls it, yet it
+    returns 200 on the hour — so the caller holds a valid `CRON_SECRET` and
+    is deliberate, most likely an external scheduler set up by hand.
+    `actions/upi-payment.ts` also sweeps it lazily on UPI activity. Worth
+    knowing before somebody "fixes" its absence from `vercel.json` and ends
+    up running it twice an hour.
 
     When moving one: put the schedule in `vercel.json`, give the route an
     explicit `maxDuration` (the platform default is 60s), make the auth
