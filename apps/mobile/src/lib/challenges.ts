@@ -199,10 +199,15 @@ export async function createChallengePayOrder(
  * app can land minutes later, and it has to land on the person who started
  * it rather than on whoever grabbed the slot in between. `freeAt` is when
  * it actually opens to everyone.
+ *
+ * `shortened` is false when the hold was already going to lapse sooner than
+ * the grace period — which is every release once the venue's payment window
+ * is at or below it. Saying "released!" there would claim an action the
+ * server did not take.
  */
 export async function releaseChallengePayHold(
   challengeId: string,
-): Promise<{ ok: true; freeAt: string }> {
+): Promise<{ ok: true; freeAt: string; shortened: boolean }> {
   return api.post("/api/mobile/challenges", { op: "pay-release", challengeId });
 }
 

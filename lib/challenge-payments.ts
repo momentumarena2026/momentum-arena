@@ -3389,7 +3389,9 @@ export async function releasePaymentHold(
   challengeId: string,
   userId: string,
   now = new Date(),
-): Promise<{ ok: true; freeAt: string } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; freeAt: string; shortened: boolean } | { ok: false; error: string }
+> {
   const row = await db.challengePayment.findFirst({
     where: { challengeId, userId, paidAt: null, placedAt: null, refundOwedAt: null },
     select: { id: true, createdAt: true },
@@ -3412,7 +3414,16 @@ export async function releasePaymentHold(
   // RESURRECTED it for another five minutes — the opposite of the point,
   // and it locked strangers out of a match that had been free all morning.
   if (freeAt >= existingFreeAt) {
-    return { ok: true, freeAt: new Date(existingFreeAt).toISOString() };
+    // Nothing to give back: the hold already frees sooner than the grace
+    // period would. Reachable in the ordinary way once the venue sets a
+    // payment window at or below RELEASE_GRACE_MINS — at a 5-minute window
+    // every release lands here. `shortened` lets the app say "it was about
+    // to lapse anyway" instead of claiming an action it did not take.
+    return {
+      ok: true,
+      freeAt: new Date(existingFreeAt).toISOString(),
+      shortened: false,
+    };
   }
 
   // Backdate `createdAt` so the EXISTING staleness check frees it at the
@@ -3430,5 +3441,5 @@ export async function releasePaymentHold(
     challengeId,
     detail: `released their payment slot — it opens to anyone in ${RELEASE_GRACE_MINS} minutes`,
   });
-  return { ok: true, freeAt: new Date(freeAt).toISOString() };
+  return { ok: true, freeAt: new Date(freeAt).toISOString(), shortened: true };
 }

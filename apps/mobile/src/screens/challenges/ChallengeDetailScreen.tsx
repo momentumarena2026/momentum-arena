@@ -1022,10 +1022,14 @@ function HoldBanner({
       const r = await releaseChallengePayHold(challengeId);
       Alert.alert(
         "Released",
-        // Say the delay and WHY, or it reads as the release not working.
-        "Your payment slot is being given back. It takes a few minutes, so that a UPI payment you already approved can still land on you rather than on whoever takes the match next.",
+        r.shortened
+          ? // Say the delay and WHY, or it reads as the release not working.
+            "Your payment slot is being given back. It takes a few minutes, so that a UPI payment you already approved can still land on you rather than on whoever takes the match next."
+          : // Nothing was shortened because the hold was already about to
+            // lapse. Claiming otherwise would be a small lie the next
+            // screen refresh contradicts.
+            "That slot was already about to open to everyone, so there was nothing to give back.",
       );
-      void r;
       onReleased();
     } catch (e) {
       Alert.alert("Couldn't release that", challengeErrorMessage(e));
