@@ -149,6 +149,8 @@ export async function fetchChallenge(id: string): Promise<{
   hours: { start: number; end: number };
   /** The venue's notice period, so the counter picker offers only legal times. */
   minLeadMins: number;
+  /** Who is holding a payment slot, if anyone. Null when nobody is. */
+  hold: PaymentHold | null;
   /** What the spin came to, spent or not. Null means never spun. */
   spin: {
     pct: number;
@@ -183,6 +185,37 @@ export async function createChallengePayOrder(
 ): Promise<{ orderId: string; keyId: string; amount: number; courtLabel: string | null }> {
   return api.post("/api/mobile/challenges", { op: "pay-order", challengeId, windowId });
 }
+
+/**
+ * Give back a payment slot you opened and are not going to pay.
+ *
+ * Until this existed, opening the sheet claimed your side of the match for
+ * the venue's whole payment window — two hours here — and nothing could
+ * unclaim it. The match sat on the board telling every stranger who tapped
+ * Pay that somebody else was paying "right now", about a sheet that had
+ * been closed since breakfast.
+ *
+ * The server does not free it instantly: a UPI collect approved in a bank
+ * app can land minutes later, and it has to land on the person who started
+ * it rather than on whoever grabbed the slot in between. `freeAt` is when
+ * it actually opens to everyone.
+ */
+export async function releaseChallengePayHold(
+  challengeId: string,
+): Promise<{ ok: true; freeAt: string }> {
+  return api.post("/api/mobile/challenges", { op: "pay-release", challengeId });
+}
+
+/** Who is holding a payment slot on this challenge, if anyone. */
+export type PaymentHold = {
+  side: "CHALLENGER" | "ACCEPTOR";
+  heldByViewer: boolean;
+  /** ISO. When the hold lapses and anyone may pay. */
+  freeAt: string;
+  msLeft: number;
+  /** The server's own sentence — this screen does not write its own. */
+  message: string;
+};
 
 export type SpinResult = {
   pct: number;

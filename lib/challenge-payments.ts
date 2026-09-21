@@ -76,6 +76,8 @@ import {
   hourWord,
   statusAfterPayment,
   sideOf,
+  heldByOtherMessage,
+  releasedFreeAt,
   type ChallengeSide,
   type ChallengeStatus,
 } from "@/lib/challenge-rules";
@@ -653,15 +655,14 @@ export async function createChallengePaymentOrder(
       // clock over it too turned the permanent dead card into a two-hour one:
       // an OPEN, priced, un-takeable challenge answering strangers "someone
       // else is paying for this right now" about a payment that was refunded.
-      if (
-        !current.refundOwedAt &&
-        Date.now() < current.createdAt.getTime() + windowMins * 60000
-      ) {
-        return {
-          ok: false,
-          error:
-            "Someone else is paying for this right now. Try again shortly.",
-        };
+      const freeAt = current.createdAt.getTime() + windowMins * 60000;
+      if (!current.refundOwedAt && Date.now() < freeAt) {
+        // SAY WHEN. This used to end "Try again shortly" for a wait that is
+        // `paymentWindowMins` long — two hours on this arena. A stranger
+        // cannot tell a thirty-second race from a sheet somebody opened and
+        // walked away from, so they tap Pay again, read the same sentence,
+        // and decide the board is broken. The number is the whole message.
+        return { ok: false, error: heldByOtherMessage(freeAt - Date.now()) };
       }
       if (current.razorpayOrderId) {
         await logChallengeEvent({
@@ -749,10 +750,12 @@ export async function createChallengePaymentOrder(
       // payment" went to strangers who had paid nothing, about a payment they
       // never made.
       if (current.userId !== userId) {
+        // Reached only when a takeover lost a race to another takeover in
+        // the same instant, so unlike the branch above this really is
+        // seconds — and it says so rather than borrowing the long wording.
         return {
           ok: false,
-          error:
-            "Someone else is paying for this right now. Try again shortly.",
+          error: "Someone else just took this one. Pull to refresh.",
         };
       }
       return {
@@ -3289,4 +3292,143 @@ async function placeClaimedPayment(args: {
         ? placement.bookingId
         : null,
   };
+}
+
+/**
+ * Who, if anyone, is holding a payment slot on this challenge — and until
+ * when.
+ *
+ * Exists because the hold was INVISIBLE until you tapped Pay. The board
+ * showed a takeable match, the button looked live, and the only way to
+ * learn that somebody had opened the sheet two hours ago and wandered off
+ * was to try to pay and be refused. That is a dead end dressed up as an
+ * affordance.
+ *
+ * Returns null when nothing is held, so the screen renders exactly as it
+ * did before in the ordinary case.
+ *
+ * A written-off capture (`refundOwedAt`) does NOT hold anything — the same
+ * carve-out the pay path makes, and for the same reason: a refunded payment
+ * that still blocked the slot turned a stranded capture into a permanently
+ * un-takeable card on a matchmaking board.
+ */
+export async function paymentHoldFor(
+  challengeId: string,
+  viewerId: string,
+  now = new Date(),
+): Promise<{
+  side: ChallengeSide;
+  heldByViewer: boolean;
+  freeAt: string;
+  msLeft: number;
+  message: string;
+} | null> {
+  const [rows, settings] = await Promise.all([
+    db.challengePayment.findMany({
+      where: { challengeId, paidAt: null, refundOwedAt: null },
+      select: { side: true, userId: true, createdAt: true },
+    }),
+    db.challengeSettings.findFirst({ select: { paymentWindowMins: true } }),
+  ]);
+  const windowMins = settings?.paymentWindowMins ?? 120;
+
+  // The LONGEST live hold, not the first found. Two sides can each be held;
+  // reporting whichever row came back first would show a stranger a countdown
+  // that expires while the slot they actually want is still blocked.
+  let best: { side: ChallengeSide; userId: string; freeAt: number } | null = null;
+  for (const r of rows) {
+    const freeAt = r.createdAt.getTime() + windowMins * 60000;
+    if (freeAt <= now.getTime()) continue;
+    if (!best || freeAt > best.freeAt) {
+      best = { side: r.side, userId: r.userId, freeAt };
+    }
+  }
+  if (!best) return null;
+
+  const msLeft = best.freeAt - now.getTime();
+  const heldByViewer = best.userId === viewerId;
+  return {
+    side: best.side,
+    heldByViewer,
+    freeAt: new Date(best.freeAt).toISOString(),
+    msLeft,
+    // The holder is told it is THEIRS, which is the difference between
+    // "someone is blocking me" and "finish what you started". Sending the
+    // stranger's wording to the holder is how the old alert read to the one
+    // person who could actually clear it.
+    message: heldByViewer
+      ? "You started paying for this. Finish it, or release it so somebody else can take the match."
+      : heldByOtherMessage(msLeft),
+  };
+}
+
+/**
+ * Give a held payment slot back, without waiting out the window.
+ *
+ * The missing half of the hold. A captain who opened the sheet and changed
+ * their mind had no way to undo it: the slot stayed theirs for the full
+ * `paymentWindowMins`, the match sat on the board un-takeable, and the only
+ * cure was to wait two hours. Nothing in the module released it early —
+ * not the holder, not a sweep, not the app closing the sheet.
+ *
+ * It does NOT release instantly, and that is deliberate. The order is
+ * already live at the gateway by the time anyone can cancel, and a UPI
+ * collect the customer approved in their bank app can resolve minutes
+ * later. Releasing to zero would let a stranger take the slot in between,
+ * and the late capture would land on a deal that no longer exists —
+ * stranded money and a manual refund, which is the exact failure this
+ * module has been bitten by before. So a release shortens the hold to a
+ * grace period long enough for an in-flight collect to settle on its
+ * rightful owner.
+ *
+ * Only the holder may release, and only a slot with no money on it.
+ */
+export const RELEASE_GRACE_MINS = 5;
+
+export async function releasePaymentHold(
+  challengeId: string,
+  userId: string,
+  now = new Date(),
+): Promise<{ ok: true; freeAt: string } | { ok: false; error: string }> {
+  const row = await db.challengePayment.findFirst({
+    where: { challengeId, userId, paidAt: null, placedAt: null, refundOwedAt: null },
+    select: { id: true, createdAt: true },
+  });
+  if (!row) {
+    // Includes the case where they HAVE paid. Telling someone who paid that
+    // their slot is released would be a lie about money.
+    return { ok: false, error: "You don't have a payment open on this one." };
+  }
+
+  const settings = await db.challengeSettings.findFirst({
+    select: { paymentWindowMins: true },
+  });
+  const windowMins = settings?.paymentWindowMins ?? 120;
+
+  const existingFreeAt = row.createdAt.getTime() + windowMins * 60000;
+  const freeAt = releasedFreeAt(existingFreeAt, now.getTime(), RELEASE_GRACE_MINS);
+  // A release may only ever bring the deadline FORWARD. Without this, a
+  // holder releasing a slot whose window had already lapsed hours ago
+  // RESURRECTED it for another five minutes — the opposite of the point,
+  // and it locked strangers out of a match that had been free all morning.
+  if (freeAt >= existingFreeAt) {
+    return { ok: true, freeAt: new Date(existingFreeAt).toISOString() };
+  }
+
+  // Backdate `createdAt` so the EXISTING staleness check frees it at the
+  // grace deadline. One clock, not two: a separate `releasedAt` column
+  // would be a second definition of "is this slot free" for the pay path
+  // to disagree with, and this module's scars are mostly two-definition
+  // bugs.
+  await db.challengePayment.updateMany({
+    where: { id: row.id, paidAt: null, placedAt: null, refundOwedAt: null },
+    data: { createdAt: new Date(freeAt - windowMins * 60000) },
+  });
+  await logChallengeEvent({
+    type: "MONEY_NOTE",
+    userId,
+    challengeId,
+    detail: `released their payment slot — it opens to anyone in ${RELEASE_GRACE_MINS} minutes`,
+  });
+  return { ok: true, freeAt: new Date(freeAt).toISOString() };
 }
