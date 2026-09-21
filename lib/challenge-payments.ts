@@ -3321,6 +3321,8 @@ export async function paymentHoldFor(
   heldByViewer: boolean;
   freeAt: string;
   msLeft: number;
+  /** Whether a release would actually bring the deadline forward. */
+  releasable: boolean;
   message: string;
 } | null> {
   const [rows, settings] = await Promise.all([
@@ -3347,17 +3349,29 @@ export async function paymentHoldFor(
 
   const msLeft = best.freeAt - now.getTime();
   const heldByViewer = best.userId === viewerId;
+  // DON'T OFFER A BUTTON THAT CANNOT DO ANYTHING. Once the venue sets a
+  // payment window at or below the release grace — 5 minutes each, as of
+  // 2026-09-21 — every release is a no-op, and a "release it" button whose
+  // only possible outcome is "there was nothing to give back" is the exact
+  // class of dead control this whole change set exists to remove.
+  const releasable =
+    heldByViewer &&
+    releasedFreeAt(best.freeAt, now.getTime(), RELEASE_GRACE_MINS) < best.freeAt;
   return {
     side: best.side,
     heldByViewer,
     freeAt: new Date(best.freeAt).toISOString(),
     msLeft,
+    releasable,
     // The holder is told it is THEIRS, which is the difference between
     // "someone is blocking me" and "finish what you started". Sending the
     // stranger's wording to the holder is how the old alert read to the one
     // person who could actually clear it.
     message: heldByViewer
-      ? "You started paying for this. Finish it, or release it so somebody else can take the match."
+      ? releasable
+        ? "You started paying for this. Finish it, or release it so somebody else can take the match."
+        : // Nothing to release, so don't tell them to release it.
+          "You started paying for this. Finish it, or leave it — it opens to everyone shortly either way."
       : heldByOtherMessage(msLeft),
   };
 }
