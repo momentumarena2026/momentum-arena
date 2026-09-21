@@ -1036,6 +1036,33 @@ existed since the board shipped and still reads whatever it was set to. Move
 it explicitly — `scripts/set-challenge-board.ts` (dispatch
 `challenges-board.yml`) takes ANNOUNCE / AUDIENCE / DAILY_CAP.
 
+**The payment hold is a real cost, and it was silent.** Opening the payment
+sheet creates the `ChallengePayment` row, and that row claims the side for
+`paymentWindowMins` (120 in production). Three things were wrong and are
+fixed as of 2026-09-21:
+
+- The refusal said "Try again shortly" for a wait of up to the whole
+  window. `heldByOtherMessage` now carries the number, rounded UP —
+  rounding down sends somebody back one minute early to the same refusal.
+- The hold was invisible until you tapped Pay. `paymentHoldFor` is in the
+  detail payload and the screen renders it above the times, with a clock
+  that ticks locally and re-anchors on refresh.
+- Nothing could release it. `pay-release` lets the HOLDER hand it back,
+  and deliberately not to zero: the Razorpay order is live before anyone
+  can cancel and a UPI collect can resolve minutes later, so it shortens
+  the hold to `RELEASE_GRACE_MINS` (5) rather than freeing it instantly.
+  A stranger taking the slot in between would strand that capture.
+
+`releasedFreeAt` is pure and tested because the first version was
+backwards: it wrote whenever the new deadline was LARGER, so releasing a
+lapsed hold resurrected it. The rule is `min(existing, now + grace)` — a
+release may only bring the deadline forward. **Found by running it against
+staging, not by reading it.**
+
+Note the setting itself: 120 minutes protects a UPI collect that resolves
+in minutes. It is the venue's to choose, but it is the most expensive
+number on that settings page to set too high.
+
 **The stamp that says "this half is placed" must be in the SAME COMMIT as
 the money.** This bug has now been fixed three times at three different
 depths, each fix moving it one function down: first `paidAt` counted as paid,
