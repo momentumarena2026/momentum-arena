@@ -18,7 +18,14 @@ import {
   type ChallengeLimits,
   type ProposedWindow,
 } from "@/lib/challenge-rules";
-import { renderPush, resolveTemplate, DEFAULT_LIFECYCLE_PUSHES } from "@/lib/challenge-push";
+import {
+  renderPush,
+  resolveTemplate,
+  DEFAULT_LIFECYCLE_PUSHES,
+  DEFAULT_POSTED_PUSH,
+  type PostedVars,
+} from "@/lib/challenge-push";
+import { sendToTokens } from "@/lib/push";
 import { istDayLabel } from "@/lib/challenge-spin";
 
 /**
@@ -633,3 +640,204 @@ export async function expireStaleChallenges(): Promise<number> {
 }
 
 export { DEFAULT_LIMITS };
+
+/* ── The board broadcast ─────────────────────────────────────────── */
+
+/** Start of today in IST, as an instant. The cap is a per-day cap. */
+function istDayStart(now: Date): Date {
+  const IST = 5.5 * 3600_000;
+  const ist = new Date(now.getTime() + IST);
+  return new Date(
+    Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST,
+  );
+}
+
+/**
+ * Who hears about a new post.
+ *
+ * Returns user ids, never devices — the caller resolves devices once, so
+ * a person with a phone and a tablet is one recipient with two tokens
+ * rather than two notifications.
+ *
+ * Each value is implemented. That matters more than it sounds: these
+ * settings shipped once already as columns nothing read, and the fix was
+ * to delete the admin panel rather than leave a control that lied. The
+ * panel is back only because every branch below does what it says.
+ */
+async function postedAudience(
+  audience: string,
+  sport: string,
+  recentDays: number,
+  excludeUserId: string,
+): Promise<string[]> {
+  // Everyone starts from "has a device at all" — a user with no device is
+  // not an audience member, they are a row.
+  const withDevices = await db.pushDevice.findMany({
+    select: { userId: true },
+    distinct: ["userId"],
+  });
+  const reachable = new Set(withDevices.map((d) => d.userId));
+  reachable.delete(excludeUserId);
+  if (reachable.size === 0 || audience === "ALL") return [...reachable];
+
+  const since =
+    audience === "RECENT"
+      ? new Date(Date.now() - Math.max(1, recentDays) * 86400_000)
+      : undefined;
+
+  const players = await db.booking.findMany({
+    where: {
+      userId: { in: [...reachable] },
+      status: { notIn: ["CANCELLED"] },
+      ...(audience === "SPORT" ? { courtConfig: { sport: sport as never } } : {}),
+      ...(since ? { createdAt: { gte: since } } : {}),
+    },
+    select: { userId: true },
+    distinct: ["userId"],
+  });
+  return players.map((p) => p.userId);
+}
+
+/**
+ * Announce challenges nobody has been told about. Returns how many went.
+ *
+ * NOT called from `postChallenge`, deliberately. A fan-out to the whole
+ * install base inside the request that creates the row would put a
+ * multi-second FCM call on the critical path of a customer tapping
+ * "Post" — and worse, a failure there is a failure to post. Here, a
+ * broken send costs an announcement and nothing else, and the per-minute
+ * cron picks it up again on the next tick if it throws before claiming.
+ *
+ * Idempotent by claim: `announcedAt` is stamped by a conditional update
+ * that only matches a row still holding null, so two overlapping runs
+ * cannot both announce one match. The claim happens BEFORE the send, so
+ * the failure mode is a missed announcement rather than a duplicate one —
+ * the right way round when the audience is everybody.
+ */
+export async function announceNewChallenges(now = new Date()): Promise<number> {
+  const s = await db.challengeSettings.findFirst({
+    select: {
+      enabled: true,
+      postedPushEnabled: true,
+      postedPush: true,
+      pushAudience: true,
+      pushDailyCap: true,
+      pushRecentDays: true,
+    },
+  });
+  if (!s?.enabled || !s.postedPushEnabled) return 0;
+
+  const cap = s.pushDailyCap ?? 0;
+  if (cap <= 0) return 0;
+  const usedToday = await db.challenge.count({
+    where: { announcedAt: { gte: istDayStart(now) } },
+  });
+  const room = cap - usedToday;
+  if (room <= 0) return 0;
+
+  // A grace period before a post is broadcast. Someone who posts, sees a
+  // typo in their team name and withdraws ten seconds later should not
+  // have had it pushed to every phone in Mathura first.
+  const settled = new Date(now.getTime() - 3 * 60_000);
+
+  const fresh = await db.challenge.findMany({
+    where: {
+      status: "OPEN",
+      announcedAt: null,
+      createdAt: { lte: settled },
+      expiresAt: { gt: now },
+    },
+    select: {
+      id: true,
+      sport: true,
+      teamName: true,
+      playerCount: true,
+      createdByUserId: true,
+      windows: {
+        where: { status: "OFFERED" },
+        select: { date: true, startHour: true, endHour: true },
+        orderBy: [{ date: "asc" }, { startHour: "asc" }],
+      },
+    },
+    // Oldest first, so a backlog drains in the order it arrived rather
+    // than the newest post starving everything behind it.
+    orderBy: { createdAt: "asc" },
+    take: room,
+  });
+  if (fresh.length === 0) return 0;
+
+  const tpl = resolveTemplate(s.postedPush, DEFAULT_POSTED_PUSH);
+
+  let sent = 0;
+  for (const c of fresh) {
+    // CLAIM FIRST. Everything after this point may fail without risking a
+    // second copy of the same announcement.
+    const claimed = await db.challenge.updateMany({
+      where: { id: c.id, announcedAt: null },
+      data: { announcedAt: now },
+    });
+    if (claimed.count === 0) continue;
+
+    const first = c.windows[0];
+    if (!first) continue;
+    const vars: PostedVars = {
+      team: c.teamName?.trim() || "A team",
+      sport: c.sport.charAt(0) + c.sport.slice(1).toLowerCase(),
+      players: c.playerCount,
+      hour: `${hourWord(first.startHour)}–${hourWord(first.endHour)}`,
+      date: istDayLabel(first.date),
+      options: c.windows.length > 1 ? `${c.windows.length} times` : "",
+    };
+    const title = renderPush(tpl.title, vars);
+    const body = renderPush(tpl.body, vars);
+
+    const userIds = await postedAudience(
+      s.pushAudience,
+      c.sport,
+      s.pushRecentDays,
+      c.createdByUserId,
+    );
+    if (userIds.length === 0) continue;
+
+    // The inbox rows in ONE statement and the push in ONE multicast.
+    // notifyUser() per person would be a round trip and an FCM call each,
+    // which at fifty recipients is fifty dispatch rows for one event and
+    // a sweep that no longer finishes inside its minute.
+    const link = `/challenges/${c.id}`;
+    await db.userNotification.createMany({
+      data: userIds.map((userId) => ({
+        userId,
+        type: "CHALLENGE_POSTED",
+        title,
+        body,
+        link,
+      })),
+    });
+
+    const devices = await db.pushDevice.findMany({
+      where: { userId: { in: userIds } },
+      select: { token: true },
+    });
+    if (devices.length > 0) {
+      // `in_app` rather than `open_screen`: the in_app handler's
+      // /challenges/<id> branch has been in every shipped build since the
+      // module launched, while open_screen routes through resolveDeepLink,
+      // which only learned about challenges in the 2026-09-21 OTA. Using
+      // the older path means the tap lands on the match on every phone in
+      // the field, not only the ones that have taken the update.
+      await sendToTokens(
+        devices.map((d) => d.token),
+        { title, body, data: { kind: "in_app", link } },
+        { scope: "customer", source: "broadcast", audience: `challenge:${s.pushAudience}` },
+      );
+    }
+
+    await logChallengeEvent({
+      type: "ANNOUNCED",
+      challengeId: c.id,
+      detail: `${userIds.length} recipient(s) · ${devices.length} device(s) · ${s.pushAudience}`,
+    });
+    sent++;
+  }
+  return sent;
+}

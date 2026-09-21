@@ -15,6 +15,8 @@ import {
   DEFAULT_WON_PUSH,
   DEFAULT_ADJACENT_PUSHES,
   DEFAULT_FALLBACK_PUSHES,
+  POSTED_VARIABLES,
+  DEFAULT_POSTED_PUSH,
 } from "@/lib/challenge-push";
 import { DEFAULT_WHEEL, wheelRefusal, resolveWheel } from "@/lib/challenge-rules";
 import {
@@ -47,6 +49,9 @@ type Settings = {
   paymentWindowMins: number;
   pushAudience: string;
   pushDailyCap: number;
+  pushRecentDays: number;
+  postedPush: unknown;
+  postedPushEnabled: boolean;
   boardTitle: string | null;
   boardSubtitle: string | null;
   emptyText: string | null;
@@ -609,16 +614,86 @@ export function ChallengesAdmin({
             </div>
           </Panel>
 
-          {/* The "Push" panel that stood here is gone.
-              `pushAudience` and `pushDailyCap` were saved, validated, bounded
-              — and read by nothing. There is no new-challenge broadcast in
-              this module at all, so the copy under them ("challenges still
-              post, they just go up quietly") described behaviour the product
-              does not have, which is worse than an absent control: the venue
-              would have set it, believed it, and wondered why the board
-              stayed quiet. Same call, and same reason, as the retired
-              `holdMinsAfterFirstPayment`. The columns stay; when a broadcast
-              exists, so can the panel. */}
+          {/* The Push panel is back.
+              It was pulled because `pushAudience` and `pushDailyCap` were
+              saved, validated, bounded — and read by nothing: there was no
+              new-challenge broadcast in the module at all, so the controls
+              described behaviour the product did not have. That is worse
+              than an absent control, because the venue sets it, believes it,
+              and wonders why the board stays quiet. The broadcast exists
+              now (`announceNewChallenges`, on the per-minute sweep), and
+              every field below is read by it. Do not re-add a field here
+              that nothing consumes. */}
+          <Panel
+            title="Telling people a match is up"
+            desc="The only message in this module that reaches people who are not in the match. Everything else goes to the two captains involved; this lands on strangers' phones, which is why it has its own switch and its own daily ceiling."
+          >
+            <Toggle
+              label="Announce new challenges"
+              value={s.postedPushEnabled}
+              onChange={(v) => { setS({ ...s, postedPushEnabled: v }); save({ postedPushEnabled: v }); }}
+            />
+            <p className={hint}>
+              Off, the board still works exactly as it does now — people find
+              a match by opening it. On, a post goes out to the audience below
+              about a minute after it is made.
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={label}>Who hears it</label>
+                <select
+                  className={field}
+                  value={s.pushAudience}
+                  disabled={pending}
+                  onChange={(e) => {
+                    setS({ ...s, pushAudience: e.target.value });
+                    save({ pushAudience: e.target.value });
+                  }}
+                >
+                  <option value="ALL">Everyone with the app</option>
+                  <option value="SPORT">People who have played that sport</option>
+                  <option value="RECENT">People who booked recently</option>
+                </select>
+                <p className={hint}>
+                  The poster never gets their own announcement. Everyone means
+                  every phone signed in to the app — the widest reach and the
+                  fastest way to train people to mute you, which is what the
+                  cap next to it is for.
+                </p>
+              </div>
+              <Num
+                label="Announcements per day"
+                value={s.pushDailyCap}
+                onSave={(v) => { setS({ ...s, pushDailyCap: v }); save({ pushDailyCap: v }); }}
+                hint="A hard ceiling across the whole board, not per person. Past it, challenges still post — they just go up quietly. Zero switches announcements off the same as the toggle above."
+              />
+            </div>
+
+            <Num
+              label="“Recently” means this many days"
+              value={s.pushRecentDays}
+              onSave={(v) => { setS({ ...s, pushRecentDays: v }); save({ pushRecentDays: v }); }}
+              hint="Only used when the audience above is set to people who booked recently."
+            />
+
+            <PushEditor
+              title="The announcement"
+              desc="Sent about a minute after a match goes up. A tap opens that match."
+              single
+              variables={POSTED_VARIABLES}
+              value={asPushList(s.postedPush, [DEFAULT_POSTED])}
+              onSave={(list) => {
+                setS({ ...s, postedPush: list[0] });
+                save({ postedPush: { title: list[0].title, body: list[0].body } });
+              }}
+            />
+            <p className={hint}>
+              There is no {"{name}"} here on purpose. This message goes to
+              people the poster has never met, so it can name a team and never
+              a person.
+            </p>
+          </Panel>
 
           <Panel
             title="Home screen card"
@@ -1520,6 +1595,7 @@ const DEFAULT_WON = DEFAULT_WON_PUSH;
 const DEFAULT_ADJ = DEFAULT_ADJACENT_PUSHES;
 const DEFAULT_FB = DEFAULT_FALLBACK_PUSHES;
 const DEFAULT_SEGMENTS = DEFAULT_WHEEL;
+const DEFAULT_POSTED = DEFAULT_POSTED_PUSH;
 
 
 

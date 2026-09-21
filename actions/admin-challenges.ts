@@ -424,6 +424,9 @@ export type ChallengeSettingsInput = {
   refundOwedPush?: unknown;
   pushAudience?: string;
   pushDailyCap?: number;
+  pushRecentDays?: number;
+  postedPush?: unknown;
+  postedPushEnabled?: boolean;
   boardTitle?: string | null;
   boardSubtitle?: string | null;
   emptyText?: string | null;
@@ -498,6 +501,13 @@ export async function saveChallengeSettings(
       ...(num(input.pushDailyCap, 0, 50, "Push cap") !== undefined
         ? { pushDailyCap: input.pushDailyCap }
         : {}),
+      ...(num(input.pushRecentDays, 1, 3650, "Recent window") !== undefined
+        ? { pushRecentDays: input.pushRecentDays }
+        : {}),
+      ...(input.postedPushEnabled !== undefined
+        ? { postedPushEnabled: input.postedPushEnabled }
+        : {}),
+      ...(input.postedPush !== undefined ? { postedPush: input.postedPush as never } : {}),
       ...(input.boardTitle !== undefined ? { boardTitle: input.boardTitle?.trim().slice(0, 200) || null } : {}),
       ...(input.boardSubtitle !== undefined
         ? { boardSubtitle: input.boardSubtitle?.trim().slice(0, 200) || null }
@@ -761,6 +771,13 @@ export async function saveChallengeSettings(
     }
     if (input.pushAudience && !["ALL", "SPORT", "RECENT"].includes(input.pushAudience)) {
       return { ok: false, error: "Audience must be ALL, SPORT or RECENT." };
+    }
+    // Judged by the SAME validator as every other message. This one reaches
+    // people who are not in the match, so a blank or malformed template here
+    // is the one that would go out to the whole install base.
+    if (input.postedPush !== undefined) {
+      const bad = templateRefusal(input.postedPush);
+      if (bad) return { ok: false, error: bad };
     }
     if (input.homeCardBadge && !["NEW", "BETA", "NONE"].includes(input.homeCardBadge)) {
       return { ok: false, error: "Badge must be NEW, BETA or NONE." };

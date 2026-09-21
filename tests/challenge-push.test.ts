@@ -26,6 +26,9 @@ import {
   LIFECYCLE_VARIABLES,
   OWNER_VARIABLES,
   DEFAULT_OWNER_REFUND_PUSH,
+  POSTED_VARIABLES,
+  DEFAULT_POSTED_PUSH,
+  type PostedVars,
 } from "../lib/challenge-push";
 
 const vars: PushVars = {
@@ -342,4 +345,62 @@ test("a message is blank unless something in it can be SEEN", () => {
   for (const ok of ["Your half is due", "🏏", "₹500", "!", "Match­confirmed", "5"]) {
     assert.equal(templateRefusal({ title: ok, body: ok }), null, `${ok} must be allowed`);
   }
+});
+
+/* ── The board broadcast ─────────────────────────────────────────── */
+
+test("the announcement can never name a person", () => {
+  // This is the ONE message in the module that reaches people who are not
+  // in the match. {name} is the other captain's personal name everywhere
+  // else in this file; offering it here would let the venue push one
+  // customer's name to every phone in Mathura, and they would only find
+  // out afterwards. The absence has to be enforced, not remembered.
+  assert.ok(
+    !POSTED_VARIABLES.some((v) => v.name === ("name" as never)),
+    "POSTED_VARIABLES must not advertise {name}",
+  );
+  const sample = Object.fromEntries(POSTED_VARIABLES.map((v) => [v.name, v.example]));
+  assert.equal(renderPush("{name}", sample as never), "{name}");
+});
+
+test("every variable the announcement advertises actually substitutes", () => {
+  const sample = Object.fromEntries(POSTED_VARIABLES.map((v) => [v.name, v.example]));
+  for (const v of POSTED_VARIABLES) {
+    assert.equal(renderPush(`{${v.name}}`, sample as never), v.example, `${v.name} did not substitute`);
+  }
+});
+
+test("the built-in announcement leaves no placeholder unfilled", () => {
+  // A broadcast that goes out reading "{team} want a game" to fifty people
+  // is the most public way this module can embarrass the venue, and the
+  // built-in copy is what sends until somebody edits it.
+  const vars: PostedVars = {
+    team: "Mathura Strikers",
+    sport: "Cricket",
+    players: 8,
+    hour: "9pm–10pm",
+    date: "Sun, 20 Sep",
+    options: "",
+  };
+  for (const s of [DEFAULT_POSTED_PUSH.title, DEFAULT_POSTED_PUSH.body]) {
+    const out = renderPush(s, vars);
+    assert.ok(!/\{\w+\}/.test(out), `unfilled placeholder in: ${out}`);
+  }
+  assert.equal(renderPush(DEFAULT_POSTED_PUSH.title, vars), "Mathura Strikers want a game");
+});
+
+test("a blank announcement is refused, like every other template", () => {
+  // templateRefusal is what stops an empty or whitespace-only message being
+  // saved. The announcement goes through the same gate as the transactional
+  // messages precisely because its blast radius is larger, not smaller.
+  assert.ok(templateRefusal({ title: "", body: "x" }));
+  assert.ok(templateRefusal({ title: "x", body: "   " }));
+  assert.equal(templateRefusal(DEFAULT_POSTED_PUSH), null);
+});
+
+test("an unsaved announcement falls back to the built-in, not to silence", () => {
+  assert.deepEqual(resolveTemplate(null, DEFAULT_POSTED_PUSH), DEFAULT_POSTED_PUSH);
+  assert.deepEqual(resolveTemplate({}, DEFAULT_POSTED_PUSH), DEFAULT_POSTED_PUSH);
+  const own = { title: "Match up", body: "Take it." };
+  assert.deepEqual(resolveTemplate(own, DEFAULT_POSTED_PUSH), own);
 });

@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-21 · accurate as of `main` = `f9fda480` (app 1.0.7). iOS deep links only ever worked on a cold launch — `AppDelegate` never forwarded warm URLs to `RCTLinkingManager`, so `linking.ts` was half-dead (§6b). Android was checked and is fine.
+**Last substantive update:** 2026-09-21 · accurate as of `main` = `51658239` (app 1.0.7). iOS deep links only ever worked on a cold launch — `AppDelegate` never forwarded warm URLs to `RCTLinkingManager`, so `linking.ts` was half-dead (§6b); Android was checked and is fine. Challenges: the prize wheel averages 9% to hold the ₹1,800-an-hour floor and nothing hardcodes the top prize; a new post is now broadcast by the per-minute sweep, never by the post itself (§9).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -1000,7 +1000,41 @@ money to silence, so only the words are configurable. Corollary, learned the
 hard way twice: **never ship a setting the runtime does not read** —
 `pushAudience` and `pushDailyCap` were saved, validated and bounded while no
 broadcast existed to consume them, and their help text described behaviour
-the product did not have.
+the product did not have. The admin panel was deleted rather than left lying.
+
+**The board broadcast** (`announceNewChallenges` in `lib/challenges.ts`,
+2026-09-21). The sixth message, and the only one that reaches people who are
+NOT in the match — so it is the only one with an off switch (`postedPushEnabled`),
+a daily ceiling (`pushDailyCap`) and a chosen audience (`pushAudience`:
+ALL | SPORT | RECENT, all three implemented; the panel came back only because
+they are). Four things are load-bearing:
+
+- **It is NOT sent by `postChallenge`.** It rides the per-minute
+  `challenge-offers` cron. A fan-out to the whole install base inside the
+  request that creates the row would put a multi-second FCM call on the
+  critical path of a customer tapping "Post" — and a failure there would be a
+  failure to post. Here a broken send costs an announcement and nothing else.
+- **The claim precedes the send.** `announcedAt` is stamped by a conditional
+  `updateMany` matching only rows still holding null, so overlapping runs
+  cannot both announce one match. Deliberately ordered so the failure mode is
+  a MISSED announcement, not a duplicate — the right way round when the
+  audience is everybody.
+- **`in_app`, not `open_screen`.** The `in_app` handler's `/challenges/<id>`
+  branch has been in every shipped build since the module launched;
+  `open_screen` routes through `resolveDeepLink`, which only learned about
+  challenges in the 2026-09-21 OTA. Using the older path means the tap lands
+  on the match on every phone in the field, not only updated ones. There is
+  no web `/challenges` page — an unresolved link 404s in a browser.
+- **No `{name}` in `POSTED_VARIABLES`, and a test enforces it.** Every other
+  template here may name the other captain because it reaches one person who
+  already knows them. This one would push a private individual's name to every
+  phone in Mathura.
+
+**Changing a column's schema default does not move the row that already
+exists.** `pushAudience` defaults to ALL now; production's settings row has
+existed since the board shipped and still reads whatever it was set to. Move
+it explicitly — `scripts/set-challenge-board.ts` (dispatch
+`challenges-board.yml`) takes ANNOUNCE / AUDIENCE / DAILY_CAP.
 
 **The stamp that says "this half is placed" must be in the SAME COMMIT as
 the money.** This bug has now been fixed three times at three different

@@ -54,7 +54,7 @@ export type PushVars = {
  */
 export function renderPush(
   template: string,
-  vars: PushVars | LifecycleVars | Record<string, string | number>,
+  vars: PushVars | LifecycleVars | PostedVars | Record<string, string | number>,
 ): string {
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => {
     const v = (vars as unknown as Record<string, unknown>)[key];
@@ -386,4 +386,47 @@ export const DEFAULT_OWNER_REFUND_PUSH: PushTemplate = {
   // slot was reassigned — and asserting "was booked by somebody else" told the
   // person doing the refunding the wrong story about two of them.
   body: "{date} {hour} on {court} — {reason}. Refund ₹{amount} to {name} ({phone}).",
+};
+
+/**
+ * The board broadcast — "somebody has put a match up".
+ *
+ * The only message in this file that goes to people who are not in the
+ * match. Everything else here is transactional: it reaches two captains
+ * who are already involved and expecting to hear. This one lands on every
+ * phone that has the app, from strangers, which is why it is the only
+ * template with a switch (`postedPushEnabled`) and a daily cap next to it.
+ *
+ * `{team}` is the poster's team name — never their personal name. A push
+ * to the whole install base naming a private individual is a different
+ * product from the one anybody agreed to ship, so `name` is deliberately
+ * absent from the variable set below.
+ */
+export type PostedVars = {
+  /** The team that posted, or "A team" when they left it blank. */
+  team: string;
+  /** "Cricket". */
+  sport: string;
+  /** "8", as in 8-a-side. */
+  players: number;
+  /** The first time on the table, "9pm–10pm". */
+  hour: string;
+  /** "Sun, 20 Sep". */
+  date: string;
+  /** How many times are on the table, when more than one. "3 times", or "". */
+  options: string;
+};
+
+export const POSTED_VARIABLES: { name: keyof PostedVars; example: string; note: string }[] = [
+  { name: "team", example: "Mathura Strikers", note: "the team that posted" },
+  { name: "sport", example: "Cricket", note: "the sport" },
+  { name: "players", example: "8", note: "players a side" },
+  { name: "hour", example: "9pm–10pm", note: "the first time they offered" },
+  { name: "date", example: "Sun, 20 Sep", note: "the day of that time" },
+  { name: "options", example: "3 times", note: "how many times are on the table, blank when only one" },
+];
+
+export const DEFAULT_POSTED_PUSH: PushTemplate = {
+  title: "{team} want a game",
+  body: "{sport} · {players}-a-side, {date} {hour}. Open the board and take the match.",
 };
