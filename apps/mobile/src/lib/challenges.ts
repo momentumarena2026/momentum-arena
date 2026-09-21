@@ -211,6 +211,37 @@ export async function releaseChallengePayHold(
   return api.post("/api/mobile/challenges", { op: "pay-release", challengeId });
 }
 
+/**
+ * UPI (PhonePe Dynamic QR) for one half of a challenge.
+ *
+ * Slot-first: initiating CLAIMS the side before any QR appears, so the
+ * customer never scans for a half somebody else already took. Every
+ * refusal the card path can give comes back from `initiate` in the same
+ * words.
+ */
+export const challengeDqr = {
+  initiate: (challengeId: string, windowId?: string) =>
+    api.post<{
+      qrString?: string;
+      qrImage?: string;
+      mode?: "intent" | "qr";
+      transactionId?: string;
+      expiresIn?: number;
+      amount?: number;
+      error?: string;
+    }>("/api/phonepe/dqr/challenge-initiate", { challengeId, windowId }),
+  status: (transactionId: string) =>
+    api.get<{
+      state: "PENDING" | "COMPLETED" | "FAILED";
+      confirmedId?: string | null;
+      /** FAILED but money WAS captured — the arena owes a refund. */
+      paymentReceived?: boolean;
+      error?: string;
+    }>(
+      `/api/phonepe/dqr/challenge-status?transactionId=${encodeURIComponent(transactionId)}`,
+    ),
+};
+
 /** Who is holding a payment slot on this challenge, if anyone. */
 export type PaymentHold = {
   side: "CHALLENGER" | "ACCEPTOR";

@@ -1,11 +1,22 @@
-import { useEffect, useState } from "react";
-import { View, ScrollView, Pressable, Alert, RefreshControl } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  View,
+  ScrollView,
+  Pressable,
+  Alert,
+  RefreshControl,
+  Modal,
+  StyleSheet,
+} from "react-native";
+import { Smartphone, CreditCard } from "lucide-react-native";
 import { useRoute, useNavigation, type RouteProp } from "@react-navigation/native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Button } from "../../components/ui/Button";
-import { colors, radius } from "../../theme";
+import { colors, radius, spacing } from "../../theme";
+import { DqrCheckout, type DqrEndpoints } from "../../components/payment/DqrCheckout";
+import { bookingApi } from "../../lib/booking";
 import { SpinWheel } from "./SpinWheel";
 import type { AccountStackParamList } from "../../navigation/types";
 import { getCurrentMinutesIST, getTodayIST, getUpcomingDatesIST } from "../../lib/ist-date";
@@ -29,6 +40,7 @@ import {
   type OfferSlots,
   fetchOfferSlots,
   releaseChallengePayHold,
+  challengeDqr,
   type PaymentHold,
 } from "../../lib/challenges";
 import RazorpayCheckout from "react-native-razorpay";
@@ -73,7 +85,23 @@ export function ChallengeDetailScreen() {
   const [slots, setSlots] = useState<OfferSlots | null>(null);
   const [wheelOpen, setWheelOpen] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  // Which payment is waiting for the customer to pick a method, and which
+  // one is mid-UPI. Held separately from `paying` because the Razorpay
+  // sheet and the QR sheet are different lifetimes: one blocks, the other
+  // sits on screen polling.
+  const [choosing, setChoosing] = useState<{ windowId?: string } | null>(null);
+  const [method, setMethod] = useState<"upi" | "razorpay">("upi");
+  const [dqrFor, setDqrFor] = useState<{ windowId?: string; amount: number } | null>(null);
   const { state: authState } = useAuth();
+
+  // Which methods the arena is actually running. Same source the booking
+  // checkout and the pass store read, so the three cannot disagree about
+  // whether UPI is on.
+  const { data: payCfg } = useQuery({
+    queryKey: ["payment-config"],
+    queryFn: () => bookingApi.paymentConfig(),
+  });
+  const dqrEnabled = !!payCfg?.dqrEnabled;
 
   // The next seven days — as far ahead as anyone arranges a pickup game.
   //
@@ -107,6 +135,39 @@ export function ChallengeDetailScreen() {
 
   const q = useQuery({ queryKey: ["challenge", id], queryFn: () => fetchChallenge(id) });
   const c = q.data?.challenge;
+
+  // ABOVE THE EARLY RETURNS, for the reason spelled out in the comment
+  // below — which I walked straight past and reproduced: the screen threw
+  // "Rendered more hooks than during the previous render" and died on open,
+  // because this sat beside the values it reads instead of with the hooks.
+  //
+  // Memoised at all because DqrCheckout re-initiates a PhonePe transaction
+  // on every render of a fresh object, which is a live QR per keystroke.
+  const dqrEndpoints: DqrEndpoints = useMemo(
+    () => ({
+      initiate: async () => {
+        const r = await challengeDqr.initiate(id, dqrFor?.windowId);
+        return {
+          mode: r.mode,
+          qrString: r.qrString ?? null,
+          qrImage: r.qrImage ?? null,
+          transactionId: r.transactionId,
+          expiresIn: r.expiresIn,
+          error: r.error,
+        };
+      },
+      status: async (txn: string) => {
+        const r = await challengeDqr.status(txn);
+        return {
+          state: r.state,
+          confirmedId: r.confirmedId ?? null,
+          paymentReceived: r.paymentReceived,
+          error: r.error,
+        };
+      },
+    }),
+    [id, dqrFor?.windowId],
+  );
 
   // Keep the counter picker's selection legal.
   //
@@ -150,6 +211,7 @@ export function ChallengeDetailScreen() {
   const spinEnabled = q.data?.spinEnabled ?? false;
   const windowQuotes = q.data?.windowQuotes ?? [];
   const hold: PaymentHold | null = q.data?.hold ?? null;
+
   // The arena's real hours, not a hard-coded 5–25. When the venue moved its
   // closing time the chips kept offering the old range while the board
   // refused what the arena was actually selling.
@@ -213,6 +275,25 @@ export function ChallengeDetailScreen() {
    * screens constantly and telling them off for it is wrong — so it just
    * returns quietly and leaves the challenge as it was.
    */
+  /**
+   * Every pay button lands here first.
+   *
+   * The rest of the app asks which method before it takes money — UPI by
+   * default, the gateway second — and this screen went straight to
+   * Razorpay, so the one place a captain pays for a match was the one
+   * place they could not avoid the gateway fee. When only one method is
+   * running there is nothing to ask, so it goes straight through rather
+   * than showing a chooser with one option.
+   */
+  const startPay = (acceptWindowId?: string) => {
+    if (!dqrEnabled) {
+      void pay(acceptWindowId);
+      return;
+    }
+    setMethod("upi");
+    setChoosing({ windowId: acceptWindowId });
+  };
+
   const pay = async (acceptWindowId?: string) => {
     setPaying(true);
     setPayingWindowId(acceptWindowId ?? null);
@@ -640,7 +721,7 @@ export function ChallengeDetailScreen() {
                   variant="primary"
                   loading={paying}
                   disabled={paying}
-                  onPress={() => pay()}
+                  onPress={() => startPay()}
                 />
               </>
             )}
@@ -762,7 +843,7 @@ export function ChallengeDetailScreen() {
                             onPress={() => {
                               trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
                               setPayingWindowId(w.id);
-                              void pay(w.id);
+                              startPay(w.id);
                             }}
                           />
                           </View>
@@ -928,6 +1009,128 @@ export function ChallengeDetailScreen() {
           </Pressable>
         )}
       </ScrollView>
+
+      {/* Pick a method. Same order and the same default as the booking
+          checkout and the pass store: UPI first and pre-selected, the
+          gateway second. The point is not symmetry — UPI carries no
+          gateway fee, so steering to it is worth real money to the venue
+          on every half. */}
+      <Modal
+        visible={!!choosing}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setChoosing(null);
+          setPayingWindowId(null);
+        }}
+      >
+        <Pressable
+          style={payStyles.backdrop}
+          onPress={() => {
+            setChoosing(null);
+            setPayingWindowId(null);
+          }}
+        >
+          {/* Swallows the backdrop press so a tap inside the sheet does not
+              dismiss the thing being tapped. */}
+          <Pressable style={payStyles.sheet} onPress={() => undefined}>
+            <Text variant="small" color={colors.zinc500}>
+              PAY WITH
+            </Text>
+            <Pressable
+              onPress={() => setMethod("upi")}
+              style={[payStyles.tile, method === "upi" && payStyles.tileOn]}
+            >
+              <Smartphone
+                size={18}
+                color={method === "upi" ? colors.emerald400 : colors.zinc400}
+              />
+              <View style={{ flex: 1 }}>
+                <Text variant="small" color={colors.foreground}>
+                  UPI
+                </Text>
+                <Text variant="tiny" color={colors.zinc500}>
+                  GPay, PhonePe, any UPI app — auto-confirms
+                </Text>
+              </View>
+              <View style={payStyles.badge}>
+                <Text variant="tiny" color="#6ee7b7">
+                  RECOMMENDED
+                </Text>
+              </View>
+            </Pressable>
+            <Pressable
+              onPress={() => setMethod("razorpay")}
+              style={[payStyles.tile, method === "razorpay" && payStyles.tileOn]}
+            >
+              <CreditCard
+                size={18}
+                color={method === "razorpay" ? colors.emerald400 : colors.zinc400}
+              />
+              <View style={{ flex: 1 }}>
+                <Text variant="small" color={colors.foreground}>
+                  Card / Netbanking
+                </Text>
+                <Text variant="tiny" color={colors.zinc500}>
+                  Via Razorpay — cards, netbanking, wallets
+                </Text>
+              </View>
+            </Pressable>
+            <Button
+              label="Continue"
+              variant="primary"
+              onPress={() => {
+                const w = choosing?.windowId;
+                setChoosing(null);
+                if (method === "upi") {
+                  // The amount is whatever the server quoted for THIS
+                  // window — the sheet only shows it, the claim decides it.
+                  const wq = w
+                    ? windowQuotes.find((x) => x.windowId === w)
+                    : null;
+                  setDqrFor({ windowId: w, amount: wq?.share ?? quote?.yourShare ?? 0 });
+                } else {
+                  void pay(w);
+                }
+              }}
+            />
+            <Pressable
+              onPress={() => {
+                setChoosing(null);
+                setPayingWindowId(null);
+              }}
+              style={{ alignSelf: "center", padding: 8 }}
+            >
+              <Text variant="small" color={colors.zinc500}>
+                Not now
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {dqrFor ? (
+        <DqrCheckout
+          amount={dqrFor.amount}
+          claimSurface="pass"
+          endpoints={dqrEndpoints}
+          successNote="Your half is in."
+          onConfirmed={() => {
+            setDqrFor(null);
+            setPayingWindowId(null);
+            void refresh();
+            void qc.invalidateQueries({ queryKey: ["challenges"] });
+          }}
+          onCancel={() => {
+            setDqrFor(null);
+            setPayingWindowId(null);
+            // The slot was CLAIMED when the QR was minted, so a customer who
+            // backs out is holding the half. Re-read so the hold banner
+            // appears and they can hand it back.
+            void refresh();
+          }}
+        />
+      ) : null}
 
       <SpinWheel
         visible={wheelOpen}
@@ -1095,3 +1298,40 @@ function HoldBanner({
     </View>
   );
 }
+
+
+const payStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: "#18181b",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: spacing["5"],
+    paddingBottom: spacing["8"],
+    gap: spacing["3"],
+  },
+  tile: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: "rgba(24,24,27,0.6)",
+    padding: spacing["3"],
+  },
+  tileOn: {
+    borderColor: colors.emerald500,
+    backgroundColor: "rgba(16,185,129,0.08)",
+  },
+  badge: {
+    borderRadius: 999,
+    backgroundColor: "rgba(16,185,129,0.15)",
+    paddingHorizontal: spacing["2"],
+    paddingVertical: 3,
+  },
+});

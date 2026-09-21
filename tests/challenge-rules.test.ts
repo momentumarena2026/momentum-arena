@@ -37,6 +37,7 @@ import {
   holdWaitPhrase,
   heldByOtherMessage,
   releasedFreeAt,
+  releaseGraceMins,
 } from "../lib/challenge-rules";
 
 const NOW = new Date("2026-09-17T06:00:00+05:30");
@@ -954,4 +955,36 @@ test("releasing a payment slot can only ever bring the deadline forward", () => 
 
   // Exactly at the grace boundary is a no-op, not a one-millisecond gain.
   assert.equal(releasedFreeAt(now + 5 * 60_000, now, grace), now + 5 * 60_000);
+});
+
+test("the release grace scales, so the button works at a short window", () => {
+  // Reported from production: with the window set to 5 minutes and a flat
+  // 5-minute grace, grace == window, so a release could never bring the
+  // deadline forward. The customer tapped "I'm not paying — release it",
+  // nothing happened, and they were right to call it broken.
+  assert.equal(releaseGraceMins(120, 5), 5); // long window — full protection
+  assert.equal(releaseGraceMins(10, 5), 5); // exactly double — still full
+  assert.equal(releaseGraceMins(5, 5), 2); // the reported case: 5 → 2
+  assert.equal(releaseGraceMins(3, 5), 1); // never below a minute
+  assert.equal(releaseGraceMins(1, 5), 1);
+
+  // And the thing that matters: across every window the admin screen can
+  // actually save (it bounds paymentWindowMins at 5–1440), a release moves
+  // the deadline. A grace that EQUALS the window is the bug being fixed.
+  //
+  // Not asserted below 2 minutes, and that is a real limit rather than a
+  // convenient one: the one-minute floor meets a one-minute window and the
+  // release goes back to doing nothing. There is no sensible grace inside a
+  // one-minute hold, the floor matters more (a zero grace releases instantly
+  // and strands a late collect), and no supported door can set a window
+  // that short.
+  for (const win of [5, 10, 15, 30, 120, 1440]) {
+    const now = 1_000_000_000_000;
+    const freeAt = now + win * 60_000;
+    const grace = releaseGraceMins(win, 5);
+    assert.ok(
+      releasedFreeAt(freeAt, now, grace) < freeAt,
+      `a release does nothing at a ${win}-minute window`,
+    );
+  }
 });

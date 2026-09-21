@@ -11,7 +11,11 @@ export type OrphanReason =
   | `tournament-${string}`
   // Camp registrations: captured money whose registration couldn't be
   // auto-confirmed. Same shape as the tournament suffix.
-  | `camp-${string}`;
+  | `camp-${string}`
+  // A challenge HALF: captured money whose payment slot could not take it
+  // — the slot was reassigned while the customer scanned, or the half was
+  // repriced between the QR appearing and them paying. Same suffix shape.
+  | `challenge-${string}`;
 export type OrphanGateway = "RAZORPAY" | "PHONEPE" | "PHONEPE_DQR";
 
 /**
