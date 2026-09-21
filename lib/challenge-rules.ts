@@ -615,3 +615,67 @@ export function resolveWheel(stored: unknown): WheelSegment[] {
   }));
   return fixed.some((s) => s.weight > 0) ? fixed : DEFAULT_WHEEL;
 }
+
+/* ── The payment hold ────────────────────────────────────────────── */
+
+/**
+ * How long a stranger has to wait, in words they can act on.
+ *
+ * "Try again shortly" is what the board said for a wait that could be two
+ * hours, which is not shortly — it is "come back after dinner". The person
+ * reading it has no way to tell a thirty-second race from an abandoned
+ * sheet, so they tap Pay again, get the same sentence, and conclude the
+ * feature is broken. Telling them the number costs nothing and is the
+ * difference between waiting and giving up.
+ *
+ * Relative rather than a clock time on purpose: a clock time needs the
+ * venue's timezone, and this file is pure and shared with the phone.
+ * "in about 40 minutes" also survives a device whose clock is wrong.
+ *
+ * Rounds UP. Promising "about 5 minutes" for 5 minutes 50 seconds sends
+ * somebody back one minute early to the same refusal.
+ */
+export function holdWaitPhrase(msLeft: number): string {
+  if (msLeft <= 0) return "now";
+  const mins = Math.ceil(msLeft / 60000);
+  if (mins <= 1) return "in under a minute";
+  if (mins < 60) return `in about ${mins} minutes`;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  const hourPart = `${hours} hour${hours === 1 ? "" : "s"}`;
+  if (rest === 0) return `in about ${hourPart}`;
+  return `in about ${hourPart} ${rest} minute${rest === 1 ? "" : "s"}`;
+}
+
+/**
+ * What a stranger is told when somebody else holds the payment slot.
+ *
+ * One sentence, in one place, so the two refusal sites and the screen that
+ * renders the hold cannot drift apart — they did: the alert said "shortly"
+ * while the payload said nothing at all, and the only way to discover the
+ * real wait was to read the settings table.
+ */
+export function heldByOtherMessage(msLeft: number): string {
+  return `Someone else is paying for this right now. If they don't finish, it frees up ${holdWaitPhrase(msLeft)}.`;
+}
+
+/**
+ * When a released payment slot actually opens to everyone.
+ *
+ * Pure, and separate from the write, because getting it backwards is easy
+ * and invisible: the first version of this compared the BACKDATED stamp
+ * against the existing one and wrote whenever the new value was larger —
+ * which is precisely the case where it extends the hold. Releasing a slot
+ * whose window had already lapsed two hours earlier resurrected it for
+ * another five minutes. Caught against staging, not by reading it.
+ *
+ * The rule in one line: a release may only ever bring the deadline
+ * FORWARD. `min(existing, now + grace)`.
+ */
+export function releasedFreeAt(
+  existingFreeAtMs: number,
+  nowMs: number,
+  graceMins: number,
+): number {
+  return Math.min(existingFreeAtMs, nowMs + graceMins * 60000);
+}

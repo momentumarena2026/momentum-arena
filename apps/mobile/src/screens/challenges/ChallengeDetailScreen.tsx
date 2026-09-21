@@ -28,6 +28,8 @@ import {
   type OfferPick,
   type OfferSlots,
   fetchOfferSlots,
+  releaseChallengePayHold,
+  type PaymentHold,
 } from "../../lib/challenges";
 import RazorpayCheckout from "react-native-razorpay";
 import { useAuth } from "../../providers/AuthProvider";
@@ -147,6 +149,7 @@ export function ChallengeDetailScreen() {
   const quote = q.data?.quote ?? null;
   const spinEnabled = q.data?.spinEnabled ?? false;
   const windowQuotes = q.data?.windowQuotes ?? [];
+  const hold: PaymentHold | null = q.data?.hold ?? null;
   // The arena's real hours, not a hard-coded 5–25. When the venue moved its
   // closing time the chips kept offering the old range while the board
   // refused what the arena was actually selling.
@@ -644,6 +647,14 @@ export function ChallengeDetailScreen() {
           </View>
         ) : null}
 
+        {/* ABOVE the times, not after them. The hold is the reason the
+            buttons below will refuse, so it has to be read before they are
+            tapped — that was the whole failure: a live-looking button and
+            an explanation that only arrived once it had been pressed. */}
+        {hold ? (
+          <HoldBanner hold={hold} challengeId={c.id} onReleased={() => void refresh()} />
+        ) : null}
+
         <View style={{ gap: 8 }}>
           <Text variant="tiny" color={colors.zinc500}>
             TIMES ON THE TABLE
@@ -951,5 +962,136 @@ export function ChallengeDetailScreen() {
         })()}
       />
     </Screen>
+  );
+}
+
+/**
+ * "Somebody is paying for this" — as a banner with a clock, not an alert
+ * after a wasted tap.
+ *
+ * The hold was invisible until you tried to pay. The board showed a
+ * takeable match, the button looked live, and the refusal said "try again
+ * shortly" for a wait that can be the venue's whole payment window. Three
+ * people in a row tap Pay, read the same sentence, and conclude the
+ * feature is broken.
+ *
+ * Ticks locally rather than re-fetching: a countdown that only moves when
+ * you pull to refresh is a timestamp wearing a costume, and polling every
+ * second for a two-hour wait is fifty devices hammering the board. The
+ * server's `msLeft` is the truth at load; the clock counts it down, and
+ * the next refresh re-anchors it.
+ */
+function HoldBanner({
+  hold,
+  challengeId,
+  onReleased,
+}: {
+  hold: PaymentHold;
+  challengeId: string;
+  onReleased: () => void;
+}) {
+  const [msLeft, setMsLeft] = useState(hold.msLeft);
+  const [releasing, setReleasing] = useState(false);
+
+  // Re-anchor whenever the server speaks again, or a pull-to-refresh would
+  // leave the old countdown running against a hold that has changed.
+  useEffect(() => setMsLeft(hold.msLeft), [hold.msLeft, hold.freeAt]);
+
+  useEffect(() => {
+    if (msLeft <= 0) return;
+    const t = setInterval(() => {
+      setMsLeft((v) => Math.max(0, v - 1000));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [msLeft <= 0]);
+
+  // mm:ss under an hour, h:mm:ss over it. A bare "7412 seconds" is a number,
+  // not an answer.
+  const total = Math.ceil(msLeft / 1000);
+  const hh = Math.floor(total / 3600);
+  const mm = Math.floor((total % 3600) / 60);
+  const ss = total % 60;
+  const clock =
+    hh > 0
+      ? `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
+      : `${mm}:${String(ss).padStart(2, "0")}`;
+
+  const release = async () => {
+    setReleasing(true);
+    try {
+      const r = await releaseChallengePayHold(challengeId);
+      Alert.alert(
+        "Released",
+        r.shortened
+          ? // Say the delay and WHY, or it reads as the release not working.
+            "Your payment slot is being given back. It takes a few minutes, so that a UPI payment you already approved can still land on you rather than on whoever takes the match next."
+          : // Nothing was shortened because the hold was already about to
+            // lapse. Claiming otherwise would be a small lie the next
+            // screen refresh contradicts.
+            "That slot was already about to open to everyone, so there was nothing to give back.",
+      );
+      onReleased();
+    } catch (e) {
+      Alert.alert("Couldn't release that", challengeErrorMessage(e));
+    } finally {
+      setReleasing(false);
+    }
+  };
+
+  if (msLeft <= 0) {
+    // The clock ran out while the screen was open. Do not keep showing a
+    // block that no longer exists — say it is free and let them refresh.
+    return (
+      <View
+        style={{
+          borderRadius: radius.lg,
+          borderWidth: 1,
+          borderColor: colors.zinc800,
+          backgroundColor: colors.card,
+          padding: 14,
+          gap: 4,
+        }}
+      >
+        <Text variant="small" color={colors.foreground}>
+          That hold has lapsed
+        </Text>
+        <Text variant="tiny" color={colors.zinc400}>
+          Pull to refresh and the match should be takeable again.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: hold.heldByViewer ? colors.zinc700 : "#78350f",
+        backgroundColor: hold.heldByViewer ? colors.card : "#1c1207",
+        padding: 14,
+        gap: 8,
+      }}
+    >
+      <Text variant="small" color={colors.foreground}>
+        {hold.heldByViewer ? "You have a payment open on this" : "Somebody is paying for this"}
+      </Text>
+      <Text variant="tiny" color={colors.zinc400}>
+        {hold.message}
+      </Text>
+      <Text variant="tiny" color={hold.heldByViewer ? colors.zinc500 : "#fbbf24"}>
+        {hold.heldByViewer ? `Yours for another ${clock}` : `Opens to anyone in ${clock}`}
+      </Text>
+      {hold.heldByViewer ? (
+        <Button
+          label="I'm not paying — release it"
+          variant="secondary"
+          size="sm"
+          loading={releasing}
+          disabled={releasing}
+          onPress={release}
+        />
+      ) : null}
+    </View>
   );
 }

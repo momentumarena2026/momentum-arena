@@ -34,6 +34,9 @@ import {
   DEFAULT_WHEEL,
   windowStart,
   resolveWheel,
+  holdWaitPhrase,
+  heldByOtherMessage,
+  releasedFreeAt,
 } from "../lib/challenge-rules";
 
 const NOW = new Date("2026-09-17T06:00:00+05:30");
@@ -896,4 +899,59 @@ test("the wheel the venue ships keeps at least ₹1,800 of a ₹2,000 hour", () 
     { pct: 20, weight: 15 }, { pct: 25, weight: 10 }, { pct: 50, weight: 10 },
   ];
   assert.ok(wheelRefusal(OLD, 5, 10), "the old 17.75% wheel must not pass the new band");
+});
+
+/* ── The payment hold's wording ──────────────────────────────────── */
+
+test("a two-hour wait is never described as 'shortly'", () => {
+  // The bug this replaces: one sentence, "Try again shortly", for a wait
+  // governed by `paymentWindowMins` — 120 on this arena. A stranger could
+  // not tell a lost race from a sheet abandoned an hour ago, so they
+  // re-tapped, got the same words, and concluded the board was broken.
+  const msg = heldByOtherMessage(110 * 60_000);
+  assert.ok(!/shortly/i.test(msg), `still says shortly: ${msg}`);
+  assert.ok(msg.includes("1 hour 50 minutes"), msg);
+});
+
+test("the wait is phrased in units a person can act on", () => {
+  assert.equal(holdWaitPhrase(0), "now");
+  assert.equal(holdWaitPhrase(-5000), "now");
+  assert.equal(holdWaitPhrase(30_000), "in under a minute");
+  assert.equal(holdWaitPhrase(60_000), "in under a minute");
+  assert.equal(holdWaitPhrase(5 * 60_000), "in about 5 minutes");
+  assert.equal(holdWaitPhrase(59 * 60_000), "in about 59 minutes");
+  assert.equal(holdWaitPhrase(60 * 60_000), "in about 1 hour");
+  assert.equal(holdWaitPhrase(61 * 60_000), "in about 1 hour 1 minute");
+  assert.equal(holdWaitPhrase(120 * 60_000), "in about 2 hours");
+});
+
+test("the wait rounds UP, so nobody is sent back one minute early", () => {
+  // 5m50s rounding DOWN to "about 5 minutes" sends somebody back to the
+  // same refusal — which is the precise experience this whole change
+  // exists to stop.
+  assert.equal(holdWaitPhrase(5 * 60_000 + 50_000), "in about 6 minutes");
+  assert.equal(holdWaitPhrase(60_001), "in about 2 minutes");
+});
+
+test("releasing a payment slot can only ever bring the deadline forward", () => {
+  // The bug this pins, found against staging: the first version compared
+  // the backdated stamp against the existing one and wrote whenever the
+  // new value was LARGER — exactly the case that extends the hold. A
+  // captain releasing a slot whose window had lapsed two hours earlier
+  // resurrected it for another five minutes, locking strangers out of a
+  // match that had been free all morning.
+  const now = 1_000_000_000_000;
+  const grace = 5;
+
+  // Ordinary case: an hour left, release brings it to five minutes.
+  assert.equal(releasedFreeAt(now + 60 * 60_000, now, grace), now + 5 * 60_000);
+
+  // ALREADY LAPSED — must stay lapsed, not jump forward.
+  assert.equal(releasedFreeAt(now - 2 * 60 * 60_000, now, grace), now - 2 * 60 * 60_000);
+
+  // Frees sooner than the grace period — left alone rather than extended.
+  assert.equal(releasedFreeAt(now + 60_000, now, grace), now + 60_000);
+
+  // Exactly at the grace boundary is a no-op, not a one-millisecond gain.
+  assert.equal(releasedFreeAt(now + 5 * 60_000, now, grace), now + 5 * 60_000);
 });

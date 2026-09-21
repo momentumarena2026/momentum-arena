@@ -20,6 +20,8 @@ import {
   createChallengePaymentOrder,
   confirmChallengePayment,
   challengeQuote,
+  paymentHoldFor,
+  releasePaymentHold,
 } from "@/lib/challenge-payments";
 import {
   spinFor,
@@ -157,6 +159,10 @@ export async function GET(request: NextRequest) {
       user.id,
       isParticipant ? undefined : offered[0]?.id,
     ).catch(() => null);
+    // Who is holding a payment slot, if anyone. Without this the hold was
+    // invisible until somebody tapped Pay and was refused — a dead end
+    // dressed up as a live button.
+    const hold = await paymentHoldFor(id, user.id).catch(() => null);
     const offer = await liveOfferFor(id, user.id).catch(() => null);
     const spin = await spinOutcomeFor(id, user.id).catch(() => null);
     const liveSettings = await challengeSettings();
@@ -170,6 +176,7 @@ export async function GET(request: NextRequest) {
       boardEnabled: liveSettings.enabled,
       offer,
       spin,
+      hold,
       windowQuotes,
       // The counter picker needs the same real hours the post form does — and
       // the same notice period, or it offers times the server then refuses.
@@ -280,6 +287,13 @@ const payOrderSchema = z.object({
   /** Present when this payment IS the acceptance. */
   windowId: z.string().min(1).nullish(),
 });
+/* Giving a held slot back. The counterpart to `pay-order`: opening the
+ * sheet claims the side, and until this existed nothing but the passage of
+ * `paymentWindowMins` could unclaim it. */
+const payReleaseSchema = z.object({
+  op: z.literal("pay-release"),
+  challengeId: z.string().min(1),
+});
 const spinSchema = z.object({
   op: z.literal("spin"),
   challengeId: z.string().min(1),
@@ -338,6 +352,7 @@ export async function POST(request: NextRequest) {
       withdrawSchema,
       trackSchema,
       payOrderSchema,
+      payReleaseSchema,
       payVerifySchema,
       spinSchema,
       offerQuoteSchema,
@@ -412,6 +427,12 @@ export async function POST(request: NextRequest) {
       user.id,
       body.windowId ?? undefined,
     );
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
+  if (body.op === "pay-release") {
+    const r = await releasePaymentHold(body.challengeId, user.id);
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
     return NextResponse.json(r);
   }

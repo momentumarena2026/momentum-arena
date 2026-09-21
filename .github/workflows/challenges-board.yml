@@ -56,6 +56,11 @@ on:
         required: false
         type: string
         default: ""
+      payment_window:
+        description: "Minutes a payment slot is held (5–1440), blank to leave alone"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   toggle:
@@ -69,6 +74,7 @@ jobs:
       ANNOUNCE: ${{ inputs.announce }}
       AUDIENCE: ${{ inputs.audience }}
       DAILY_CAP: ${{ inputs.daily_cap }}
+      PAYMENT_WINDOW: ${{ inputs.payment_window }}
     steps:
       - name: Verify the production secret exists
         run: |

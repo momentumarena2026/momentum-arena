@@ -19,6 +19,12 @@
  * one alone.
  * AUDIENCE:  ALL | SPORT | RECENT, or unset.
  * DAILY_CAP: announcements per day, or unset.
+ * PAYMENT_WINDOW: minutes a payment slot is held for whoever opened it.
+ *
+ * On PAYMENT_WINDOW: this is also how long an ABANDONED sheet blocks a
+ * match, and for that whole time every other captain who taps Pay is told
+ * somebody else is paying. What it protects is a UPI collect still
+ * resolving at the bank, which is minutes. Long values are expensive.
  *
  * On AUDIENCE specifically: changing the column's DEFAULT in the schema does
  * NOT move a row that already exists, and production's settings row has
@@ -58,7 +64,22 @@ async function main() {
     throw new Error(`DAILY_CAP must be a whole number 0–50 — got "${capRaw}"`);
   }
 
-  if (board === null && spin === null && announce === null && !audience && cap === null) {
+  const payWinRaw = (process.env.PAYMENT_WINDOW ?? "").trim();
+  const payWin = payWinRaw === "" ? null : Number(payWinRaw);
+  // The SAME bounds the admin screen enforces (`num(..., 5, 1440, ...)`), so
+  // this door cannot set a value the venue's own settings page would refuse.
+  if (payWin !== null && (!Number.isInteger(payWin) || payWin < 5 || payWin > 1440)) {
+    throw new Error(`PAYMENT_WINDOW must be a whole number 5–1440 — got "${payWinRaw}"`);
+  }
+
+  if (
+    board === null &&
+    spin === null &&
+    announce === null &&
+    !audience &&
+    cap === null &&
+    payWin === null
+  ) {
     console.log("Nothing asked for — reading only.");
   }
 
@@ -88,12 +109,16 @@ async function main() {
     postedPushEnabled?: boolean;
     pushAudience?: string;
     pushDailyCap?: number;
+    paymentWindowMins?: number;
   } = {};
   if (board !== null && board !== before.enabled) data.enabled = board;
   if (spin !== null && spin !== before.spinEnabled) data.spinEnabled = spin;
   if (announce !== null && announce !== before.postedPushEnabled) data.postedPushEnabled = announce;
   if (audience && audience !== before.pushAudience) data.pushAudience = audience;
   if (cap !== null && cap !== before.pushDailyCap) data.pushDailyCap = cap;
+  if (payWin !== null && payWin !== before.paymentWindowMins) {
+    data.paymentWindowMins = payWin;
+  }
 
   if (Object.keys(data).length === 0) {
     console.log("");
@@ -111,6 +136,7 @@ async function main() {
       postedPushEnabled: true,
       pushAudience: true,
       pushDailyCap: true,
+      paymentWindowMins: true,
       updatedAt: true,
     },
   });
@@ -123,7 +149,24 @@ async function main() {
   console.log(`  announce posts: ${after.postedPushEnabled}${mark(data.postedPushEnabled !== undefined)}`);
   console.log(`  audience      : ${after.pushAudience}${mark(data.pushAudience !== undefined)}`);
   console.log(`  per-day cap   : ${after.pushDailyCap}${mark(data.pushDailyCap !== undefined)}`);
+  console.log(
+    `  payment window: ${after.paymentWindowMins} mins${mark(data.paymentWindowMins !== undefined)}`,
+  );
   console.log(`  updated at    : ${after.updatedAt.toISOString()}`);
+
+  if (data.paymentWindowMins !== undefined) {
+    console.log("");
+    console.log(
+      `An abandoned payment sheet now blocks a match for ${after.paymentWindowMins} minutes, not ${before.paymentWindowMins}.`,
+    );
+    console.log(
+      "Holds already running keep their ORIGINAL deadline — the check is",
+    );
+    console.log(
+      "createdAt + window, read live, so a slot opened before this change",
+    );
+    console.log("re-measures against the new number on the next attempt.");
+  }
 
   if (after.postedPushEnabled && after.enabled) {
     const who =

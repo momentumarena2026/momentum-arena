@@ -888,12 +888,12 @@ export function ChallengesGuide({
               />
               <Field
                 name="Payment window (minutes)"
-                what="How long one captain's payment attempt holds their place before a rival may take the slot."
+                what="How long one captain's payment attempt holds their place — including a captain who opened the sheet and walked away."
                 examples={[
-                  ["120", "Two hours to finish paying."],
-                  ["10", "Ten minutes — brisk, and more matches get taken by somebody quicker."],
+                  ["120", "Two hours. An abandoned sheet blocks that match for two hours."],
+                  ["15", "Fifteen minutes. Comfortably longer than a UPI collect takes to resolve, and a walked-away captain costs the board a quarter of an hour instead of an afternoon."],
                 ]}
-                careful="This does NOT expire the challenge. That happens at the match time or the TTL above."
+                careful="This is the most expensive number on this page to set too high. For the whole window, every other captain who taps Pay is told somebody else is paying — and the match sits on the board looking takeable and refusing to be taken. What the window protects is a UPI payment still resolving at the bank, which takes minutes. The holder can hand the slot back early from the app (it frees five minutes later, so a payment they already approved still lands on them) — but nobody else can, so the number is what a stranger waits. It does NOT expire the challenge; that happens at the match time or the TTL above."
               />
             </div>
 

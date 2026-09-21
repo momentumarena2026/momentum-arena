@@ -610,7 +610,7 @@ export function ChallengesAdmin({
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <Num label="Advance %" value={s.advancePct} onSave={(v) => { setS({ ...s, advancePct: v }); save({ advancePct: v }); }} hint="50 on a ₹2,000 slot = ₹500 from each side, ₹1,000 at the venue. Zero switches challenge payments off entirely — nobody can take a challenge." />
-              <Num label="Payment window (minutes)" value={s.paymentWindowMins} onSave={(v) => { setS({ ...s, paymentWindowMins: v }); save({ paymentWindowMins: v }); }} hint="How long a payment slot is held for whoever opened it. After this a rival can take the slot. It does NOT expire the challenge — that happens at the match time or the TTL." />
+              <Num label="Payment window (minutes)" value={s.paymentWindowMins} onSave={(v) => { setS({ ...s, paymentWindowMins: v }); save({ paymentWindowMins: v }); }} hint="How long a payment slot is held for whoever opened it — including somebody who opened the sheet and walked away. For that whole time every other captain who taps Pay is told the slot is taken, and the match sits on the board un-takeable. The holder can now hand it back early, but nobody else can. It protects a UPI collect still resolving at the bank, which is minutes, not hours — so treat this as a few minutes plus a margin, not a session length. It does NOT expire the challenge; that happens at the match time or the TTL." />
             </div>
           </Panel>
 
