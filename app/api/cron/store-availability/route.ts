@@ -51,6 +51,13 @@ async function handle(request: Request) {
     where: { channel: "production", latestIsLive: false },
   });
   if (gates.length === 0) {
+    // Logged even though nothing happened. A run that says nothing is
+    // indistinguishable from a run that never fired, which is exactly the
+    // confusion this route was written to end — the first eight scheduled
+    // runs after it shipped produced no output at all, so the schedule was
+    // provable from the HTTP log and the Play credential was not provable
+    // from anything.
+    console.log("[store-availability] gatesAwaiting=0 — nothing to reconcile");
     return NextResponse.json({
       ok: true,
       gatesAwaiting: 0,
@@ -134,6 +141,16 @@ async function handle(request: Request) {
     notes.push(`${label}: LIVE on store — ${evidence}`);
     console.log(`[store-availability] ${label}: LIVE on store — ${evidence}`);
   }
+
+  // One line per run, always. `playLookup` is the field that says whether the
+  // Google Play credential actually works: "ok" proves it, "no-credential"
+  // says the env var never landed, "failed" says it is present but the call
+  // did not return a track. Without this the only evidence of a healthy run
+  // is the absence of a warning, which is not evidence.
+  console.log(
+    `[store-availability] gatesAwaiting=${gates.length} playLookup=${playLookup} promoted=${promoted}${dryRun ? " (dry run)" : ""}` +
+      (notes.length ? ` | ${notes.join(" | ")}` : ""),
+  );
 
   return NextResponse.json({
     ok: true,
