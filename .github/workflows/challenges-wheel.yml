@@ -34,6 +34,16 @@ on:
         required: false
         type: string
         default: ""
+      spins_cap:
+        description: "Spins allowed per poster (0 = no cap), blank to leave alone"
+        required: false
+        type: string
+        default: ""
+      spins_days:
+        description: "Rolling window in days for that cap (0 = lifetime), blank to leave alone"
+        required: false
+        type: string
+        default: ""
       court:
         description: "Court price used for the rupee illustration"
         required: false
@@ -50,6 +60,8 @@ jobs:
       SEGMENTS: ${{ inputs.segments }}
       AVG_MIN: ${{ inputs.avg_min }}
       AVG_MAX: ${{ inputs.avg_max }}
+      SPINS_CAP: ${{ inputs.spins_cap }}
+      SPINS_DAYS: ${{ inputs.spins_days }}
       COURT: ${{ inputs.court }}
     steps:
       - name: Verify the production secret exists

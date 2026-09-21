@@ -19,10 +19,19 @@
  * Prints the average in rupees, not just percent, because "17.75%" does not
  * read as "you are giving away ₹355 an hour" until somebody does the sum.
  *
- * SEGMENTS   JSON array of {pct, weight}, or unset to leave the wheel alone.
- * AVG_MIN    integer percent, or unset.
- * AVG_MAX    integer percent, or unset.
- * COURT      the court price used for the rupee illustration (default 2000).
+ * SEGMENTS    JSON array of {pct, weight}, or unset to leave the wheel alone.
+ * AVG_MIN     integer percent, or unset.
+ * AVG_MAX     integer percent, or unset.
+ * SPINS_CAP   spins allowed per poster (0 = no cap), or unset.
+ * SPINS_DAYS  the rolling window in days (0 = lifetime), or unset.
+ * COURT       the court price used for the rupee illustration (default 2000).
+ *
+ * On the cap: every spin follows a SALE. A captain only earns one when a
+ * match they posted becomes a paid, confirmed booking, so spins cannot be
+ * farmed — the cap is not an anti-abuse control, it bounds how much discount
+ * any single customer can accumulate. That is why a rolling window beats a
+ * lifetime cap: a lifetime cap permanently stops rewarding your best
+ * customers, which is the opposite of what the wheel is for.
  */
 
 import { db } from "../lib/db";
@@ -110,8 +119,16 @@ async function main() {
   const wantSegs = process.env.SEGMENTS?.trim() ? parseSegments(process.env.SEGMENTS) : null;
   const wantMin = process.env.AVG_MIN?.trim() ? Number(process.env.AVG_MIN) : null;
   const wantMax = process.env.AVG_MAX?.trim() ? Number(process.env.AVG_MAX) : null;
+  const wantCap = process.env.SPINS_CAP?.trim() ? Number(process.env.SPINS_CAP) : null;
+  const wantDays = process.env.SPINS_DAYS?.trim() ? Number(process.env.SPINS_DAYS) : null;
 
-  if (!wantSegs && wantMin === null && wantMax === null) {
+  for (const [name, v] of [["SPINS_CAP", wantCap], ["SPINS_DAYS", wantDays]] as const) {
+    if (v !== null && (!Number.isInteger(v) || v < 0)) {
+      throw new Error(`${name} must be a whole number of 0 or more — got "${v}"`);
+    }
+  }
+
+  if (!wantSegs && wantMin === null && wantMax === null && wantCap === null && wantDays === null) {
     console.log("");
     console.log("Read only — pass SEGMENTS and/or AVG_MIN/AVG_MAX to change anything.");
     await db.$disconnect();
@@ -140,13 +157,32 @@ async function main() {
       ...(wantSegs ? { spinSegments: nextSegs as never } : {}),
       ...(wantMin !== null ? { spinAvgMinPct: nextMin } : {}),
       ...(wantMax !== null ? { spinAvgMaxPct: nextMax } : {}),
+      ...(wantCap !== null ? { spinsPerPosterCap: wantCap } : {}),
+      ...(wantDays !== null ? { spinsPerPosterPerDays: wantDays } : {}),
     },
-    select: { spinSegments: true, spinAvgMinPct: true, spinAvgMaxPct: true, updatedAt: true },
+    select: {
+      spinSegments: true,
+      spinAvgMinPct: true,
+      spinAvgMaxPct: true,
+      spinsPerPosterCap: true,
+      spinsPerPosterPerDays: true,
+      updatedAt: true,
+    },
   });
 
   const avgAfter = describe(resolveWheel(after.spinSegments), court, "AFTER");
   console.log("");
   console.log(`   average band enforced on save: ${after.spinAvgMinPct}% – ${after.spinAvgMaxPct}%`);
+  const cap = after.spinsPerPosterCap;
+  const days = after.spinsPerPosterPerDays;
+  console.log(
+    `   spins per poster: ` +
+      (cap > 0
+        ? days > 0
+          ? `${cap} in any ${days} day(s) — worst case ${money((court * avgAfter) / 100 * cap)} of discount per customer per ${days} days`
+          : `${cap} ever`
+        : "no cap"),
+  );
   console.log(`   updated at: ${after.updatedAt.toISOString()}`);
   console.log("");
   console.log(
