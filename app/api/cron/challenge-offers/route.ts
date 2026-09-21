@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendOfferReminders, expireOffers } from "@/lib/challenge-spin";
+import { announceNewChallenges } from "@/lib/challenges";
 
 /**
  * Cron worker — nudges live prize offers and closes out the dead ones.
@@ -51,7 +52,21 @@ async function handle(request: Request) {
     return 0;
   });
 
-  return NextResponse.json({ ok: true, nudged, lapsed });
+  // The board broadcast rides this tick rather than the post itself, so a
+  // fan-out to every phone with the app can never slow down — or fail —
+  // the customer tapping "Post". It claims each challenge before sending,
+  // so an overlapping run cannot announce the same match twice.
+  const announced = await announceNewChallenges(now).catch((e) => {
+    console.error("[challenge-offers] announce failed:", e);
+    return 0;
+  });
+
+  // Logged, not just returned. A broadcast that reached nobody and a sweep
+  // that never ran are the same empty response otherwise, and this module
+  // has already been bitten once by a silent sender.
+  if (announced > 0) console.log(`[challenge-offers] announced=${announced}`);
+
+  return NextResponse.json({ ok: true, nudged, lapsed, announced });
 }
 
 export const GET = handle;

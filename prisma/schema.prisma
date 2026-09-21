@@ -4163,6 +4163,16 @@ model Challenge {
   /// a deadline that moves because a setting changed is not a deadline.
   expiresAt DateTime
 
+  /// When the board broadcast went out for this challenge.
+  ///
+  /// THE MARKER IS THE CLAIM. The sweep stamps it in the same conditional
+  /// update that selects the row, so two overlapping cron runs cannot both
+  /// announce the same match — the second update matches nothing. Same
+  /// shape as `renotifyUntoldHalves`, and for the same reason: a duplicate
+  /// "new match is up" to the whole install base is the most visible
+  /// mistake this module could make.
+  announcedAt DateTime?
+
   withdrawnAt     DateTime?
   /// User id, or the admin id when the venue takes it down.
   withdrawnBy     String?
@@ -4179,6 +4189,8 @@ model Challenge {
   @@index([status, expiresAt])
   @@index([sport, status])
   @@index([createdByUserId])
+  /// The announce sweep's query: OPEN challenges not yet broadcast.
+  @@index([status, announcedAt])
 }
 
 /// One time the match could be played. A counter-proposal is just another
@@ -4559,9 +4571,26 @@ model ChallengeSettings {
   slotLostPush   Json?
   refundOwedPush Json?
 
-  pushAudience String @default("SPORT")
+  /// "A new match is up" — the board broadcast, sent once per challenge by
+  /// the per-minute sweep rather than by the post itself, so a slow fan-out
+  /// can never slow down (or fail) posting. `{title, body}`, LifecycleVars.
+  postedPush Json?
+  /// Whether that broadcast goes out at all. Separate from the board's own
+  /// switch: a venue may want the board running quietly while the regulars
+  /// find it, then start announcing once there is something to arrive to.
+  postedPushEnabled Boolean @default(true)
+
+  /// Who hears a new post: ALL | SPORT | RECENT.
+  ///
+  /// This column and `pushDailyCap` below spent a release being saved,
+  /// validated and read by nothing, because the broadcast they configure did
+  /// not exist. Both are live now — every value is implemented in
+  /// `postedAudience`, and none of them is decorative.
+  pushAudience String @default("ALL")
   /// Broadcasts per day. Past it, challenges still post, they just go quiet.
   pushDailyCap Int @default(3)
+  /// How far back RECENT reaches, in days.
+  pushRecentDays Int @default(60)
 
   // ── Copy, so the venue can word the board itself.
   boardTitle    String?
@@ -4620,6 +4649,10 @@ enum ChallengeEventType {
   OFFER_TAKEN
   /// They didn't, and it expired. The most diagnostic row in the promo.
   OFFER_LAPSED
+  /// The board broadcast went out for this post, with how many people it
+  /// reached. The counterpart to POSTED: without it, a post that was never
+  /// announced and a post announced to nobody look the same afterwards.
+  ANNOUNCED
   /// The arena marked a captured payment refunded. The counterpart to the
   /// money notes that say a refund is owed — without it the audit trail
   /// records the debt and never its settlement.

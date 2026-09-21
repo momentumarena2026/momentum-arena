@@ -1,7 +1,7 @@
 name: Challenges board — on/off (production)
 
-# Switches the Challenges board, and separately the prize wheel, on or off in
-# PRODUCTION. Both ship off; turning the board on is the moment the feature
+# Switches the Challenges board, the prize wheel, and the "a new match is up"
+# broadcast on or off in PRODUCTION — three switches, deliberately separate. Both ship off; turning the board on is the moment the feature
 # starts carrying customers' money, so it is a deliberate dispatch with a name
 # against it rather than something a deploy does by itself.
 #
@@ -32,6 +32,30 @@ on:
           - unchanged
           - "true"
           - "false"
+      announce:
+        description: "Announce new posts by push (separate again)"
+        required: true
+        type: choice
+        default: "unchanged"
+        options:
+          - unchanged
+          - "true"
+          - "false"
+      audience:
+        description: "Who hears an announcement — blank to leave alone"
+        required: false
+        type: choice
+        default: ""
+        options:
+          - ""
+          - ALL
+          - SPORT
+          - RECENT
+      daily_cap:
+        description: "Announcements per day (0 = none), blank to leave alone"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   toggle:
@@ -42,6 +66,9 @@ jobs:
       DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
       ENABLED: ${{ inputs.enabled }}
       SPIN_ENABLED: ${{ inputs.spin_enabled }}
+      ANNOUNCE: ${{ inputs.announce }}
+      AUDIENCE: ${{ inputs.audience }}
+      DAILY_CAP: ${{ inputs.daily_cap }}
     steps:
       - name: Verify the production secret exists
         run: |

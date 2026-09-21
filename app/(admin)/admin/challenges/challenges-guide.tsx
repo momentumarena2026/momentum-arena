@@ -731,9 +731,75 @@ export function ChallengesGuide({
         </div>
       </Section>
 
-      {/* 7 ── every other setting */}
+      {/* 7 ── the announcement */}
       <Section
         n="7"
+        title="Telling everybody a match is up"
+        lead="The one message in this module that goes to people who are not in the match."
+      >
+        <p className="text-sm text-zinc-400">
+          Every other notification here is between two captains who are already
+          involved and expecting to hear from you. This one lands on the phone of
+          somebody who has never met them. That is why it has its own switch, its
+          own daily ceiling, and an audience you choose — and why it is the setting
+          most worth getting wrong slowly rather than quickly.
+        </p>
+
+        <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+          <Field
+            name="Announce new challenges"
+            what="The switch. Off, the board works exactly as it does today — people find a match by opening the board."
+            examples={[
+              ["On", "A post goes out to the audience below about a minute after it is made."],
+              ["Off", "Nothing is sent. Posting, taking and paying all still work."],
+            ]}
+          />
+          <Field
+            name="Who hears it"
+            what="Which customers get it. The poster never gets their own announcement."
+            examples={[
+              ["Everyone with the app", "Every phone signed in. Widest reach, and the fastest way to get muted — pair it with a low daily cap."],
+              ["Played that sport", "Only people who have booked that sport before. A pickleball regular is not woken up about cricket."],
+              ["Booked recently", "Only people who have booked inside the window below. Smallest and warmest."],
+            ]}
+          />
+          <Field
+            name="Announcements per day"
+            what="A hard ceiling across the WHOLE board, not per customer and not per sport."
+            examples={[
+              ["3", "The first three posts of the day are announced. The fourth still goes up, it just goes up quietly."],
+              ["0", "Same as switching it off."],
+            ]}
+            careful="The cap is counted per calendar day in IST and cannot be borrowed forward. A busy Saturday does not lend the fourth post Sunday's allowance."
+          />
+          <Field
+            name="The announcement copy"
+            what="What it says. A tap opens that match, not the board."
+            examples={[
+              ["{team} want a game", "The built-in title. {team} is the team name they typed."],
+              ["{sport} · {players}-a-side, {date} {hour}", "The built-in body: the sport, the size, and the first time they offered."],
+            ]}
+            careful="There is no {name} here, on purpose. This message reaches strangers, so it can name a team and never a person — offering their name would push one customer's identity to every phone in Mathura, and they would only find out afterwards."
+          />
+        </div>
+
+        <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+          <p className="text-sm font-semibold text-white">Why it arrives a minute late</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            The announcement is not sent by the post itself. It rides the same
+            once-a-minute job that chases prize offers. Two reasons: a fan-out to
+            fifty phones inside the tap that creates the post would make posting
+            slow, and a failure in that fan-out would make posting <em>fail</em>.
+            The other reason is the three-minute pause built in before anything
+            goes out — somebody who posts, spots a typo in their team name and
+            withdraws should not have had it pushed to the whole city first.
+          </p>
+        </div>
+      </Section>
+
+      {/* 8 ── every other setting */}
+      <Section
+        n="8"
         title="Every other setting, with examples"
         lead="In the same order as the Settings tab."
       >
@@ -874,8 +940,8 @@ export function ChallengesGuide({
         </div>
       </Section>
 
-      {/* 8 ── where to look */}
-      <Section n="8" title="Where to look for what" lead="The other four tabs on this page.">
+      {/* 9 ── where to look */}
+      <Section n="9" title="Where to look for what" lead="The other four tabs on this page.">
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
           <table className="w-full min-w-[520px] text-sm">
             <thead className="bg-zinc-950 text-xs uppercase tracking-wide text-zinc-500">
@@ -910,9 +976,9 @@ export function ChallengesGuide({
         </div>
       </Section>
 
-      {/* 9 ── turning it on */}
+      {/* 10 ── turning it on */}
       <Section
-        n="9"
+        n="10"
         title="Turning it on for the first time"
         lead="The board ships switched off. Nothing happens until somebody turns it on here."
       >
@@ -923,6 +989,7 @@ export function ChallengesGuide({
             "Read the five match messages and put them in the venue's own words.",
             "Set the refund message so it carries the amount and the phone number — that message is how a refund reaches a person.",
             "Decide whether the prize wheel runs at all, and check its average in section 5 against what you are willing to give away.",
+            "Decide whether new posts are announced by push, and to whom — section 7. Start narrow and widen; you can lower a cap, but you cannot un-send.",
             "Turn the master switch on, and watch the Activity tab for the first day.",
           ].map((t, i) => (
             <li key={t} className="flex gap-3">

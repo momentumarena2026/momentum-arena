@@ -15,7 +15,15 @@
  * you what it changed is a toggle nobody can audit. Writes nothing when the
  * value is already what was asked for.
  *
- * ENABLED / SPIN_ENABLED: "true", "false", or unset to leave that one alone.
+ * ENABLED / SPIN_ENABLED / ANNOUNCE: "true", "false", or unset to leave that
+ * one alone.
+ * AUDIENCE:  ALL | SPORT | RECENT, or unset.
+ * DAILY_CAP: announcements per day, or unset.
+ *
+ * On AUDIENCE specifically: changing the column's DEFAULT in the schema does
+ * NOT move a row that already exists, and production's settings row has
+ * existed since the board shipped. A venue that wants the widest audience has
+ * to be moved there explicitly — this is that door.
  */
 
 import { db } from "../lib/db";
@@ -36,8 +44,22 @@ async function main() {
 
   const board = wanted("ENABLED");
   const spin = wanted("SPIN_ENABLED");
-  if (board === null && spin === null) {
-    console.log("Nothing asked for — pass ENABLED and/or SPIN_ENABLED. Reading only.");
+  const announce = wanted("ANNOUNCE");
+
+  const audienceRaw = (process.env.AUDIENCE ?? "").trim().toUpperCase();
+  if (audienceRaw && !["ALL", "SPORT", "RECENT"].includes(audienceRaw)) {
+    throw new Error(`AUDIENCE must be ALL, SPORT or RECENT — got "${audienceRaw}"`);
+  }
+  const audience = audienceRaw || null;
+
+  const capRaw = (process.env.DAILY_CAP ?? "").trim();
+  const cap = capRaw === "" ? null : Number(capRaw);
+  if (cap !== null && (!Number.isInteger(cap) || cap < 0 || cap > 50)) {
+    throw new Error(`DAILY_CAP must be a whole number 0–50 — got "${capRaw}"`);
+  }
+
+  if (board === null && spin === null && announce === null && !audience && cap === null) {
+    console.log("Nothing asked for — reading only.");
   }
 
   // Upsert with defaults, exactly as the app does, so a database that has
@@ -56,10 +78,22 @@ async function main() {
   console.log(`  advance %     : ${before.advancePct}`);
   console.log(`  notice mins   : ${before.minLeadMins}`);
   console.log(`  payment window: ${before.paymentWindowMins} mins`);
+  console.log(`  announce posts: ${before.postedPushEnabled}`);
+  console.log(`  audience      : ${before.pushAudience}`);
+  console.log(`  per-day cap   : ${before.pushDailyCap}`);
 
-  const data: { enabled?: boolean; spinEnabled?: boolean } = {};
+  const data: {
+    enabled?: boolean;
+    spinEnabled?: boolean;
+    postedPushEnabled?: boolean;
+    pushAudience?: string;
+    pushDailyCap?: number;
+  } = {};
   if (board !== null && board !== before.enabled) data.enabled = board;
   if (spin !== null && spin !== before.spinEnabled) data.spinEnabled = spin;
+  if (announce !== null && announce !== before.postedPushEnabled) data.postedPushEnabled = announce;
+  if (audience && audience !== before.pushAudience) data.pushAudience = audience;
+  if (cap !== null && cap !== before.pushDailyCap) data.pushDailyCap = cap;
 
   if (Object.keys(data).length === 0) {
     console.log("");
@@ -71,14 +105,37 @@ async function main() {
   const after = await db.challengeSettings.update({
     where: { id: SINGLETON },
     data,
-    select: { enabled: true, spinEnabled: true, updatedAt: true },
+    select: {
+      enabled: true,
+      spinEnabled: true,
+      postedPushEnabled: true,
+      pushAudience: true,
+      pushDailyCap: true,
+      updatedAt: true,
+    },
   });
 
+  const mark = (changed: boolean) => (changed ? "   <-- changed" : "");
   console.log("");
   console.log("AFTER");
-  console.log(`  board enabled : ${after.enabled}${data.enabled !== undefined ? "   <-- changed" : ""}`);
-  console.log(`  prize wheel   : ${after.spinEnabled}${data.spinEnabled !== undefined ? "   <-- changed" : ""}`);
+  console.log(`  board enabled : ${after.enabled}${mark(data.enabled !== undefined)}`);
+  console.log(`  prize wheel   : ${after.spinEnabled}${mark(data.spinEnabled !== undefined)}`);
+  console.log(`  announce posts: ${after.postedPushEnabled}${mark(data.postedPushEnabled !== undefined)}`);
+  console.log(`  audience      : ${after.pushAudience}${mark(data.pushAudience !== undefined)}`);
+  console.log(`  per-day cap   : ${after.pushDailyCap}${mark(data.pushDailyCap !== undefined)}`);
   console.log(`  updated at    : ${after.updatedAt.toISOString()}`);
+
+  if (after.postedPushEnabled && after.enabled) {
+    const who =
+      after.pushAudience === "ALL"
+        ? "EVERY phone signed in to the app"
+        : after.pushAudience === "SPORT"
+          ? "people who have played that sport"
+          : "people who booked recently";
+    console.log("");
+    console.log(`Announcements are ON: up to ${after.pushDailyCap} a day, to ${who}.`);
+    console.log("They go out on the per-minute sweep, about a minute after a post.");
+  }
 
   if (after.enabled) {
     console.log("");
