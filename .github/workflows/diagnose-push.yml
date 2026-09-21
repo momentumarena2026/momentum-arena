@@ -1,0 +1,51 @@
+name: Push notifications — diagnose (production)
+
+# "Is push broken?" and "does anything send a push for that?" look
+# identical from outside the app. This tells them apart with evidence:
+# the device fleet, every dispatch logged by lib/push.ts with its
+# delivery rate, the in-app notification rows written on the same path,
+# and the challenge board's own events next to what it notified.
+#
+# READ-ONLY. It sends nothing, writes nothing, and never prints a token.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back to look"
+        required: false
+        type: string
+        default: "14"
+
+jobs:
+  diagnose:
+    name: Diagnose push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+      DAYS: ${{ inputs.days }}
+    steps:
+      - name: Verify the production secret exists
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::PRODUCTION_DB_URL is not set — refusing to run."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsx scripts/diagnose-push.ts 2>&1 | tee push.log
+      - if: always()
+        run: |
+          {
+            echo "### Push diagnosis"
+            echo ""
+            echo '```'
+            cat push.log 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
