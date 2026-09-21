@@ -79,6 +79,17 @@ jobs:
 
       - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v3
+        with:
+          # Install NOTHING here. The action's default is to run
+          # `sdkmanager tools`, and Google has REMOVED the legacy `tools`
+          # package from its repository — so the default now fails every run
+          # with "Failed to find package 'tools'" before a single line is
+          # compiled. It broke between 2026-09-07 (last green Android build)
+          # and 2026-09-21 with no change on our side; the package vanished
+          # from under us. Nothing here needs `tools`: the next step installs
+          # the exact SDK pieces the build uses (platform 36, build-tools 36,
+          # NDK 27), and Gradle wants nothing else.
+          packages: ''
 
       - name: Install Android SDK packages (platform 36, build-tools 36, NDK 27)
         run: |
