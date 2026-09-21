@@ -136,6 +136,39 @@ export function ChallengeDetailScreen() {
   const q = useQuery({ queryKey: ["challenge", id], queryFn: () => fetchChallenge(id) });
   const c = q.data?.challenge;
 
+  // ABOVE THE EARLY RETURNS, for the reason spelled out in the comment
+  // below — which I walked straight past and reproduced: the screen threw
+  // "Rendered more hooks than during the previous render" and died on open,
+  // because this sat beside the values it reads instead of with the hooks.
+  //
+  // Memoised at all because DqrCheckout re-initiates a PhonePe transaction
+  // on every render of a fresh object, which is a live QR per keystroke.
+  const dqrEndpoints: DqrEndpoints = useMemo(
+    () => ({
+      initiate: async () => {
+        const r = await challengeDqr.initiate(id, dqrFor?.windowId);
+        return {
+          mode: r.mode,
+          qrString: r.qrString ?? null,
+          qrImage: r.qrImage ?? null,
+          transactionId: r.transactionId,
+          expiresIn: r.expiresIn,
+          error: r.error,
+        };
+      },
+      status: async (txn: string) => {
+        const r = await challengeDqr.status(txn);
+        return {
+          state: r.state,
+          confirmedId: r.confirmedId ?? null,
+          paymentReceived: r.paymentReceived,
+          error: r.error,
+        };
+      },
+    }),
+    [id, dqrFor?.windowId],
+  );
+
   // Keep the counter picker's selection legal.
   //
   // THIS HOOK MUST STAY ABOVE THE EARLY RETURNS. It was written down beside
@@ -179,33 +212,6 @@ export function ChallengeDetailScreen() {
   const windowQuotes = q.data?.windowQuotes ?? [];
   const hold: PaymentHold | null = q.data?.hold ?? null;
 
-  // Memoised, or DqrCheckout re-initiates a PhonePe transaction on every
-  // render — the same trap the pass store documents.
-  const dqrEndpoints: DqrEndpoints = useMemo(
-    () => ({
-      initiate: async () => {
-        const r = await challengeDqr.initiate(id, dqrFor?.windowId);
-        return {
-          mode: r.mode,
-          qrString: r.qrString ?? null,
-          qrImage: r.qrImage ?? null,
-          transactionId: r.transactionId,
-          expiresIn: r.expiresIn,
-          error: r.error,
-        };
-      },
-      status: async (txn: string) => {
-        const r = await challengeDqr.status(txn);
-        return {
-          state: r.state,
-          confirmedId: r.confirmedId ?? null,
-          paymentReceived: r.paymentReceived,
-          error: r.error,
-        };
-      },
-    }),
-    [id, dqrFor?.windowId],
-  );
   // The arena's real hours, not a hard-coded 5–25. When the venue moved its
   // closing time the chips kept offering the old range while the board
   // refused what the arena was actually selling.
