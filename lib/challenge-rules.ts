@@ -465,20 +465,23 @@ export function statusAfterPayment(paidSidesIncludingThis: ChallengeSide[]): Cha
 export type WheelSegment = { pct: number; weight: number };
 
 /**
- * The wheel the venue runs if it has not configured one.
+ * The wheel used when the venue has saved none of their own — and the one
+ * `resolveWheel` falls back to when every weight is zero.
  *
- * Tuned to the stated intent: a poster who spins ten times sees 50% about
- * once, and the average lands near 18% — inside the 15–25% band. The
- * jackpot alone is five points of that average, which is why everything
- * else sits low. Change it in the admin, not here.
+ * It averages 9%, because the arena's rule is that a discounted hour must
+ * still bring in ₹1,800 of a ₹2,000 court. The previous default averaged
+ * 17.75% (₹1,645 an hour), which after the band moved to 5–10% would have
+ * been a fallback that violates the rule AND that `wheelRefusal` refuses to
+ * save — so clearing the segments would have wedged the settings page.
+ * A default has to satisfy the same guard as anything typed by hand.
+ *
+ * Change it in the admin, not here.
  */
 export const DEFAULT_WHEEL: WheelSegment[] = [
-  { pct: 5, weight: 10 },
-  { pct: 10, weight: 30 },
-  { pct: 15, weight: 25 },
-  { pct: 20, weight: 15 },
-  { pct: 25, weight: 10 },
-  { pct: 50, weight: 10 },
+  { pct: 5, weight: 45 },
+  { pct: 10, weight: 40 },
+  { pct: 15, weight: 10 },
+  { pct: 25, weight: 5 },
 ];
 
 /** Total weight, or 0 for a wheel that cannot be spun. */

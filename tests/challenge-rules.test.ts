@@ -345,12 +345,19 @@ test("the first half part-pays, the second confirms", () => {
 
 // ── The wheel ──────────────────────────────────────────────────────
 
-test("the shipped default wheel sits inside the venue's band", () => {
+test("the shipped default wheel obeys the venue's ₹1,800 rule", () => {
+  // The default is a fallback, so it has to pass the same guard as a wheel
+  // typed by hand — otherwise clearing the segments leaves a wheel the
+  // settings page refuses to save.
   const avg = wheelAveragePct(DEFAULT_WHEEL);
-  assert.ok(avg >= 15 && avg <= 25, `default wheel averages ${avg}%, outside 15–25%`);
-  // The stated intent: roughly one spin in ten shows 50%.
-  const jackpot = wheelOdds(DEFAULT_WHEEL).find((o) => o.pct === 50);
-  assert.ok(jackpot && Math.abs(jackpot.chance - 0.1) < 0.02, "50% should land near 1 in 10");
+  assert.ok(avg <= 10, `default wheel averages ${avg}%, above the 10% ceiling`);
+  assert.equal(wheelRefusal(DEFAULT_WHEEL, 5, 10), null);
+  // On a ₹2,000 court that is what the rule is actually about.
+  assert.ok(Math.round((2000 * (100 - avg)) / 100) >= 1800);
+  // The top prize is 25% — still a real win at ₹500 off, without the
+  // variance a 50% segment puts on any single customer's run of spins.
+  const top = Math.max(...wheelOdds(DEFAULT_WHEEL).map((o) => o.pct));
+  assert.equal(top, 25);
 });
 
 test("the average is the weighted mean, not the midpoint", () => {
@@ -366,7 +373,12 @@ test("a wheel outside the band is refused, and says which way", () => {
   assert.match(wheelRefusal(generous, 15, 25) ?? "", /above your 25% ceiling/);
   const stingy = [{ pct: 2, weight: 1 }];
   assert.match(wheelRefusal(stingy, 15, 25) ?? "", /below your 15% floor/);
-  assert.equal(wheelRefusal(DEFAULT_WHEEL, 15, 25), null);
+  // A wheel INSIDE whatever band it is judged against passes. Using the
+  // shipped default here tied this test to whatever the default happened to
+  // average, which is a different question — it is now checked against its
+  // own band in the test above.
+  assert.equal(wheelRefusal([{ pct: 20, weight: 1 }], 15, 25), null);
+  assert.equal(wheelRefusal(DEFAULT_WHEEL, 5, 10), null);
   assert.match(wheelRefusal([], 15, 25) ?? "", /at least one segment/i);
   assert.match(wheelRefusal([{ pct: 20, weight: 0 }], 15, 25) ?? "", /weight above zero/);
   assert.match(wheelRefusal([{ pct: 120, weight: 1 }], 15, 25) ?? "", /between 0% and 100%/);

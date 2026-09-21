@@ -72,6 +72,14 @@ export const linking: LinkingOptions<RootStackParamList> = {
               BookingsList: "bookings",
               BookingDetail: "bookings/:bookingId",
               Notifications: "notifications",
+              // The challenges board and one match. Absent until now, which
+              // meant `momentumarena://challenges` and a tapped
+              // momentumarena.com/challenges link both fell through to the
+              // web — while pushes reached the screens fine, because the
+              // push handler routes them itself. Two paths to the same
+              // screen that disagreed.
+              ChallengeBoard: "challenges",
+              ChallengeDetail: "challenges/:id",
               Coupons: "coupons",
               Rewards: "rewards",
               MatchScore: "match/:code",
