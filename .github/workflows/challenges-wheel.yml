@@ -1,0 +1,77 @@
+name: Challenges prize wheel — read / set (production)
+
+# Reads the production prize wheel, and optionally replaces it, printing what
+# it costs in rupees rather than percentages — "17.75%" does not read as
+# "you are giving away ₹355 an hour" until somebody does the sum.
+#
+# Run it with no inputs to READ. Nothing is written unless you pass segments
+# or a band.
+#
+# The wheel and the average band are ONE rule and must be changed together:
+# the band (`spinAvgMinPct`/`spinAvgMaxPct`) is what `wheelRefusal` enforces
+# every time anyone saves the wheel from /admin/challenges. Set a 9% wheel
+# while the band still says 15–25 and the venue's own settings page refuses
+# to save the wheel it is already holding.
+#
+# The script runs that same validator BEFORE writing, so this cannot leave
+# production in a state the admin screen would reject.
+
+on:
+  workflow_dispatch:
+    inputs:
+      segments:
+        description: 'Wheel as JSON, e.g. [{"pct":5,"weight":45},{"pct":10,"weight":40}] — blank to leave alone'
+        required: false
+        type: string
+        default: ""
+      avg_min:
+        description: "Average band floor %, blank to leave alone"
+        required: false
+        type: string
+        default: ""
+      avg_max:
+        description: "Average band ceiling %, blank to leave alone"
+        required: false
+        type: string
+        default: ""
+      court:
+        description: "Court price used for the rupee illustration"
+        required: false
+        type: string
+        default: "2000"
+
+jobs:
+  wheel:
+    name: Read / set the prize wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+      SEGMENTS: ${{ inputs.segments }}
+      AVG_MIN: ${{ inputs.avg_min }}
+      AVG_MAX: ${{ inputs.avg_max }}
+      COURT: ${{ inputs.court }}
+    steps:
+      - name: Verify the production secret exists
+        run: |
+          if [ -z "${{ secrets.PRODUCTION_DB_URL }}" ]; then
+            echo "PRODUCTION_DB_URL is not set — refusing to run."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsx scripts/set-challenge-wheel.ts 2>&1 | tee wheel.log
+      - if: always()
+        run: |
+          {
+            echo "### Prize wheel"
+            echo ""
+            echo '```'
+            cat wheel.log 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
