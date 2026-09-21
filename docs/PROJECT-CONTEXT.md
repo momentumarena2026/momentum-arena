@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-21 · accurate as of `main` = `218d8c62` (app 1.0.7). Challenges: the prize wheel now averages 9% to hold the venue's ₹1,800-an-hour floor, and nothing hardcodes the top prize (§9, prize wheel).
+**Last substantive update:** 2026-09-21 · accurate as of `main` = `f9fda480` (app 1.0.7). iOS deep links only ever worked on a cold launch — `AppDelegate` never forwarded warm URLs to `RCTLinkingManager`, so `linking.ts` was half-dead (§6b). Android was checked and is fine.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -227,6 +227,18 @@ Anything else means main has drifted — stop and investigate, do not push.
     cannot do it), and enabling it invalidates the profile while keeping its
     name, so sigh regenerates a timestamped one. The Fastfile now signs with
     `SharedValues::SIGH_NAME` rather than a constant.
+11b. **A local `pod install` rewrites `Podfile.lock` — check `git status` before
+    you commit a native change.** Any iOS build done outside CI re-resolves the
+    podspecs and sweeps unrelated churn into the diff: pod versions that drifted
+    from `package.json` (e.g. `RNKeychain 9.2.3` → the installed `10.0.0`) and
+    fresh checksums for the prebuilt artifacts (`hermes-engine`,
+    `React-Core-prebuilt`, `ReactNativeDependencies`). None of it is your change,
+    and **`Podfile.lock` feeds the native fingerprint**, so committing it muddies
+    the very signal that decides whether a store build is dispatched. Revert it and
+    commit only the file you meant to touch — `57f160c3` is the previous time this
+    had to be undone. Note the ordering trap: reverting it *before* the build fails
+    the `[CP] Check Pods Manifest.lock` phase ("sandbox is not in sync"), so revert
+    after you have finished building and verifying.
 12. `next/image` needs an explicit `remotePatterns` entry — Vercel Blob URLs
     (`**.blob.vercel-storage.com`) had to be added to `next.config.ts`.
 13. **Three surfaces report "sports earnings" and they are SUPPOSED to differ.**
@@ -641,6 +653,39 @@ site. Both halves live here:
 > Android lists TWO fingerprints. Play App Signing re-signs, so Store installs
 > carry the app-signing key, not the upload key. Listing only the upload key
 > makes links work on test builds and fail **silently** in production.
+
+> **iOS: the two `AppDelegate` forwarding methods are load-bearing — without
+> them linking.ts is half-dead (found + fixed 2026-09-21).** `ExpoAppDelegate`
+> does implement `application(_:open:options:)` and
+> `application(_:continue:restorationHandler:)`, but its implementations only
+> fan out to `ExpoAppDelegateSubscriber`s, and the two packages that register a
+> subscriber forwarding to `RCTLinkingManager` — **expo-linking** and
+> **expo-dev-client** — are both absent from this bare project. So nothing
+> reached `RCTLinkingManager` once the app was running: the JS `url` event never
+> fired, and React Navigation's linking `subscribe` never saw a warm link.
+>
+> What made it survive so long is that **cold launches kept working**:
+> `Linking.getInitialURL()` reads `launchOptions`, which needs no delegate
+> callback. So a terminated app opened the right screen and an app already in
+> the foreground did *nothing at all* — and the foreground case is the common
+> one for a tapped shared link. Every path in `linking.ts` was affected, scheme
+> and Universal Link alike. **Pushes were never affected** and are not evidence
+> either way: the push handler in `RootNavigator.tsx` navigates itself via
+> `resolveDeepLink` and never touches `Linking`. Verified on the simulator, cold
+> **and** warm, for `momentumarena://challenges`, `momentumarena://tournaments`
+> and `https://momentumarena.com/passes`.
+>
+> **Android has no equivalent gap — do not "fix" it there.** The warm path is
+> already complete in the framework: `ReactActivity.onNewIntent` →
+> `ReactActivityDelegate` → `ReactDelegate` → `ReactHostImpl.onNewIntent` →
+> `DeviceEventManagerModule.emitNewIntentReceived`, which emits the same `url`
+> event RN's `Linking` listens for on Android. `MainActivity` is already
+> `launchMode="singleTask"` and the manifest already carries both filters (the
+> `autoVerify` https one and a separate custom-scheme one). The one real
+> difference: Android never calls `setIntent()` on a warm link, so
+> `getInitialURL()` keeps returning the *original* launch URL afterwards. That
+> is harmless today — nothing reads it after mount — but do not build anything
+> on a second `getInitialURL()` read.
 
 **Get-the-app prompts** — sticky strip under the mobile header, store icon in
 the header, footer download row. All three gated by one flag,

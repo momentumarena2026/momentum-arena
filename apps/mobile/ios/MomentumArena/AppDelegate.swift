@@ -40,6 +40,57 @@ class AppDelegate: ExpoAppDelegate {
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
+
+  // MARK: - Links that arrive while the app is ALREADY RUNNING
+  //
+  // ExpoAppDelegate implements both of these callbacks, but its versions
+  // only fan out to ExpoAppDelegateSubscribers — and nothing here
+  // subscribes. The two packages that register a subscriber forwarding to
+  // RCTLinkingManager (expo-linking, expo-dev-client) are both absent from
+  // this bare project, so without these overrides RCTLinkingManager never
+  // hears about an incoming URL and the JS `url` event never fires.
+  //
+  // `Linking.getInitialURL()` kept working the whole time because it reads
+  // `launchOptions`, which is exactly why this was easy to miss: deep links
+  // worked on a cold launch and silently did nothing whenever the app was
+  // already open — the common case for a tapped shared link. That made
+  // navigation/linking.ts half-dead: React Navigation's linking `subscribe`
+  // was listening to an event that was never emitted.
+  //
+  // Both halves are dispatched deliberately, with no `||` short-circuit
+  // (which is what the upstream Expo template uses): a subscriber claiming
+  // the URL must not stop React Navigation from seeing it too.
+
+  /// Custom-scheme links: `momentumarena://…` (pushes, printed QR codes).
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    let handledBySubscribers = super.application(app, open: url, options: options)
+    let handledByReactNative = RCTLinkingManager.application(app, open: url, options: options)
+    return handledBySubscribers || handledByReactNative
+  }
+
+  /// Universal Links: `https://momentumarena.com/…` taps, which reach the
+  /// app as an `NSUserActivity` rather than as an openURL call.
+  override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    let handledBySubscribers = super.application(
+      application,
+      continue: userActivity,
+      restorationHandler: restorationHandler
+    )
+    let handledByReactNative = RCTLinkingManager.application(
+      application,
+      continue: userActivity,
+      restorationHandler: restorationHandler
+    )
+    return handledBySubscribers || handledByReactNative
+  }
 }
 
 class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
