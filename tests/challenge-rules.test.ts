@@ -857,3 +857,31 @@ test("a slot occupies its real span, whatever shape it is", () => {
   assert.deepEqual(findSlotClashes([slot(24, 0, 60)], { kind: "hours", hours: [25] }), []);
   assert.deepEqual(findSlotClashes([slot(25, 0, 60)], { kind: "hours", hours: [25] }), ["25"]);
 });
+
+test("the wheel the venue ships keeps at least ₹1,800 of a ₹2,000 hour", () => {
+  // The venue's rule in their own terms: a discounted hour must still bring
+  // in ₹1,800 of a ₹2,000 court on average, i.e. an average discount of 10%
+  // or less. The built-in wheel averaged 17.75% — ₹1,645 an hour, ₹16,450
+  // over ten spins against a ₹18,000 floor — and the band that guarded it
+  // (15–25%) enforced exactly the range that broke the rule.
+  const SHIPPED = [
+    { pct: 5, weight: 45 },
+    { pct: 10, weight: 40 },
+    { pct: 15, weight: 10 },
+    { pct: 25, weight: 5 },
+  ];
+  const COURT = 2000;
+  const avg = wheelAveragePct(SHIPPED);
+  assert.ok(avg <= 10, `wheel averages ${avg}%, above the 10% ceiling`);
+  assert.equal(Math.round((COURT * (100 - avg)) / 100) >= 1800, true);
+
+  // The band must AGREE with the wheel, or the admin screen refuses to save
+  // the very wheel it is holding — the two settings are one rule.
+  assert.equal(wheelRefusal(SHIPPED, 5, 10), null);
+  // And the band must reject the old wheel, which is the point of moving it.
+  const OLD = [
+    { pct: 5, weight: 10 }, { pct: 10, weight: 30 }, { pct: 15, weight: 25 },
+    { pct: 20, weight: 15 }, { pct: 25, weight: 10 }, { pct: 50, weight: 10 },
+  ];
+  assert.ok(wheelRefusal(OLD, 5, 10), "the old 17.75% wheel must not pass the new band");
+});
