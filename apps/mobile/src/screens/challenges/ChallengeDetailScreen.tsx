@@ -1082,7 +1082,7 @@ function HoldBanner({
       <Text variant="tiny" color={hold.heldByViewer ? colors.zinc500 : "#fbbf24"}>
         {hold.heldByViewer ? `Yours for another ${clock}` : `Opens to anyone in ${clock}`}
       </Text>
-      {hold.heldByViewer ? (
+      {hold.releasable ? (
         <Button
           label="I'm not paying — release it"
           variant="secondary"

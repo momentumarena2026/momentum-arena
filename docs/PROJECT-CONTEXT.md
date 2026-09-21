@@ -1059,9 +1059,18 @@ lapsed hold resurrected it. The rule is `min(existing, now + grace)` — a
 release may only bring the deadline forward. **Found by running it against
 staging, not by reading it.**
 
-Note the setting itself: 120 minutes protects a UPI collect that resolves
-in minutes. It is the venue's to choose, but it is the most expensive
-number on that settings page to set too high.
+**Production runs a 5-minute payment window** (set 2026-09-21, down from
+120). Two consequences that are easy to trip over:
+
+- It equals `RELEASE_GRACE_MINS`, so a release can never bring the deadline
+  forward and `paymentHoldFor` reports `releasable: false`. The app hides
+  the release button rather than offering one whose only outcome is "there
+  was nothing to give back" — a dead control is the thing this whole change
+  set was about. Raise the window above 5 and the button comes back on its
+  own.
+- 5 minutes is the floor the admin screen allows, and it is close to how
+  long a slow UPI collect takes. If stranded captures start appearing on
+  the order ledger, this number is the first suspect.
 
 **The stamp that says "this half is placed" must be in the SAME COMMIT as
 the money.** This bug has now been fixed three times at three different

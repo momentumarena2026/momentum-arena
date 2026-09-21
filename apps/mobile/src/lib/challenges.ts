@@ -218,6 +218,12 @@ export type PaymentHold = {
   /** ISO. When the hold lapses and anyone may pay. */
   freeAt: string;
   msLeft: number;
+  /**
+   * Whether handing the slot back would actually free it any sooner. False
+   * once the venue's payment window is at or below the release grace, when
+   * a release could only report that there was nothing to give back.
+   */
+  releasable: boolean;
   /** The server's own sentence — this screen does not write its own. */
   message: string;
 };
