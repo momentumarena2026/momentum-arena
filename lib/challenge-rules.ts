@@ -660,6 +660,34 @@ export function heldByOtherMessage(msLeft: number): string {
 }
 
 /**
+ * How long a released slot is still held for, given the venue's window.
+ *
+ * The grace exists so a UPI collect the customer already approved can
+ * settle on THEM rather than on whoever grabs the slot next. A flat five
+ * minutes was fine against a two-hour window and became useless the moment
+ * the venue set the window to five: grace == window means a release can
+ * never bring anything forward, so the button did nothing and the customer
+ * reported it broken. They were right — a control whose only outcome is
+ * "that did nothing" is broken however correct the arithmetic.
+ *
+ * So it scales: never more than half the window, never less than a minute.
+ * At a 5-minute window a release cuts the wait to 2 minutes; at 120 it
+ * still gives the full 5. The protection shrinks with the window, which is
+ * the venue's own trade-off — they already accepted that a collect
+ * resolving after 5 minutes can strand when they set the window there.
+ *
+ * DOMAIN: windows of 2 minutes or more, which is every window the admin
+ * screen can save (it bounds `paymentWindowMins` at 5–1440). Below that
+ * the one-minute floor meets the window and a release is a no-op again —
+ * there is no sensible grace inside a one-minute hold, and the floor is
+ * the more important of the two guarantees, because a zero grace releases
+ * instantly and that is what strands a late collect.
+ */
+export function releaseGraceMins(windowMins: number, maxGraceMins: number): number {
+  return Math.max(1, Math.min(maxGraceMins, Math.floor(windowMins / 2)));
+}
+
+/**
  * When a released payment slot actually opens to everyone.
  *
  * Pure, and separate from the write, because getting it backwards is easy

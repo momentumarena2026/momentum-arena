@@ -78,6 +78,7 @@ import {
   sideOf,
   heldByOtherMessage,
   releasedFreeAt,
+  releaseGraceMins,
   type ChallengeSide,
   type ChallengeStatus,
 } from "@/lib/challenge-rules";
@@ -3354,9 +3355,9 @@ export async function paymentHoldFor(
   // 2026-09-21 — every release is a no-op, and a "release it" button whose
   // only possible outcome is "there was nothing to give back" is the exact
   // class of dead control this whole change set exists to remove.
+  const grace = releaseGraceMins(windowMins, RELEASE_GRACE_MINS);
   const releasable =
-    heldByViewer &&
-    releasedFreeAt(best.freeAt, now.getTime(), RELEASE_GRACE_MINS) < best.freeAt;
+    heldByViewer && releasedFreeAt(best.freeAt, now.getTime(), grace) < best.freeAt;
   return {
     side: best.side,
     heldByViewer,
@@ -3393,7 +3394,8 @@ export async function paymentHoldFor(
  * stranded money and a manual refund, which is the exact failure this
  * module has been bitten by before. So a release shortens the hold to a
  * grace period long enough for an in-flight collect to settle on its
- * rightful owner.
+ * rightful owner — `releaseGraceMins`, which scales with the venue's
+ * window so the button still does something at a short one.
  *
  * Only the holder may release, and only a slot with no money on it.
  */
@@ -3422,7 +3424,8 @@ export async function releasePaymentHold(
   const windowMins = settings?.paymentWindowMins ?? 120;
 
   const existingFreeAt = row.createdAt.getTime() + windowMins * 60000;
-  const freeAt = releasedFreeAt(existingFreeAt, now.getTime(), RELEASE_GRACE_MINS);
+  const grace = releaseGraceMins(windowMins, RELEASE_GRACE_MINS);
+  const freeAt = releasedFreeAt(existingFreeAt, now.getTime(), grace);
   // A release may only ever bring the deadline FORWARD. Without this, a
   // holder releasing a slot whose window had already lapsed hours ago
   // RESURRECTED it for another five minutes — the opposite of the point,
@@ -3453,7 +3456,7 @@ export async function releasePaymentHold(
     type: "MONEY_NOTE",
     userId,
     challengeId,
-    detail: `released their payment slot — it opens to anyone in ${RELEASE_GRACE_MINS} minutes`,
+    detail: `released their payment slot — it opens to anyone in ${grace} minute(s)`,
   });
   return { ok: true, freeAt: new Date(freeAt).toISOString(), shortened: true };
 }
