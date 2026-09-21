@@ -396,9 +396,10 @@ export function BroadcastForm({ initialReach, groups }: BroadcastFormProps) {
             {/* Same links promo banners take, resolved by the same code in
                 the app — so a link that works on a banner works here. */}
             <p className="text-[10px] text-zinc-600">
-              The same links promotion banners accept — <code>/camps/&lt;slug&gt;</code>,{" "}
-              <code>/tournaments/&lt;slug&gt;</code>, <code>/passes</code>,{" "}
-              <code>/book/cricket</code>, <code>/cafe</code>, <code>/shop</code>.
+              The same links promotion banners accept — <code>/challenges</code>,{" "}
+              <code>/camps/&lt;slug&gt;</code>, <code>/tournaments/&lt;slug&gt;</code>,{" "}
+              <code>/passes</code>, <code>/book/cricket</code>, <code>/cafe</code>,{" "}
+              <code>/shop</code>.
               Anything else opens in the browser. If it can&apos;t be
               resolved the tap lands on Home, so it never goes nowhere.
             </p>
