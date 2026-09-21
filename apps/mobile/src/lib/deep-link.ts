@@ -106,6 +106,29 @@ export function resolveDeepLink(nav: NavLike, linkUrl: string) {
     nav.navigate("Main", { screen: "Home", params: { screen: "Camps" } });
     return;
   }
+  // Challenges. Same omission as camps had: the board and one match are
+  // both real app screens, but neither had a branch here, so an admin
+  // broadcast pointing at /challenges — the announcement push for the
+  // whole feature — fell through to the browser below.
+  const challengeMatch = path.match(/^\/challenges\/([^/?#]+)/);
+  if (challengeMatch) {
+    nav.navigate("Main", {
+      screen: "Home",
+      params: {
+        screen: "ChallengeDetail",
+        params: { id: decodeURIComponent(challengeMatch[1]) },
+        initial: false,
+      },
+    });
+    return;
+  }
+  if (path.startsWith("/challenges")) {
+    nav.navigate("Main", {
+      screen: "Home",
+      params: { screen: "ChallengeBoard", initial: false },
+    });
+    return;
+  }
   // Unrecognised → browser (absolutise site-relative paths).
   const url = /^https?:\/\//.test(linkUrl) ? linkUrl : `${env.apiUrl}${linkUrl}`;
   Linking.openURL(url).catch(() => {});

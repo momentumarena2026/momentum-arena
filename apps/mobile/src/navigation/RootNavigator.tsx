@@ -205,6 +205,20 @@ export function RootNavigator() {
             });
             break;
           }
+          // The BOARD, for an announcement or any push that is about the
+          // feature rather than one match. Without this a `/challenges`
+          // link fell through to the notifications list — so the one push
+          // most likely to be sent to everybody landed on the wrong screen.
+          if (/^\/challenges\/?$/.test(link)) {
+            navigationRef.navigate("Main", {
+              screen: "Account",
+              params: {
+                screen: "ChallengeBoard",
+                initial: false,
+              },
+            });
+            break;
+          }
           const booking = link.match(/^\/bookings\/([\w-]+)$/);
           if (booking) {
             navigationRef.navigate("Main", {

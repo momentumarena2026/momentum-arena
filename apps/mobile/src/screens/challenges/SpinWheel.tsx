@@ -116,27 +116,6 @@ export function SpinWheel({
   }, [segments]);
 
   const maxPct = useMemo(() => Math.max(...slices.map((s) => s.pct), 0), [slices]);
-  // The odds, in words. The server computes these for the admin and the
-  // player was never shown a number.
-  const jackpotOdds = useMemo(() => {
-    const total = slices.reduce((t, x) => t + x.weight, 0) || 1;
-    // EVERY slice showing the top number, not the first one found. Nothing
-    // stops the venue putting 50% on the wheel twice — two slices, weight 1
-    // each — and taking only the first understated the real chance by half:
-    // the caption read "about 1 spin in 12" for something that came up 1 in 6,
-    // measured over 400,000 draws. This sentence is the only place a player is
-    // told their odds, and the wheel's whole premise is that they will
-    // eventually check.
-    const chance = slices
-      .filter((x) => x.pct === maxPct)
-      .reduce((t, x) => t + x.weight, 0) / total;
-    // Phrased as a whole sentence, because "about never spins" is what
-    // stitching a fragment into the caption produced when a wheel had the
-    // top prize weighted to zero.
-    return chance > 0
-      ? `about 1 spin in ${Math.round(1 / chance)}`
-      : "not on this wheel right now";
-  }, [slices, maxPct]);
 
   useEffect(() => {
     if (landOn === null) return;
@@ -200,7 +179,11 @@ export function SpinWheel({
             {settled && subtitle
               ? subtitle
               : landOn === null
-                ? "One spin for getting your match confirmed. Up to 50% off the next hour."
+                ? // The ceiling is READ OFF THE WHEEL, never written down here.
+                  // It was hardcoded at 50% and stayed there when the venue
+                  // dropped its top prize to 25% — a promise the wheel could
+                  // not keep, on the one screen where a player is counting.
+                  `One spin for getting your match confirmed.${maxPct > 0 ? ` Up to ${maxPct}% off the next hour.` : ""}`
                 : " "}
           </Text>
         </View>
@@ -279,7 +262,15 @@ export function SpinWheel({
                           // that can be true at every angle.
                           transform={`rotate(${s.mid - 90} ${lx} ${ly})`}
                         >
-                          {s.pct}%
+                          {/* ONE string child, not `{s.pct}%`. Written as two
+                              children, react-native-svg lays them out as two
+                              anchored runs and applies textAnchor="middle" to
+                              each — so the "%" was pulled back over the number
+                              by half its own width. On "10%" that shift stayed
+                              inside the digits and looked fine; on the
+                              single-digit "5%" the percent sign sat on top of
+                              the 5. */}
+                          {`${s.pct}%`}
                         </SvgText>
                       )}
                     </G>
@@ -290,15 +281,6 @@ export function SpinWheel({
             </Svg>
           </Animated.View>
         </View>
-
-        {/* The slices are equal, so the chance has to be said in words. The
-            previous copy ("exactly as narrow as it looks") described a
-            proportional wheel and would now be simply false. */}
-        {maxPct > 0 && (
-          <Text variant="tiny" color={colors.zinc500} style={{ textAlign: "center" }}>
-            {`Gold is ${maxPct}% off — ${jackpotOdds}.`}
-          </Text>
-        )}
 
         <View style={{ width: "100%", gap: 10 }}>
           {landOn === null ? (

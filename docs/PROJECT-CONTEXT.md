@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-20 · accurate as of `main` = `218d8c62` (app 1.0.7). Challenges: the court is bought only when BOTH halves are in; court-hour locks are keyed per zone and taken through one function (gotcha 15); availability must stay on the caller's client (16).
+**Last substantive update:** 2026-09-21 · accurate as of `main` = `218d8c62` (app 1.0.7). Challenges: the prize wheel now averages 9% to hold the venue's ₹1,800-an-hour floor, and nothing hardcodes the top prize (§9, prize wheel).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -1009,8 +1009,25 @@ behaviour the system no longer has is worse than no field.
 
 **The prize wheel** (`lib/challenge-spin.ts`, `lib/challenge-push.ts`).
 A confirmed challenge earns its POSTER one spin for a discount on an extra
-hour, headlined "up to 50%" and weighted so the average lands in the
-venue's band. Four things about it are load-bearing:
+hour, weighted so the average lands in the venue's band. Five things about
+it are load-bearing:
+
+- **The wheel is the venue's ₹1,800-an-hour floor, expressed as a
+  distribution.** The rule is stated per CUSTOMER, not per spin: ten spins
+  against ₹2,000 hours must still return ₹18,000. That makes the average
+  discount the whole quantity of interest, and it must be ≤10%. Production
+  and `DEFAULT_WHEEL` both run 5/45 · 10/40 · 15/10 · 25/5 — average 9.00%,
+  band 5–10, capped at 6 spins per poster per 30 days. The earlier wheel
+  averaged 17.75% (₹1,645 an hour) with a 50% jackpot. Change the wheel and
+  the band TOGETHER: `wheelRefusal` checks the saved wheel against the saved
+  band on every admin save, so a 9% wheel under a 15–25 band wedges the
+  settings page against its own contents. `scripts/set-challenge-wheel.ts`
+  (dispatch `challenges-wheel.yml`) runs that validator before writing, and
+  reports in rupees.
+- **Nothing hardcodes the top prize.** The spinner heading reads it off the
+  wheel. It used to say "Up to 50%" in a string literal and kept saying so
+  after the jackpot dropped to 25% — a promise the wheel could not keep, on
+  the one screen where a player is counting.
 
 - **Average, floor and ceiling cannot all be inputs.** They are not
   independent — floor 15 / ceiling 50 / average 25 may have no distribution
@@ -1018,8 +1035,8 @@ venue's band. Four things about it are load-bearing:
   derived, shown live, and a save outside the band is refused. Do not
   "simplify" this into three number boxes.
 - **The draw is honestly weighted and written before the device hears it.**
-  50% rarely stops because it rarely WINS, not because an animation is
-  steered off a result it already landed on — and the row exists before the
+  The top prize rarely stops because it rarely WINS, not because an
+  animation is steered off a result it already landed on — and the row exists before the
   spin animates, so killing the app mid-spin cannot re-roll.
 - **Two offers on two clocks.** ADJACENT is the hour after the match, held
   unsold while the captain asks his side, so its window is minutes.

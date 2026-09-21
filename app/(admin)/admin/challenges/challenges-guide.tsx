@@ -35,13 +35,14 @@ import {
 
 type Seg = { pct: number; weight: number };
 
+// Mirrors DEFAULT_WHEEL in lib/challenge-rules.ts — the wheel a venue gets
+// before saving one of their own. It averages 9%, which is the arena's rule:
+// a discounted hour still brings in ₹1,800 of a ₹2,000 court.
 const BUILT_IN_WHEEL: Seg[] = [
-  { pct: 5, weight: 10 },
-  { pct: 10, weight: 30 },
-  { pct: 15, weight: 25 },
-  { pct: 20, weight: 15 },
-  { pct: 25, weight: 10 },
-  { pct: 50, weight: 10 },
+  { pct: 5, weight: 45 },
+  { pct: 10, weight: 40 },
+  { pct: 15, weight: 10 },
+  { pct: 25, weight: 5 },
 ];
 
 /* ── building blocks ───────────────────────────────────────────────── */
@@ -413,8 +414,8 @@ export function ChallengesGuide({
             src="/help/challenges/wheel.webp"
             alt="The prize wheel as a customer sees it"
             w={620}
-            h={778}
-            caption="The wheel itself. Six equal slices whatever the odds — and the line underneath states the real chance in words, which is how the picture stays even without misleading anybody."
+            h={802}
+            caption="The wheel itself. Equal slices whatever the odds, so a rare prize never looks unwinnable. The heading is read off the wheel, so it can only ever promise the top prize you actually set."
             by="Segments and weights — see section 5"
           />
         </div>
@@ -601,7 +602,7 @@ export function ChallengesGuide({
             src="/help/challenges/wheel.webp"
             alt="The prize wheel in the app, with equal slices"
             w={620}
-            h={778}
+            h={802}
             caption="The built-in wheel as a player sees it."
           />
           <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
@@ -613,13 +614,11 @@ export function ChallengesGuide({
               so the picture is even while the odds stay exactly your weights.
             </p>
             <p className="mt-2 text-sm text-zinc-400">
-              Nothing is hidden. Look at the line under the wheel in that screenshot:{" "}
-              <span className="text-white">
-                &ldquo;Gold is 50% off — about 1 spin in 10.&rdquo;
-              </span>{" "}
-              That sentence is generated from your weights, so it always tells the truth
-              even though the slices are even. On the built-in wheel the 50% segment has a
-              weight of 10 out of 100, which is exactly 1 in 10.
+              The player is shown the prizes, not the odds. The picture being even is
+              therefore not a claim about chances — the real chances are your weights, and
+              the only place they are written out is the{" "}
+              <span className="text-white">Your wheel, right now</span> panel above, which
+              is read from the same saved segments the app spins against.
             </p>
             <p className="mt-2 text-sm text-zinc-400">
               A segment with weight 0 is not drawn at all — it cannot be landed on, so
@@ -641,9 +640,9 @@ export function ChallengesGuide({
             name="Segments and weights"
             what="The prize list itself. Add a row per prize."
             examples={[
-              ["50% / 1", "A jackpot that lands about 1 spin in 20 on the table above."],
-              ["10% / 30", "The common result — most people get this."],
-              ["25% / 0", "Listed but switched off: never drawn, never shown."],
+              ["25% / 5", "The top prize on the shipped wheel — ₹500 off, about 1 spin in 20."],
+              ["10% / 40", "The common result — most people get this or the 5%."],
+              ["50% / 0", "Listed but switched off: never drawn, never shown."],
             ]}
             careful="At least one segment needs a weight above zero, or there is nothing to win and the built-in wheel is used instead."
           />
@@ -651,10 +650,10 @@ export function ChallengesGuide({
             name="Average floor % and ceiling %"
             what="A safety rail, not a prize. The system works out what your wheel gives away on average and refuses to save it if that average falls outside this band."
             examples={[
-              ["15 – 25", "A wheel averaging 14.5% is rejected until you raise the prizes or lower the floor."],
+              ["5 – 10", "What the arena runs. A wheel averaging 10.2% is rejected — that is the ₹1,800-an-hour rule, enforced."],
               ["0 – 100", "Effectively no rail — any wheel saves."],
             ]}
-            careful="This is about the AVERAGE, not any single prize. A 50% jackpot is fine inside a 15–25 band as long as it is rare enough."
+            careful="This is about the AVERAGE, not any single prize — a 25% prize is fine inside a 5–10 band as long as it is rare enough. It is also the setting that enforces the money rule: at 5–10, a ₹2,000 hour is guaranteed to bring in at least ₹1,800 on average."
           />
           <Field
             name="Next-hour offer lasts (minutes)"
