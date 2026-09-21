@@ -518,18 +518,38 @@ export async function challengeQuote(
 }
 
 /**
- * Start a payment: reserve the side's ChallengePayment row and open a
- * Razorpay order for exactly their half.
+ * Start a payment: reserve the side's ChallengePayment row and — unless the
+ * caller only wants the reservation — open a Razorpay order for exactly
+ * their half.
+ *
+ * `intent: "slot"` stops after the reservation and hands back the row, for
+ * the UPI/PhonePe path to mint its own instrument against. Everything
+ * before that point is the hard part — the quote, the refusals, the
+ * create-or-take-over race on `@@unique([challengeId, side])`, the
+ * written-off-capture carve-outs — and it is identical whichever way the
+ * customer then pays. Copying it into a second entry point is how this
+ * module would grow a second definition of "whose slot is this", which is
+ * the shape of most of its past incidents. So the two gateways share one
+ * claim and differ only in the last twenty lines.
  */
 export async function createChallengePaymentOrder(
   challengeId: string,
   userId: string,
   acceptWindowId?: string,
+  intent: "razorpay" | "slot" = "razorpay",
 ): Promise<
   | {
       ok: true;
       orderId: string;
       keyId: string;
+      amount: number;
+      courtLabel: string | null;
+    }
+  | {
+      ok: true;
+      slotOnly: true;
+      rowId: string;
+      side: ChallengeSide;
       amount: number;
       courtLabel: string | null;
     }
@@ -773,6 +793,28 @@ export async function createChallengePaymentOrder(
       paidAt: null,
       razorpayOrderId:
         current.userId === userId ? current.razorpayOrderId : null,
+    };
+  }
+
+  // The UPI path stops here: the slot is claimed, and the caller mints a
+  // PhonePe QR against it instead of a Razorpay order. Deliberately BEFORE
+  // the reuse-or-mint block below, so a customer switching methods does not
+  // leave a live Razorpay order behind them — that orphaned-order failure
+  // is documented at length just below and cost real refunds.
+  if (intent === "slot") {
+    await logChallengeEvent({
+      type: "PAY_STARTED",
+      userId,
+      challengeId,
+      detail: `${quote.yourSide.toLowerCase()} opened the UPI sheet · ₹${quote.yourShare}`,
+    });
+    return {
+      ok: true,
+      slotOnly: true,
+      rowId: row.id,
+      side: quote.yourSide,
+      amount: quote.yourShare,
+      courtLabel: quote.courtLabel,
     };
   }
 
@@ -3459,4 +3501,171 @@ export async function releasePaymentHold(
     detail: `released their payment slot — it opens to anyone in ${grace} minute(s)`,
   });
   return { ok: true, freeAt: new Date(freeAt).toISOString(), shortened: true };
+}
+
+/* ── Paying a half by UPI (PhonePe Dynamic QR) ───────────────────── */
+
+/** Transaction-id prefix for a challenge HALF. < 35 chars total. */
+export const CHALLENGE_DQR_PREFIX = "DQRH_";
+
+/**
+ * Settle a challenge half paid by PhonePe DQR.
+ *
+ * The UPI twin of `confirmChallengePayment`, and deliberately thin: it
+ * establishes WHOSE money this is and then hands off to the same
+ * `placeClaimedPayment` the card path uses. Everything expensive — buying
+ * the court, the both-halves race, the refund-owed branches, telling the
+ * arena — is shared. A second copy of the placement logic is precisely the
+ * two-definition bug this module keeps being bitten by.
+ *
+ * What is NOT shared is the proof. Razorpay proves a capture with an HMAC
+ * the client carries; PhonePe proves it by being asked. So there is no
+ * signature here, and the caller must only reach this after PhonePe's own
+ * status says COMPLETED (or via the S2S callback, which is PhonePe
+ * speaking directly).
+ *
+ * Idempotent: called from BOTH the client poll and the callback, which
+ * routinely race. The claim inside `placeClaimedPayment` is what makes
+ * that safe.
+ *
+ * Money with nowhere to go goes to `recordOrphanPayment`, the same ledger
+ * tournaments and passes use — not to `ChallengeOrder`, which is the
+ * Razorpay order ledger and has no row for a QR.
+ */
+export async function confirmDqrChallenge(
+  transactionId: string,
+  providerReferenceId: string | undefined,
+  amountPaise: number | undefined,
+): Promise<{
+  challengeId?: string;
+  status?: string;
+  bookingId?: string | null;
+  mismatch?: boolean;
+  error?: string;
+}> {
+  // Not ours. The callback tries every surface in turn, so this has to be
+  // a quiet no-op rather than an error.
+  if (!transactionId.startsWith(CHALLENGE_DQR_PREFIX)) return {};
+
+  const row = await db.challengePayment.findUnique({
+    where: { phonePeMerchantTxnId: transactionId },
+    select: {
+      id: true,
+      challengeId: true,
+      userId: true,
+      side: true,
+      amount: true,
+      paidAt: true,
+      placedAt: true,
+    },
+  });
+
+  if (!row) {
+    // Real money against a slot that is gone — taken over while they were
+    // scanning, or the challenge deleted underneath them. Nothing here can
+    // honour it, so it goes on the venue's orphan queue with the txn on it.
+    const { recordOrphanPayment } = await import("@/lib/payment-orphan");
+    recordOrphanPayment({
+      gateway: "PHONEPE_DQR",
+      reason: "challenge-payment-slot-not-found",
+      userId: "unknown",
+      amountRupees: Math.round((amountPaise ?? 0) / 100),
+      phonePeMerchantTxnId: transactionId,
+      path: "/api/phonepe/dqr/challenge",
+    });
+    return {
+      mismatch: true,
+      error: "That payment arrived too late to be used. The arena will refund you in full.",
+    };
+  }
+
+  // THE AMOUNT IS CHECKED, not assumed. A half repriced between the QR
+  // being shown and the customer paying — the court sold, the advance
+  // changed — must not settle at the old number. Tournaments learned this
+  // one; the money is captured either way, so it is an orphan, not a
+  // refusal.
+  const paidRupees = Math.round((amountPaise ?? 0) / 100);
+  if (amountPaise !== undefined && paidRupees !== row.amount) {
+    const { recordOrphanPayment } = await import("@/lib/payment-orphan");
+    recordOrphanPayment({
+      gateway: "PHONEPE_DQR",
+      reason: "challenge-amount-mismatch",
+      userId: row.userId,
+      amountRupees: paidRupees,
+      phonePeMerchantTxnId: transactionId,
+      path: "/api/phonepe/dqr/challenge",
+    });
+    await logChallengeEvent({
+      type: "MONEY_NOTE",
+      userId: row.userId,
+      challengeId: row.challengeId,
+      detail: `paid ₹${paidRupees} by UPI against a half quoted at ₹${row.amount} — refund owed`,
+    });
+    return {
+      mismatch: true,
+      challengeId: row.challengeId,
+      error: "The price changed while you were paying. The arena will refund you in full.",
+    };
+  }
+
+  // Stamp the capture, then run the shared placement. `updateMany` with a
+  // null guard is the serialisation point between the poll and the
+  // callback: exactly one of them writes, and both then place — which is
+  // safe, because placement is itself idempotent and the loser's
+  // `placeClaimedPayment` resumes rather than double-spends.
+  if (!row.paidAt) {
+    await db.challengePayment.updateMany({
+      where: { id: row.id, paidAt: null },
+      data: {
+        paidAt: new Date(),
+        // The provider reference lands in the razorpay column on purpose:
+        // it is the column the booking's payment record reads downstream,
+        // and `confirmDqrTournament` already does exactly this. The method
+        // is carried separately, so nothing mistakes it for a card capture.
+        razorpayPaymentId: providerReferenceId || transactionId,
+      },
+    });
+  }
+
+  const fresh = await db.challengePayment.findUnique({
+    where: { id: row.id },
+    select: {
+      id: true,
+      side: true,
+      amount: true,
+      acceptWindowId: true,
+      quotedCourtConfigId: true,
+      quotedAdvance: true,
+      quotedTotal: true,
+      razorpayPaymentId: true,
+    },
+  });
+  if (!fresh) return { mismatch: true };
+
+  const res = await placeClaimedPayment({
+    challengeId: row.challengeId,
+    userId: row.userId,
+    slot: {
+      rowId: fresh.id,
+      side: fresh.side as ChallengeSide,
+      amount: fresh.amount,
+      acceptWindowId: fresh.acceptWindowId,
+      quotedCourtConfigId: fresh.quotedCourtConfigId,
+      quotedAdvance: fresh.quotedAdvance,
+      quotedTotal: fresh.quotedTotal,
+    },
+    // There is no Razorpay order behind a QR. The txn id stands in so the
+    // downstream ledger rows carry something traceable rather than "".
+    razorpayOrderId: transactionId,
+    razorpayPaymentId: fresh.razorpayPaymentId ?? transactionId,
+    razorpaySignature: "",
+    platform: "UPI_DQR",
+  });
+
+  if (!res.ok) return { challengeId: row.challengeId, error: res.error };
+  return {
+    challengeId: row.challengeId,
+    status: res.status,
+    bookingId: res.bookingId,
+  };
 }

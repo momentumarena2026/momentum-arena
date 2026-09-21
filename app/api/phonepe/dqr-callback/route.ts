@@ -8,6 +8,7 @@ import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
 import { confirmDqrPass } from "@/lib/passes";
 import { confirmDqrTournament } from "@/lib/tournaments";
 import { confirmDqrCamp } from "@/lib/camps";
+import { confirmDqrChallenge } from "@/lib/challenge-payments";
 
 /**
  * PhonePe Dynamic QR S2S callback — the authoritative confirmation
@@ -111,6 +112,32 @@ export async function POST(request: NextRequest) {
     if (pass.userPassId) {
       console.log(
         `[dqr-callback] pass ${pass.userPassId} confirmed (txn ${transactionId})`,
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    // Challenge halves. LAST in the chain only because it is newest — the
+    // prefix check inside makes every one of these a no-op for txns it
+    // does not own, so the order is cost, not correctness.
+    //
+    // This branch matters more than most: a half settles a court that the
+    // OTHER captain may already have paid for, so a payer who closes the
+    // app after scanning would otherwise leave two people's money sitting
+    // unplaced until somebody reopened the screen.
+    const challenge = await confirmDqrChallenge(
+      transactionId,
+      providerRef,
+      data.amount,
+    );
+    if (challenge.challengeId && !challenge.mismatch && !challenge.error) {
+      console.log(
+        `[dqr-callback] challenge half on ${challenge.challengeId} placed — status ${challenge.status} (txn ${transactionId})`,
+      );
+      return NextResponse.json({ success: true });
+    }
+    if (challenge.mismatch) {
+      console.error(
+        `[dqr-callback] challenge half could not be applied for txn ${transactionId}, amount ${data.amount} — orphaned`,
       );
       return NextResponse.json({ success: true });
     }
