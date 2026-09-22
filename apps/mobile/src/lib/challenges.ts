@@ -18,6 +18,14 @@ export type ChallengeWindow = {
   endHour: number;
   proposedBy: ChallengeSide;
   status: "OFFERED" | "ACCEPTED" | "DECLINED" | "SUPERSEDED";
+  /**
+   * Set once the POSTER has agreed to a time somebody else suggested.
+   * Null on the poster's own times, which need no agreeing to. A window
+   * `proposedBy: "ACCEPTOR"` with this still null is a question waiting on
+   * the poster — it must not carry a Pay button.
+   */
+  approvedAt: string | null;
+  proposedByUserId: string;
   courtConfig: { id: string; label: string } | null;
 };
 
@@ -209,6 +217,27 @@ export async function releaseChallengePayHold(
   challengeId: string,
 ): Promise<{ ok: true; freeAt: string; shortened: boolean }> {
   return api.post("/api/mobile/challenges", { op: "pay-release", challengeId });
+}
+
+/**
+ * The poster's answer to a time somebody suggested.
+ *
+ * Agreeing ADDS that time to the board for anyone to take — it does not
+ * match the two of them, and the suggester is told to go and pay like
+ * anybody else. Declining strikes it off and tells them so. Either way the
+ * challenge stays on the board with its own times.
+ */
+export async function answerSuggestion(
+  challengeId: string,
+  windowId: string,
+  agree: boolean,
+): Promise<{ ok: true }> {
+  return api.post("/api/mobile/challenges", {
+    op: "suggest-answer",
+    challengeId,
+    windowId,
+    agree,
+  });
 }
 
 /**

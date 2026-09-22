@@ -73,6 +73,9 @@ type Settings = {
   spinsPerPosterPerDays: number;
   spinWonPush: unknown;
   ownerRefundPush: unknown;
+  suggestedPush: unknown;
+  suggestOkPush: unknown;
+  suggestNoPush: unknown;
   agreedPush: unknown;
   payHalfPush: unknown;
   confirmedPush: unknown;
@@ -144,6 +147,9 @@ type Row = {
 
 /** The five lifecycle messages, as settings keys. Mirrors the server's list. */
 const LIFECYCLE_KEYS = [
+  "suggestedPush",
+  "suggestOkPush",
+  "suggestNoPush",
   "agreedPush",
   "payHalfPush",
   "confirmedPush",

@@ -14,7 +14,6 @@ import {
   windowRefusal,
   expiryFor,
   acceptRefusal,
-  counterRefusal,
   withdrawRefusal,
   hasExpired,
   isLive,
@@ -38,6 +37,10 @@ import {
   heldByOtherMessage,
   releasedFreeAt,
   releaseGraceMins,
+  windowIsTakeable,
+  windowAwaitsPoster,
+  suggestRefusal,
+  suggestAnswerRefusal,
 } from "../lib/challenge-rules";
 
 const NOW = new Date("2026-09-17T06:00:00+05:30");
@@ -202,46 +205,48 @@ test("a third party cannot muscle into a live negotiation", () => {
   assert.equal(acceptRefusal(mid, "taker", NOW, limits), null);
 });
 
-// ── Countering ─────────────────────────────────────────────────────
-test("countering an open challenge is how a negotiation starts", () => {
-  assert.equal(counterRefusal(challenge(), "other", limits, NOW), null);
+// ── Suggesting a time ──────────────────────────────────────────────
+//
+// These replace the old `counterRefusal` suite wholesale. That rule was
+// built around a counter CLAIMING the acceptor slot, so it rationed
+// counters per side, refused a second stranger with "someone else is
+// already negotiating this one", and blocked a side whose own offer was
+// still outstanding. None of that survives: a suggestion claims nothing,
+// any number of people may each ask about a different evening, and the
+// match stays on the board throughout.
+
+test("suggesting a time to an open challenge is how a negotiation starts", () => {
+  assert.equal(suggestRefusal(challenge(), "other", 0, limits, NOW), null);
 });
 
-test("each side gets one counter, then it is take it or leave it", () => {
-  const used = challenge({
-    status: "COUNTERED",
-    acceptedByUserId: "taker",
-    counterCountAcceptor: 1,
-  });
+test("a second interested captain is not turned away by the first", () => {
+  // The old rule answered "someone else is already negotiating this one",
+  // which was true when the first counter took the match off the board. Now
+  // three people can each ask about three different evenings.
+  const asked = challenge({ status: "COUNTERED" });
+  assert.equal(suggestRefusal(asked, "alice", 0, limits, NOW), null);
+  assert.equal(suggestRefusal(asked, "bob", 0, limits, NOW), null);
+});
+
+test("each PERSON gets their own say, and is capped on their own record", () => {
+  const asked = challenge({ status: "COUNTERED" });
   assert.match(
-    counterRefusal(used, "taker", limits, NOW) ?? "",
-    /used your counter/i,
+    suggestRefusal(asked, "alice", 1, limits, NOW) ?? "",
+    /already suggested/i,
+  );
+  assert.equal(suggestRefusal(asked, "bob", 0, limits, NOW), null);
+});
+
+test("the poster adds times to their own challenge rather than suggesting", () => {
+  assert.match(
+    suggestRefusal(challenge(), "poster", 0, limits, NOW) ?? "",
+    /your own challenge/i,
   );
 });
 
-test("the poster counters back, once", () => {
-  const theirTurn = challenge({ status: "COUNTERED", acceptedByUserId: "taker" });
-  assert.equal(counterRefusal(theirTurn, "poster", limits, NOW), null);
-  const spent = challenge({
-    status: "COUNTERED",
-    acceptedByUserId: "taker",
-    counterCountChallenger: 1,
-  });
-  assert.match(counterRefusal(spent, "poster", limits, NOW) ?? "", /used your counter/i);
-});
-
-test("you cannot counter while your own offer is outstanding", () => {
+test("the venue can switch suggestions off entirely", () => {
   assert.match(
-    counterRefusal(challenge(), "poster", limits, NOW) ?? "",
-    /nobody has responded/i,
-  );
-  const mine = challenge({ status: "COUNTERED", acceptedByUserId: "taker" });
-  assert.match(counterRefusal(mine, "taker", limits, NOW) ?? "", /with them/i);
-});
-
-test("the venue can switch counter-offers off entirely", () => {
-  assert.match(
-    counterRefusal(challenge(), "other", { ...limits, maxCountersPerSide: 0 }, NOW) ?? "",
+    suggestRefusal(challenge(), "other", 0, { ...limits, maxCountersPerSide: 0 }, NOW) ?? "",
     /switched off/i,
   );
 });
@@ -463,8 +468,8 @@ test("a switched-off board refuses accepting and countering, not just posting", 
   const inMatch: ChallengeView = { ...c, status: "COUNTERED", acceptedByUserId: "taker" };
   assert.match(acceptRefusal(inMatch, "taker", now, off) ?? "", /switched off/);
   assert.equal(acceptRefusal(inMatch, "taker", now, on), null);
-  assert.match(counterRefusal(c, "taker", off, now) ?? "", /switched off/);
-  assert.equal(counterRefusal(c, "taker", on, now), null);
+  assert.match(suggestRefusal(c, "taker", 0, off, now) ?? "", /switched off/);
+  assert.equal(suggestRefusal(c, "taker", 0, on, now), null);
 });
 
 test("the built-in wheel is judged against the band, not skipped", () => {
@@ -988,3 +993,84 @@ test("the release grace scales, so the button works at a short window", () => {
     );
   }
 });
+
+/* ── Suggesting a time claims nothing ────────────────────────────── */
+
+const liveChallenge = {
+  status: "OPEN" as const,
+  createdByUserId: "poster",
+  acceptedByUserId: null,
+  expiresAt: new Date(Date.now() + 86_400_000),
+  counterCountChallenger: 0,
+  counterCountAcceptor: 0,
+};
+const suggestLimits = { ...DEFAULT_LIMITS, enabled: true, maxCountersPerSide: 1 };
+
+test("a time somebody SUGGESTED cannot be bought until the poster agrees", () => {
+  // The whole point of the rewrite. A suggestion is a question addressed to
+  // the poster; letting a stranger pay for it would make one person's ask
+  // into everybody's offer.
+  const pending = { status: "OFFERED" as const, proposedBy: "ACCEPTOR" as const, approvedAt: null };
+  assert.equal(windowIsTakeable(pending), false);
+  assert.equal(windowAwaitsPoster(pending), true);
+
+  const agreed = { ...pending, approvedAt: new Date() };
+  assert.equal(windowIsTakeable(agreed), true);
+  assert.equal(windowAwaitsPoster(agreed), false, "an answered suggestion is not still waiting");
+});
+
+test("the poster's own times need no approval", () => {
+  const own = { status: "OFFERED" as const, proposedBy: "CHALLENGER" as const, approvedAt: null };
+  assert.equal(windowIsTakeable(own), true);
+  assert.equal(windowAwaitsPoster(own), false);
+});
+
+test("a struck-off or replaced time is takeable by nobody", () => {
+  for (const status of ["DECLINED", "SUPERSEDED", "ACCEPTED"] as const) {
+    assert.equal(
+      windowIsTakeable({ status, proposedBy: "CHALLENGER", approvedAt: new Date() }),
+      false,
+      `${status} should not be takeable`,
+    );
+  }
+});
+
+test("everybody gets their own say, not a shared one", () => {
+  // The old per-side counter meant the first stranger to suggest a time
+  // spent the only one there was, and every other interested captain was
+  // told they had "used" a counter they never had.
+  const now = new Date();
+  assert.equal(suggestRefusal(liveChallenge, "alice", 0, suggestLimits, now), null);
+  assert.equal(suggestRefusal(liveChallenge, "bob", 0, suggestLimits, now), null);
+  // …and each is capped on their own record.
+  assert.ok(suggestRefusal(liveChallenge, "alice", 1, suggestLimits, now));
+});
+
+test("the poster cannot suggest a time to themselves", () => {
+  const r = suggestRefusal(liveChallenge, "poster", 0, suggestLimits, new Date());
+  assert.ok(r && /your own challenge/i.test(r), r ?? "expected a refusal");
+});
+
+test("once money is in, the haggling is over", () => {
+  const now = new Date();
+  for (const status of ["PART_PAID", "AGREED"] as const) {
+    const r = suggestRefusal({ ...liveChallenge, status }, "alice", 0, suggestLimits, now);
+    assert.ok(r && /already paid/i.test(r), `${status}: ${r}`);
+  }
+});
+
+test("only the poster answers a suggestion, and only once", () => {
+  const now = new Date();
+  const pending = { status: "OFFERED" as const, proposedBy: "ACCEPTOR" as const, approvedAt: null };
+  assert.equal(suggestAnswerRefusal(liveChallenge, pending, "poster", now), null);
+
+  const stranger = suggestAnswerRefusal(liveChallenge, pending, "alice", now);
+  assert.ok(stranger && /only whoever posted/i.test(stranger), stranger ?? "expected a refusal");
+
+  // Already answered — this is what stops a double tap sending the suggester
+  // "they agreed" and "they can't" in whichever order the taps landed.
+  const answered = { ...pending, approvedAt: now };
+  const twice = suggestAnswerRefusal(liveChallenge, answered, "poster", now);
+  assert.ok(twice && /already answered/i.test(twice), twice ?? "expected a refusal");
+});
+

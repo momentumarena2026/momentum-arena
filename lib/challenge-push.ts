@@ -239,6 +239,25 @@ export const LIFECYCLE_VARIABLES: { name: keyof LifecycleVars; example: string; 
  * copy in the module beyond the venue's reach.
  */
 export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
+  // ── The haggle. Three messages, one round trip.
+  //
+  // A suggestion is a QUESTION, not a claim: it takes nothing off the board
+  // and commits nobody. So the poster's message has to read as a decision
+  // they are being asked to make, and both answers have to come back — a
+  // "no" that is never sent leaves somebody waiting on a match that is
+  // never coming, which is worse than the no.
+  suggested: {
+    title: "{name} suggested a different time",
+    body: "They asked for {date} {hour} instead. Open the match to say yes or no — your own times are still up either way.",
+  },
+  suggestOk: {
+    title: "{team} can play {date} {hour}",
+    body: "They agreed to your time. It's on the board now — pay your ₹{amount} to take the match before somebody else does.",
+  },
+  suggestNo: {
+    title: "{team} can't play {date} {hour}",
+    body: "They turned that time down. Their own times are still up, so take one of those if any of them work.",
+  },
   agreed: {
     title: "Match on — your half is due",
     body: "{name} is in for {date} {hour}. The court is NOT held until you have BOTH paid your half — so somebody else can still book it. Pay yours and nudge them to pay theirs.",
@@ -261,10 +280,30 @@ export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
   },
 };
 
-export type LifecyclePush = "agreed" | "payHalf" | "confirmed" | "slotLost" | "refundOwed";
+export type LifecyclePush =
+  | "suggested"
+  | "suggestOk"
+  | "suggestNo"
+  | "agreed"
+  | "payHalf"
+  | "confirmed"
+  | "slotLost"
+  | "refundOwed";
 
 /** How each of the five reads in the admin screen. */
 export const LIFECYCLE_LABELS: Record<LifecyclePush, { title: string; desc: string }> = {
+  suggested: {
+    title: "Somebody suggested a different time",
+    desc: "To the POSTER, who decides. Nothing is taken off the board and nobody has paid — this is a question, not a booking.",
+  },
+  suggestOk: {
+    title: "The poster agreed to that time",
+    desc: "Back to whoever suggested it. The time is now on the board like any other, so this is the message that has to get them to pay — anyone can take it first.",
+  },
+  suggestNo: {
+    title: "The poster can't play then",
+    desc: "Back to whoever suggested it. Send it: somebody waiting on an answer that never comes is worse off than somebody told no.",
+  },
   agreed: {
     title: "A time is agreed",
     desc: "To both captains, the moment somebody accepts a time. Nobody has paid yet.",

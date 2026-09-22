@@ -79,6 +79,7 @@ import {
   heldByOtherMessage,
   releasedFreeAt,
   releaseGraceMins,
+  windowIsTakeable,
   type ChallengeSide,
   type ChallengeStatus,
 } from "@/lib/challenge-rules";
@@ -112,6 +113,11 @@ const challengeForPay = {
       endHour: true,
       courtConfigId: true,
       status: true,
+      // Needed to tell an offer from an unanswered question. Without these
+      // the quote cannot apply `windowIsTakeable` and would happily price a
+      // time the poster has not agreed to.
+      proposedBy: true,
+      approvedAt: true,
     },
   },
   payments: {
@@ -288,8 +294,15 @@ export async function challengeQuote(
     !existingSide &&
     !c.acceptedByUserId &&
     !!acceptWindowId &&
-    c.status === "OPEN" &&
-    c.windows.some((w) => w.id === acceptWindowId && w.status === "OFFERED");
+    // COUNTERED as well as OPEN. A suggestion no longer claims anything, so
+    // a challenge somebody has asked a question about is still for sale —
+    // and pinning this to OPEN alone made one suggestion silently unsell the
+    // whole match while it carried on looking takeable on the board.
+    (c.status === "OPEN" || c.status === "COUNTERED") &&
+    // And only a time that is actually ON SALE: the poster's own, or a
+    // suggestion they have agreed to. Pricing an unanswered suggestion would
+    // let a stranger buy somebody else's question.
+    c.windows.some((w) => w.id === acceptWindowId && windowIsTakeable(w));
   const side: ChallengeSide | null =
     existingSide ?? (acceptingNow ? "ACCEPTOR" : null);
 

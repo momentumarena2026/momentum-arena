@@ -278,55 +278,6 @@ export function acceptRefusal(
   return null;
 }
 
-/**
- * Why this user cannot counter-propose — or null.
- *
- * Capped per side so the board does not turn into a chat app. Once both
- * have used their counter it is take-it-or-leave-it, which is usually
- * when a match actually gets made.
- */
-export function counterRefusal(
-  c: ChallengeView,
-  userId: string,
-  limits: ChallengeLimits,
-  now: Date,
-): string | null {
-  if (!limits.enabled) return "The challenge board is currently switched off.";
-  if (!isLive(c.status)) return "That challenge is no longer open.";
-  if (c.status === "AGREED" || c.status === "PART_PAID") {
-    return "That challenge has already been matched.";
-  }
-  if (c.expiresAt.getTime() <= now.getTime()) return "That challenge has expired.";
-
-  const side = sideOf(c, userId);
-  // A stranger countering an OPEN challenge becomes its acceptor by doing
-  // so — that is how a negotiation starts.
-  if (!side) {
-    if (c.status !== "OPEN") return "Someone else is already negotiating this one.";
-    return limits.maxCountersPerSide < 1
-      ? "Counter-offers are switched off — accept one of the times or leave it."
-      : null;
-  }
-  const used = side === "CHALLENGER" ? c.counterCountChallenger : c.counterCountAcceptor;
-  if (used >= limits.maxCountersPerSide) {
-    // Zero is not "you've used yours" — the venue has switched counters off,
-    // and telling a participant they spent something they never had is a
-    // small lie they cannot act on.
-    return limits.maxCountersPerSide < 1
-      ? "Counter-offers are switched off — take one of the times on the table, or leave it."
-      : "You've used your counter-offer — take one of the times on the table, or leave it.";
-  }
-  // You cannot counter your own outstanding offer; the other side has it.
-  if (side === "CHALLENGER" && c.status === "OPEN") {
-    // No edit exists. Offering one sends the captain looking for a button
-    // that was never built.
-    return "Nobody has responded yet — withdraw it if the times no longer work.";
-  }
-  if (side === "ACCEPTOR" && c.status === "COUNTERED") {
-    return "Your counter-offer is with them — wait for an answer.";
-  }
-  return null;
-}
 
 /** Why this user cannot withdraw — or null. Admins bypass this entirely. */
 export function withdrawRefusal(
@@ -422,6 +373,11 @@ export function payRefusal(
   if (c.status === "SLOT_LOST") {
     return "The court went to somebody else before both halves were in.";
   }
+  // OPEN and COUNTERED reach here only when the caller is NOT taking a
+  // specific time — `challengeQuote` routes an acceptance to
+  // `acceptGateRefusal` instead. I briefly added an `acceptingNow` flag
+  // here and it was dead on both call sites; the fix belonged one level up,
+  // in which statuses count as accepting.
   if (c.status === "OPEN" || c.status === "COUNTERED") {
     return "Nobody has agreed a time yet — settle the time first.";
   }
@@ -706,4 +662,103 @@ export function releasedFreeAt(
   graceMins: number,
 ): number {
   return Math.min(existingFreeAtMs, nowMs + graceMins * 60000);
+}
+
+/* ── Suggesting a different time ─────────────────────────────────── */
+
+/**
+ * A window as the takeability rules need to see it.
+ *
+ * `approvedAt` only ever applies to a window somebody OTHER than the poster
+ * proposed. The poster's own times need no approval — they are the offer.
+ */
+export type WindowView = {
+  status: "OFFERED" | "ACCEPTED" | "DECLINED" | "SUPERSEDED";
+  proposedBy: ChallengeSide;
+  approvedAt: Date | null;
+};
+
+/**
+ * Can anybody buy this time?
+ *
+ * The rule the whole "suggest a time" flow turns on. A window the poster
+ * put up is on sale the moment it exists. A window somebody else suggested
+ * is NOT — it is a question addressed to the poster, and it only joins the
+ * board once they have said yes.
+ *
+ * Getting this backwards is what made a suggestion behave like a claim: the
+ * old flow let a stranger propose a time, become the acceptor by doing so,
+ * and take the whole challenge off the board without paying anything. One
+ * tap, no money, and nobody else could see the match again.
+ */
+export function windowIsTakeable(w: WindowView): boolean {
+  if (w.status !== "OFFERED") return false;
+  return w.proposedBy === "CHALLENGER" || w.approvedAt !== null;
+}
+
+/** A suggestion still waiting for the poster's answer. */
+export function windowAwaitsPoster(w: WindowView): boolean {
+  return w.status === "OFFERED" && w.proposedBy === "ACCEPTOR" && w.approvedAt === null;
+}
+
+/**
+ * Why this user cannot suggest a different time — or null.
+ *
+ * Replaces `counterRefusal`'s side arithmetic, which existed because a
+ * counter used to claim the acceptor slot and therefore had to be rationed
+ * per side. A suggestion claims nothing now, so the only questions left are
+ * whether the board is open, whether the challenge is still live and unsold,
+ * whether the poster is suggesting to themselves, and whether this person
+ * has already had their say.
+ *
+ * Counted per PERSON, from the windows they have already proposed, rather
+ * than from a per-side column: any number of strangers may each suggest a
+ * time, and one of them exhausting a shared counter would silence the rest.
+ */
+export function suggestRefusal(
+  c: ChallengeView,
+  userId: string,
+  mySuggestionsSoFar: number,
+  limits: ChallengeLimits,
+  now: Date,
+): string | null {
+  if (!limits.enabled) return "The challenge board is currently switched off.";
+  if (!isLive(c.status)) return "That challenge is no longer open.";
+  // Money has moved. The times are settled and this is no longer a haggle.
+  if (c.status === "PART_PAID" || c.status === "AGREED") {
+    return "Somebody has already paid for this match.";
+  }
+  if (c.expiresAt.getTime() <= now.getTime()) return "That challenge has expired.";
+  if (c.createdByUserId === userId) {
+    return "This is your own challenge — add a time to it instead.";
+  }
+  if (limits.maxCountersPerSide < 1) {
+    return "Suggesting other times is switched off — take one of the times on the table, or leave it.";
+  }
+  if (mySuggestionsSoFar >= limits.maxCountersPerSide) {
+    return "You've already suggested a time on this one. Wait for their answer, or take a time they offered.";
+  }
+  return null;
+}
+
+/**
+ * Why this user cannot answer a suggestion — or null.
+ *
+ * Only the poster answers, and only a suggestion that is still waiting.
+ * Both halves matter: the first stops a stranger agreeing to a time on
+ * somebody else's match, and the second stops an answer landing twice,
+ * which would send the suggester "they agreed" and "they can't" in
+ * whichever order the taps arrived.
+ */
+export function suggestAnswerRefusal(
+  c: ChallengeView,
+  w: WindowView,
+  userId: string,
+  now: Date,
+): string | null {
+  if (c.createdByUserId !== userId) return "Only whoever posted the match can answer that.";
+  if (!isLive(c.status)) return "That challenge is no longer open.";
+  if (c.expiresAt.getTime() <= now.getTime()) return "That challenge has expired.";
+  if (!windowAwaitsPoster(w)) return "You've already answered that one.";
+  return null;
 }

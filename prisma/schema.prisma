@@ -4213,6 +4213,16 @@ model ChallengeWindow {
 
   status ChallengeWindowStatus @default(OFFERED)
 
+  /// When the POSTER agreed to a time somebody else suggested.
+  ///
+  /// A window `proposedBy: ACCEPTOR` is a SUGGESTION, not an offer: it is
+  /// visible to the poster to agree or turn down, and nobody can buy it
+  /// until they have. Agreeing stamps this, and the time then sits on the
+  /// board exactly like the poster's own — anyone may take it, first to pay
+  /// wins. Null on every window the poster proposed themselves, which are
+  /// takeable from the moment they exist.
+  approvedAt DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([challengeId, status])
@@ -4565,6 +4575,13 @@ model ChallengeSettings {
   /// customer set would let the venue leak one captain's number to the other.
   ownerRefundPush Json?
 
+  /// Somebody suggested a different time — to the POSTER, who decides.
+  suggestedPush Json?
+  /// The poster agreed to it — back to whoever suggested it, to pay.
+  suggestOkPush Json?
+  /// The poster cannot play then — back to whoever suggested it.
+  suggestNoPush Json?
+
   agreedPush     Json?
   payHalfPush    Json?
   confirmedPush  Json?
@@ -4649,6 +4666,12 @@ enum ChallengeEventType {
   OFFER_TAKEN
   /// They didn't, and it expired. The most diagnostic row in the promo.
   OFFER_LAPSED
+  /// The poster agreed to a time somebody else suggested. It joins their
+  /// own times on the board and anyone may take it.
+  SUGGEST_AGREED
+  /// The poster turned a suggested time down. The suggester is told, and
+  /// the challenge stays on the board with its original times.
+  SUGGEST_DECLINED
   /// The board broadcast went out for this post, with how many people it
   /// reached. The counterpart to POSTED: without it, a post that was never
   /// announced and a post announced to nobody look the same afterwards.
