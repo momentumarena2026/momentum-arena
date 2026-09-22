@@ -6,7 +6,10 @@ import {
   DEFAULT_LIMITS,
   postRefusal,
   acceptRefusal,
-  counterRefusal,
+  suggestRefusal,
+  suggestAnswerRefusal,
+  windowIsTakeable,
+  windowAwaitsPoster,
   withdrawRefusal,
   expiryFor,
   windowStart,
@@ -131,6 +134,11 @@ const listSelect = {
       endHour: true,
       proposedBy: true,
       status: true,
+      // Which side of the haggle this time is on. Without it the phone
+      // cannot tell a time the poster is offering from one a stranger is
+      // asking about, and would put a Pay button on a question.
+      approvedAt: true,
+      proposedByUserId: true,
       courtConfig: { select: { id: true, label: true } },
     },
     orderBy: [{ createdAt: "asc" }],
@@ -148,7 +156,7 @@ export type ChallengeRow = Awaited<ReturnType<typeof listOpenChallenges>>[number
  * - Their own posts. Those belong under "Yours", with a Withdraw on them.
  * - Anything that already has an acceptor. Countering claims the acceptor
  *   slot, so a challenge with one is a live negotiation between two named
- *   captains — `counterRefusal` turns a stranger away from it with "Someone
+ *   captains — `suggestRefusal` turns a stranger away from it with "Somebody
  *   else is already negotiating this one", and the acceptor themselves has it
  *   under "Yours". Leaving those on the open board listed the viewer's own
  *   negotiation back to them a second time.
@@ -169,9 +177,20 @@ export async function listOpenChallenges(args?: { sport?: string; viewerId?: str
     where: {
       status: { in: ["OPEN", "COUNTERED"] },
       expiresAt: { gt: takeableUntil },
-      ...(args?.viewerId
-        ? { createdByUserId: { not: args.viewerId }, acceptedByUserId: null }
-        : {}),
+      // A CHALLENGE LEAVES THE BOARD WHEN SOMEBODY PAYS, AND NOT BEFORE.
+      //
+      // There used to be an `acceptedByUserId: null` clause here, and it
+      // quietly did the opposite of what the status filter beside it
+      // intends: COUNTERED is listed on purpose, but countering set an
+      // acceptor, so a single free suggestion hid the match from everybody
+      // else until it expired. Nobody could see it, nobody could take it,
+      // and nothing chased the two people who had not paid.
+      //
+      // Paying is what moves a challenge to PART_PAID or CONFIRMED, which
+      // this status filter already excludes — so "no money, still on the
+      // board" needs no clause of its own. Own posts are still hidden from
+      // their own poster, which is a display rule, not a claim.
+      ...(args?.viewerId ? { createdByUserId: { not: args.viewerId } } : {}),
       // Validated, not cast. An unknown string used to reach the Prisma
       // enum and 500 the whole board for that caller — a lowercase "cricket"
       // was enough.
@@ -446,7 +465,19 @@ export async function acceptChallengeWindow(
   return { ok: true };
 }
 
-/** Offer a different time. Becomes the acceptor if nobody was yet. */
+/**
+ * Suggest a different time. Claims NOTHING.
+ *
+ * It used to make the suggester the acceptor, which had two consequences
+ * nobody wanted: the match vanished from everybody else's board (the board
+ * query hides anything with an acceptor), and it did so for free, because
+ * no money is taken at this point. One tap parked somebody else's match
+ * until it expired, and nothing chased either party.
+ *
+ * Now it writes a window and sends the poster a question. The challenge
+ * stays on the board with its own times, still takeable by anyone, and the
+ * suggested time joins them only if the poster says yes.
+ */
 export async function counterChallenge(
   challengeId: string,
   userId: string,
@@ -469,7 +500,15 @@ export async function counterChallenge(
     },
   });
   if (!c) return { ok: false, error: "That challenge is gone." };
-  const refusal = counterRefusal(c, userId, limits, now);
+  // Counted per PERSON, from what they have already proposed. The old
+  // per-side columns existed because a counter claimed the acceptor slot,
+  // so there could only ever be one counterer; now any number of strangers
+  // may each suggest a time, and a shared counter would let the first of
+  // them silence the rest.
+  const mine = await db.challengeWindow.count({
+    where: { challengeId, proposedByUserId: userId, status: { not: "SUPERSEDED" } },
+  });
+  const refusal = suggestRefusal(c, userId, mine, limits, now);
   if (refusal) {
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
     return { ok: false, error: refusal };
@@ -499,12 +538,22 @@ export async function counterChallenge(
     return { ok: false, error: badCourt };
   }
 
-  const side = sideOf(c, userId) ?? "ACCEPTOR";
+  // ALWAYS the acceptor side. A suggestion comes from somebody who is not
+  // the poster — `suggestRefusal` refuses the poster outright — so there is
+  // no side to work out any more.
+  const side: "ACCEPTOR" = "ACCEPTOR";
   await db.$transaction([
-    // A side's previous suggestion is superseded, never left on the table
-    // — otherwise the other captain can accept a time already replaced.
+    // THIS PERSON's previous suggestion is superseded, not everybody's.
+    // Keyed on the side, it wiped every other stranger's pending suggestion
+    // the moment one more arrived — so a poster with three people asking
+    // about three different evenings saw only the last one.
     db.challengeWindow.updateMany({
-      where: { challengeId, proposedBy: side, status: "OFFERED" },
+      where: {
+        challengeId,
+        proposedByUserId: userId,
+        status: "OFFERED",
+        approvedAt: null,
+      },
       data: { status: "SUPERSEDED" },
     }),
     db.challengeWindow.create({
@@ -521,18 +570,20 @@ export async function counterChallenge(
     db.challenge.update({
       where: { id: challengeId },
       data: {
+        // COUNTERED, and it STAYS ON THE BOARD — the board query lists
+        // OPEN and COUNTERED alike. The status records that a conversation
+        // is happening; it does not take the match out of circulation.
         status: "COUNTERED",
-        // A counter can propose a LATER date than anything on the original
-        // challenge. Leaving expiresAt alone meant the agreed match could be
-        // swept days before it was due to be played — and now that the sweep
-        // covers AGREED-but-unpaid, that sweep would delete it.
+        // A suggestion can name a LATER date than anything on the original
+        // challenge. Leaving expiresAt alone meant a match could be swept
+        // days before it was due to be played.
         ...(windowStart(window.date, window.startHour).getTime() > c.expiresAt.getTime()
           ? { expiresAt: windowStart(window.date, window.startHour) }
           : {}),
-        ...(side === "CHALLENGER"
-          ? { counterCountChallenger: { increment: 1 } }
-          : { counterCountAcceptor: { increment: 1 } }),
-        ...(c.acceptedByUserId ? {} : { acceptedByUserId: userId, acceptedAt: now }),
+        counterCountAcceptor: { increment: 1 },
+        // NO acceptedByUserId. That one line is the whole bug this rewrite
+        // removes: setting it made a free suggestion behave like a claim,
+        // and hid the match from everybody else for as long as it lived.
       },
     }),
   ]);
@@ -542,6 +593,142 @@ export async function counterChallenge(
     challengeId,
     detail: `${window.date} ${window.startHour}:00–${window.endHour}:00`,
     meta: { window, side },
+  });
+
+  // ASK THE POSTER. Without this the suggestion sits on a screen nobody has
+  // a reason to open: the suggester has done their part and is waiting, and
+  // the poster has no idea they were asked anything.
+  const [tpl, suggester] = await Promise.all([
+    db.challengeSettings
+      .findFirst({ select: { suggestedPush: true } })
+      .then((r) => resolveTemplate(r?.suggestedPush, DEFAULT_LIFECYCLE_PUSHES.suggested)),
+    db.user.findUnique({ where: { id: userId }, select: { name: true } }),
+  ]);
+  const vars = {
+    name: suggester?.name ?? "Somebody",
+    team: suggester?.name ?? "Somebody",
+    hour: `${hourWord(window.startHour)}–${hourWord(window.endHour)}`,
+    date: istDayLabel(new Date(`${window.date}T00:00:00.000Z`)),
+    court: "",
+    amount: 0,
+    total: 0,
+    balance: 0,
+  };
+  await notifyUser(c.createdByUserId, {
+    type: "CHALLENGE_SUGGESTED",
+    title: renderPush(tpl.title, vars),
+    body: renderPush(tpl.body, vars),
+    link: `/challenges/${challengeId}`,
+  });
+  return { ok: true };
+}
+
+/**
+ * The poster's answer to a suggested time: yes, and it joins their own
+ * times on the board — or no, and it is struck off.
+ *
+ * Agreeing does NOT match the two of them. It adds a time, and the person
+ * who asked for it is told to go and pay for it like anybody else; whoever
+ * pays first gets the match. That is the venue's rule everywhere else in
+ * this module, and making an exception here is what produced a status
+ * ("AGREED") that meant two people had shaken hands while the court sat
+ * unsold and unheld and nobody was chasing either of them.
+ */
+export async function answerSuggestion(
+  challengeId: string,
+  windowId: string,
+  posterUserId: string,
+  agree: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const now = new Date();
+  const c = await db.challenge.findUnique({
+    where: { id: challengeId },
+    select: {
+      status: true,
+      createdByUserId: true,
+      acceptedByUserId: true,
+      expiresAt: true,
+      teamName: true,
+      counterCountChallenger: true,
+      counterCountAcceptor: true,
+      createdBy: { select: { name: true } },
+    },
+  });
+  if (!c) return { ok: false, error: "That challenge is gone." };
+
+  const w = await db.challengeWindow.findFirst({
+    where: { id: windowId, challengeId },
+    select: {
+      id: true,
+      status: true,
+      proposedBy: true,
+      approvedAt: true,
+      proposedByUserId: true,
+      date: true,
+      startHour: true,
+      endHour: true,
+    },
+  });
+  if (!w) return { ok: false, error: "That time is gone." };
+
+  const refusal = suggestAnswerRefusal(c, w, posterUserId, now);
+  if (refusal) {
+    await logChallengeEvent({ type: "REFUSED", userId: posterUserId, challengeId, detail: refusal });
+    return { ok: false, error: refusal };
+  }
+
+  // THE ANSWER IS THE CLAIM. A conditional update on the same nullness the
+  // refusal checked is what stops a double-tap sending the suggester both
+  // "they agreed" and "they can't", in whichever order the taps landed.
+  const claimed = agree
+    ? await db.challengeWindow.updateMany({
+        where: { id: w.id, status: "OFFERED", approvedAt: null },
+        data: { approvedAt: now },
+      })
+    : await db.challengeWindow.updateMany({
+        where: { id: w.id, status: "OFFERED", approvedAt: null },
+        data: { status: "DECLINED" },
+      });
+  if (claimed.count === 0) return { ok: false, error: "You've already answered that one." };
+
+  await logChallengeEvent({
+    type: agree ? "SUGGEST_AGREED" : "SUGGEST_DECLINED",
+    userId: posterUserId,
+    challengeId,
+    detail: `${w.date.toISOString().slice(0, 10)} ${w.startHour}:00–${w.endHour}:00`,
+  });
+
+  // Tell whoever asked. BOTH answers are sent: a "no" that never arrives
+  // leaves somebody waiting on a match that is not coming, which is worse
+  // for them than the no.
+  const stored = await db.challengeSettings.findFirst({
+    select: { suggestOkPush: true, suggestNoPush: true },
+  });
+  const tpl = resolveTemplate(
+    agree ? stored?.suggestOkPush : stored?.suggestNoPush,
+    agree ? DEFAULT_LIFECYCLE_PUSHES.suggestOk : DEFAULT_LIFECYCLE_PUSHES.suggestNo,
+  );
+  // The price, so "pay your ₹X" is a number rather than a placeholder. It is
+  // quoted for the person being told, against the time they asked for.
+  const { challengeQuote } = await import("@/lib/challenge-payments");
+  const money = agree
+    ? await challengeQuote(challengeId, w.proposedByUserId, w.id).catch(() => null)
+    : null;
+  const vars = {
+    name: c.createdBy?.name ?? "The other captain",
+    team: c.teamName?.trim() || c.createdBy?.name || "They",
+    hour: `${hourWord(w.startHour)}–${hourWord(w.endHour)}`,
+    date: istDayLabel(w.date),
+    court: money?.courtLabel ?? "",
+    amount: money?.yourShare ?? 0,
+    total: money?.total ?? 0,
+    balance: money?.venueBalance ?? 0,
+  };
+  await notifyUser(w.proposedByUserId, {
+    type: agree ? "CHALLENGE_SUGGEST_OK" : "CHALLENGE_SUGGEST_NO",
+    title: renderPush(tpl.title, vars),
+    body: renderPush(tpl.body, vars),
+    link: `/challenges/${challengeId}`,
   });
   return { ok: true };
 }

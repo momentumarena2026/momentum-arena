@@ -18,6 +18,14 @@ export type ChallengeWindow = {
   endHour: number;
   proposedBy: ChallengeSide;
   status: "OFFERED" | "ACCEPTED" | "DECLINED" | "SUPERSEDED";
+  /**
+   * Set once the POSTER has agreed to a time somebody else suggested.
+   * Null on the poster's own times, which need no agreeing to. A window
+   * `proposedBy: "ACCEPTOR"` with this still null is a question waiting on
+   * the poster — it must not carry a Pay button.
+   */
+  approvedAt: string | null;
+  proposedByUserId: string;
   courtConfig: { id: string; label: string } | null;
 };
 
@@ -212,6 +220,27 @@ export async function releaseChallengePayHold(
 }
 
 /**
+ * The poster's answer to a time somebody suggested.
+ *
+ * Agreeing ADDS that time to the board for anyone to take — it does not
+ * match the two of them, and the suggester is told to go and pay like
+ * anybody else. Declining strikes it off and tells them so. Either way the
+ * challenge stays on the board with its own times.
+ */
+export async function answerSuggestion(
+  challengeId: string,
+  windowId: string,
+  agree: boolean,
+): Promise<{ ok: true }> {
+  return api.post("/api/mobile/challenges", {
+    op: "suggest-answer",
+    challengeId,
+    windowId,
+    agree,
+  });
+}
+
+/**
  * UPI (PhonePe Dynamic QR) for one half of a challenge.
  *
  * Slot-first: initiating CLAIMS the side before any QR appears, so the
@@ -371,7 +400,10 @@ export function statusLabel(status: string): string {
     case "OPEN":
       return "looking for a match";
     case "COUNTERED":
-      return "counter-offered";
+      // Not "counter-offered": nothing has been countered and nothing is
+      // claimed. Somebody has asked the poster a question, and the match is
+      // still on the board for anybody to take.
+      return "a time was suggested";
     case "AGREED":
       return "matched, both halves due";
     case "PART_PAID":

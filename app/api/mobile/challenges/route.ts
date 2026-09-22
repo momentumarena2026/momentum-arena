@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getMobileUser, getMobilePlatform } from "@/lib/mobile-auth";
+import { db } from "@/lib/db";
 import {
   listOpenChallenges,
   listMyChallenges,
@@ -8,13 +9,14 @@ import {
   postChallenge,
   acceptChallengeWindow,
   counterChallenge,
+  answerSuggestion,
   withdrawChallenge,
   challengeSettings,
   expireStaleChallenges,
   logChallengeEvent,
   challengeLimits,
 } from "@/lib/challenges";
-import { counterRefusal } from "@/lib/challenge-rules";
+import { suggestRefusal, windowIsTakeable } from "@/lib/challenge-rules";
 import { getOperatingHours } from "@/lib/court-config";
 import {
   createChallengePaymentOrder,
@@ -104,7 +106,21 @@ export async function GET(request: NextRequest) {
     // only be refused. Computing it again in the client would be a second
     // copy of the rule, free to drift; letting the screen offer the button
     // and find out on tap walks the user into a dead end.
-    const counterBlock = counterRefusal(one, user.id, await challengeLimits(), new Date());
+    // The SAME rule the write path enforces. This used to be
+    // `counterRefusal`, which told the second interested captain "someone
+    // else is already negotiating this one" — true under the old model,
+    // where a counter claimed the acceptor slot, and wrong now that any
+    // number of people may each ask about a different evening.
+    const myAsks = await db.challengeWindow.count({
+      where: { challengeId: id, proposedByUserId: user.id, status: { not: "SUPERSEDED" } },
+    });
+    const counterBlock = suggestRefusal(
+      one,
+      user.id,
+      myAsks,
+      await challengeLimits(),
+      new Date(),
+    );
     // The quote is priced live on every read rather than snapshotted at
     // agreement: the number the captain sees has to be the number they are
     // about to be charged, and the court that backs it can be taken by a
@@ -115,9 +131,11 @@ export async function GET(request: NextRequest) {
     // Razorpay sheet was the first place they saw a price.
     const isParticipant =
       one.createdByUserId === user.id || one.acceptedByUserId === user.id;
-    const offered = one.windows.filter(
-      (w) => w.status === "OFFERED" && w.proposedBy === "CHALLENGER",
-    );
+    // Everything a stranger could actually buy: the poster's own times, and
+    // the suggested ones the poster has agreed to. `windowIsTakeable` is the
+    // single rule — pricing a window the server would then refuse is how the
+    // board grew live-looking buttons that only ever produced an alert.
+    const offered = one.windows.filter(windowIsTakeable);
     // EVERY window, priced on its own. One quote from the first window was
     // stamped on every button, so a 1-hour slot's ₹500 appeared on a 3-hour
     // slot costing ₹1,300 and the payment sheet was the first place anyone
@@ -290,6 +308,15 @@ const payOrderSchema = z.object({
 /* Giving a held slot back. The counterpart to `pay-order`: opening the
  * sheet claims the side, and until this existed nothing but the passage of
  * `paymentWindowMins` could unclaim it. */
+/* The poster's answer to a suggested time. Yes ADDS the time to the board
+ * for anyone to take; no strikes it off. Neither matches the two of them,
+ * and neither takes the challenge out of circulation. */
+const suggestAnswerSchema = z.object({
+  op: z.literal("suggest-answer"),
+  challengeId: z.string().min(1),
+  windowId: z.string().min(1),
+  agree: z.boolean(),
+});
 const payReleaseSchema = z.object({
   op: z.literal("pay-release"),
   challengeId: z.string().min(1),
@@ -351,6 +378,7 @@ export async function POST(request: NextRequest) {
       counterSchema,
       withdrawSchema,
       trackSchema,
+      suggestAnswerSchema,
       payOrderSchema,
       payReleaseSchema,
       payVerifySchema,
@@ -426,6 +454,17 @@ export async function POST(request: NextRequest) {
       body.challengeId,
       user.id,
       body.windowId ?? undefined,
+    );
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
+  if (body.op === "suggest-answer") {
+    const r = await answerSuggestion(
+      body.challengeId,
+      body.windowId,
+      user.id,
+      body.agree,
     );
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
     return NextResponse.json(r);

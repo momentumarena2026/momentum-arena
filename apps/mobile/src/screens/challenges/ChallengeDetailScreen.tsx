@@ -22,7 +22,7 @@ import type { AccountStackParamList } from "../../navigation/types";
 import { getCurrentMinutesIST, getTodayIST, getUpcomingDatesIST } from "../../lib/ist-date";
 import {
   fetchChallenge,
-  acceptChallenge,
+  answerSuggestion,
   counterChallenge,
   withdrawChallenge,
   hourLabel,
@@ -259,12 +259,23 @@ export function ChallengeDetailScreen() {
   // on the wire and read by nothing, so Take, Accept, Pay and Suggest all
   // stayed live and were refused server-side.
   const live = boardEnabled && ["OPEN", "COUNTERED", "AGREED"].includes(c.status);
-  // Only a time the OTHER side put up can be accepted — accepting your own
-  // suggestion is just waiting for an answer.
-  const mySide = mine ? "CHALLENGER" : "ACCEPTOR";
+  // What anyone can actually buy: the poster's own times, plus the suggested
+  // ones the poster has agreed to. Same rule the server prices against — a
+  // second copy here is how the board grew buttons that only ever produced
+  // an alert.
   const takeable = c.windows.filter(
-    (w) => w.status === "OFFERED" && (!iAmIn || w.proposedBy !== mySide),
+    (w) =>
+      w.status === "OFFERED" &&
+      (w.proposedBy === "CHALLENGER" || w.approvedAt !== null),
   );
+  // Times somebody has ASKED the poster about, still unanswered. Only the
+  // poster sees these as a decision; to everybody else they are not on sale
+  // and carry no button at all.
+  const awaitingMe = mine
+    ? c.windows.filter(
+        (w) => w.status === "OFFERED" && w.proposedBy === "ACCEPTOR" && w.approvedAt === null,
+      )
+    : [];
 
   /**
    * Pay this side's half.
@@ -758,36 +769,80 @@ export function ChallengeDetailScreen() {
                     opacity: declined ? 0.45 : 1,
                   }}
                 >
-                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: 8,
+                    }}
+                  >
                     <Text
                       variant="body"
                       color={isAccepted ? colors.emerald400 : colors.foreground}
                     >
                       {dayLabel(w.date)} · {hourLabel(w.startHour)}–{hourLabel(w.endHour)}
                     </Text>
-                    <Text variant="tiny" color={colors.zinc600}>
-                      {w.proposedBy === (mine ? "CHALLENGER" : "ACCEPTOR")
-                        ? "your time"
-                        : w.proposedBy === "CHALLENGER"
-                          ? "their time"
-                          : "counter-offer"}
+                    {/* Say which of the three things this time IS, because
+                        all three look identical and only one of them can be
+                        bought. "counter-offer" said nothing about whether
+                        anybody could act on it. */}
+                    <Text
+                      variant="tiny"
+                      style={{ flexShrink: 1, textAlign: "right" }}
+                      color={
+                        w.proposedBy === "ACCEPTOR" && w.approvedAt === null
+                          ? "#fbbf24"
+                          : colors.zinc600
+                      }
+                    >
+                      {w.proposedBy === "CHALLENGER"
+                        ? mine
+                          ? "your time"
+                          : "their time"
+                        : w.approvedAt !== null
+                          ? "agreed — anyone can take it"
+                          : w.proposedByUserId === me
+                            ? "you asked — waiting on them"
+                            : mine
+                              ? "somebody asked about this"
+                              : "somebody asked — not agreed yet"}
                     </Text>
                   </View>
-                  {canTake &&
-                    (iAmIn ? (
-                      // Already in the match: settling on one of their times
-                      // needs no money from this side beyond the half
-                      // already owed, so this stays a plain accept.
+                  {/* A time somebody ASKED about. Only the poster gets a
+                      say, and saying yes adds it to the board rather than
+                      settling the match — the person who asked still has to
+                      pay for it, and so does anybody else who wants it. */}
+                  {awaitingMe.some((x) => x.id === w.id) ? (
+                    <View style={{ flexDirection: "row", gap: 8 }}>
                       <Button
-                        label="Accept this time"
+                        label="Can't play then"
+                        variant="secondary"
+                        size="sm"
+                        loading={busy}
+                        onPress={() => void act(() => answerSuggestion(c.id, w.id, false))}
+                      />
+                      <Button
+                        label="Yes, add it"
                         variant="primary"
                         size="sm"
                         loading={busy}
-                        onPress={() => {
-                          trackChallenge("ACCEPT_TAPPED", { challengeId: c.id });
-                          void act(() => acceptChallenge(c.id, w.id));
-                        }}
+                        onPress={() => void act(() => answerSuggestion(c.id, w.id, true))}
                       />
+                    </View>
+                  ) : null}
+                  {canTake &&
+                    (iAmIn ? (
+                      // ONLY once money is actually in. `iAmIn` is true for
+                      // the poster from the moment they post, so this read
+                      // "you're in this match" on every time of an unpaid
+                      // challenge nobody had taken — on the poster's own
+                      // screen, under their own unsold times.
+                      quote?.youHavePaid ? (
+                        <Text variant="tiny" color={colors.zinc600}>
+                          you&apos;re in this match
+                        </Text>
+                      ) : null
                     ) : (
                       // Taking a stranger's challenge IS paying for it. The
                       // button says so rather than leading with "Take this

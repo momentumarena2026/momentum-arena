@@ -17,6 +17,10 @@ const LIFECYCLE_KEYS = [
   // The arena's own message is validated and stored exactly like the five
   // customer ones; only its variable list differs, and that lives in the UI.
   "ownerRefundPush",
+  // The haggle, in the order a customer meets it.
+  "suggestedPush",
+  "suggestOkPush",
+  "suggestNoPush",
   "agreedPush",
   "payHalfPush",
   "confirmedPush",
@@ -417,6 +421,9 @@ export type ChallengeSettingsInput = {
   advancePct?: number;
   paymentWindowMins?: number;
   ownerRefundPush?: unknown;
+  suggestedPush?: unknown;
+  suggestOkPush?: unknown;
+  suggestNoPush?: unknown;
   agreedPush?: unknown;
   payHalfPush?: unknown;
   confirmedPush?: unknown;
