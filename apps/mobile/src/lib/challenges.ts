@@ -400,7 +400,10 @@ export function statusLabel(status: string): string {
     case "OPEN":
       return "looking for a match";
     case "COUNTERED":
-      return "counter-offered";
+      // Not "counter-offered": nothing has been countered and nothing is
+      // claimed. Somebody has asked the poster a question, and the match is
+      // still on the board for anybody to take.
+      return "a time was suggested";
     case "AGREED":
       return "matched, both halves due";
     case "PART_PAID":

@@ -769,7 +769,14 @@ export function ChallengeDetailScreen() {
                     opacity: declined ? 0.45 : 1,
                   }}
                 >
-                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: 8,
+                    }}
+                  >
                     <Text
                       variant="body"
                       color={isAccepted ? colors.emerald400 : colors.foreground}
@@ -782,6 +789,7 @@ export function ChallengeDetailScreen() {
                         anybody could act on it. */}
                     <Text
                       variant="tiny"
+                      style={{ flexShrink: 1, textAlign: "right" }}
                       color={
                         w.proposedBy === "ACCEPTOR" && w.approvedAt === null
                           ? "#fbbf24"
@@ -825,11 +833,16 @@ export function ChallengeDetailScreen() {
                   ) : null}
                   {canTake &&
                     (iAmIn ? (
-                      // Already paid into this match — there is nothing left
-                      // to buy on another time.
-                      <Text variant="tiny" color={colors.zinc600}>
-                        you&apos;re in this match
-                      </Text>
+                      // ONLY once money is actually in. `iAmIn` is true for
+                      // the poster from the moment they post, so this read
+                      // "you're in this match" on every time of an unpaid
+                      // challenge nobody had taken — on the poster's own
+                      // screen, under their own unsold times.
+                      quote?.youHavePaid ? (
+                        <Text variant="tiny" color={colors.zinc600}>
+                          you&apos;re in this match
+                        </Text>
+                      ) : null
                     ) : (
                       // Taking a stranger's challenge IS paying for it. The
                       // button says so rather than leading with "Take this

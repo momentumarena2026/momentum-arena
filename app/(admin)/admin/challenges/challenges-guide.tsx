@@ -843,12 +843,13 @@ export function ChallengesGuide({
                 ]}
               />
               <Field
-                name="Counter-offers per side"
-                what="How many times each captain may suggest a different time instead of accepting."
+                name="Suggestions per person"
+                what="How many times each interested captain may suggest a different time. Counted per PERSON, so three people can each ask about three different evenings."
                 examples={[
-                  ["1", "One round of haggling each, then it settles."],
-                  ["0", "No haggling — take a time offered or leave it."],
+                  ["1", "One ask each. They can still take any time the poster offered."],
+                  ["0", "No suggesting — take a time offered, or leave it."],
                 ]}
+                careful="Suggesting claims NOTHING. The match stays on the board, still takeable by anyone, until somebody actually pays — a suggestion is a question to the poster, not a booking. The poster gets a notification and answers yes or no; yes adds that time to the board for anyone to take, and the person who asked is told to go and pay for it like everybody else."
               />
               <Field
                 name="Notice needed before a slot (minutes)"
