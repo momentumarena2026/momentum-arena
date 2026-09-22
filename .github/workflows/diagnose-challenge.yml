@@ -1,0 +1,50 @@
+name: Challenge — diagnose one (production)
+
+# The admin board shows a STATUS, and a status is a summary. "agreed" is
+# true and also says nothing about whether anyone has paid, whether a court
+# is held, or when it dies — which are the three questions anybody asks
+# next, and which used to mean three hand-written queries against the
+# production database.
+#
+# READ-ONLY. Writes nothing, sends nothing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      team:
+        description: "Part of the team name, or a challenge id"
+        required: true
+        type: string
+
+jobs:
+  diagnose:
+    name: Diagnose a challenge
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DB_URL }}
+      TEAM: ${{ inputs.team }}
+    steps:
+      - name: Verify the production secret exists
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::PRODUCTION_DB_URL is not set — refusing to run."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsx scripts/diagnose-challenge.ts 2>&1 | tee challenge.log
+      - if: always()
+        run: |
+          {
+            echo "### Challenge"
+            echo ""
+            echo '```'
+            cat challenge.log 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
