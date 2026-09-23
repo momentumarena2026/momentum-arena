@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-21 · accurate as of `main` = `51658239` (app 1.0.7). iOS deep links only ever worked on a cold launch — `AppDelegate` never forwarded warm URLs to `RCTLinkingManager`, so `linking.ts` was half-dead (§6b); Android was checked and is fine. Challenges: the prize wheel averages 9% to hold the ₹1,800-an-hour floor and nothing hardcodes the top prize; a new post is now broadcast by the per-minute sweep, never by the post itself (§9).
+**Last substantive update:** 2026-09-23 · accurate as of `main` = `7d2e7577` (app 1.0.8). iOS deep links only ever worked on a cold launch — `AppDelegate` never forwarded warm URLs to `RCTLinkingManager`, so `linking.ts` was half-dead (§6b); Android was checked and is fine. Challenges: a match leaves the board when somebody PAYS and at no other moment — suggesting a time claims nothing, and the free accept is closed on the server because the app fix only reached 20% of installs (§9).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -1001,6 +1001,44 @@ hard way twice: **never ship a setting the runtime does not read** —
 `pushAudience` and `pushDailyCap` were saved, validated and bounded while no
 broadcast existed to consume them, and their help text described behaviour
 the product did not have. The admin panel was deleted rather than left lying.
+
+**A CHALLENGE LEAVES THE BOARD WHEN SOMEBODY PAYS, AND AT NO OTHER MOMENT**
+(2026-09-22/23). The single rule the whole board now turns on, and three
+separate bugs were the same violation of it:
+
+- **Suggesting a time claimed the acceptor slot.** `counterChallenge` set
+  `acceptedByUserId`, and `listOpenChallenges` filtered on
+  `acceptedByUserId: null` — a clause that quietly contradicted the
+  `status IN (OPEN, COUNTERED)` filter beside it. One free tap parked
+  somebody else's match until it expired, invisible to everyone. A
+  suggestion now claims nothing: it writes a window and asks the poster,
+  who answers yes (the time joins the board for anyone to take) or no.
+  `windowIsTakeable` is the one rule for whether a time can be bought.
+- **COUNTERED blocked payment.** `challengeQuote` allowed an acceptance
+  only when the status was OPEN, so the fix above would have made every
+  match unpayable the instant anybody suggested a time — while it carried
+  on looking takeable. Caught on staging, not by reading.
+- **The free accept survived the rewrite.** `acceptRefusal` turned away
+  anyone with no side; the POSTER has a side, so on a COUNTERED challenge
+  one tap still produced AGREED with no money and dropped the match off
+  the board. It is now a tombstone that always refuses — there is no
+  status and no person it approves, and a test asserts that as a whole
+  rather than case by case. **The button was removed from the app in the
+  same release, but 80% of installs were still on the previous OTA and
+  still rendering it: a client-side fix only reaches whoever has updated,
+  so a rule that matters belongs on the server.**
+
+**`AGREED` is now unreachable for new challenges.** Rows still carry it
+from before; the status stays in the enum for them.
+
+**Ask "is a time settled?", not "is this a stranger?".** Two places keyed
+off `isParticipant` and both were wrong for the POSTER: `challengeQuote`
+resolved a window only for a prospective acceptor, and the route gated
+`windowQuotes` the same way. So the one person who could not see what
+their own match was worth was the captain who posted it — four times, no
+price, no next step, while every stranger saw each price. Pricing and
+permission are separate questions: the poster gets real numbers AND
+`payRefusal`'s honest "nobody has agreed a time yet".
 
 **The board broadcast** (`announceNewChallenges` in `lib/challenges.ts`,
 2026-09-21). The sixth message, and the only one that reaches people who are
