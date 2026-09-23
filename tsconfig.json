@@ -20,6 +20,10 @@
     ],
     "paths": {
       "@/*": ["./*"]
+      // The admin challenge PREVIEW type-checks the app's own screen, so
+      // `react-native` has to resolve here the same way the bundler
+      // resolves it (see next.config.ts). Types and bundle must agree or
+      // one of them is lying about what the preview actually renders.
     }
   },
   "include": [
@@ -30,5 +34,19 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "apps"]
+  "exclude": [
+    "node_modules",
+    "apps",
+    // Reached ONLY through next.config.ts's resolveAlias — no typed file
+    // imports it — so excluding it removes it from this program entirely.
+    // It has to go: it imports `react-native`, whose types declare their own
+    // global FormData and fetch that replace the DOM's, and the moment they
+    // load `formData.get()` stops existing across every API route here.
+    //
+    // Exclusion only works BECAUSE nothing imports it. `exclude` drops a
+    // file from the root set; it does not stop one being pulled back in by
+    // an import, which is why the preview page itself needed the opaque
+    // `@preview/*` boundary instead (see types/preview-modules.d.ts).
+    "lib/rn-web-stubs/safe-area.tsx"
+  ]
 }

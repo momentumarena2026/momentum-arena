@@ -33,7 +33,18 @@ interface AuthContextValue {
   refresh: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+/**
+ * Exported so the admin's challenge preview can hand the screen a viewer
+ * without standing up the real provider, which restores a session from the
+ * keychain and registers for push — neither of which belongs in a web page
+ * that is only LOOKING at a screen.
+ *
+ * The screen reads auth for one thing: the name/email/phone it prefills
+ * into Razorpay. The preview never reaches a payment, so a null user there
+ * changes nothing about what is rendered. WHO the viewer is comes from the
+ * payload's `viewerId`, not from here.
+ */
+export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<AuthState>({ status: "loading", user: null });

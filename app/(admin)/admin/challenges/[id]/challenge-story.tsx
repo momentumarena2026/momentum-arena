@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Swords } from "lucide-react";
+import { ArrowLeft, Swords, Eye } from "lucide-react";
 
 /**
  * One challenge, told as what happened to it.
@@ -315,6 +315,15 @@ export function ChallengeStory({
       <p className="mt-1 text-sm text-zinc-400">
         {c.sport.charAt(0) + c.sport.slice(1).toLowerCase()} · {c.playerCount} players
       </p>
+
+      {/* The other half of this page: the story says what happened, the
+          preview says what each person is looking at while it happens. */}
+      <Link
+        href={`/admin/challenges/${c.id}/preview`}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-600/10 px-3 py-1.5 text-sm text-emerald-300 hover:bg-emerald-600/20"
+      >
+        <Eye className="h-4 w-4" /> Preview what each person sees
+      </Link>
       {c.notes ? <p className="mt-1 text-sm text-zinc-400 break-words">{c.notes}</p> : null}
 
       <div className="mt-5 space-y-4">
