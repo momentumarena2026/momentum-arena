@@ -29,14 +29,66 @@ const nextConfig: NextConfig = {
      * `tests/preview-parity.test.ts` names every stub so the next person
      * can see at a glance what has been faked and why.
      */
+    /**
+     * React Native's platform extensions, which are how a package ships one
+     * build for phones and another for browsers. Metro applies these; a web
+     * bundler does not, so without them `react-native-svg` resolves its
+     * NATIVE elements — Fabric components that deep-import React Native's
+     * Flow source, which cannot be parsed here at all.
+     *
+     * Aliasing the package entry is not enough: its own internal `./elements`
+     * import resolves the same wrong way one level down. The extension order
+     * is the only fix that reaches every level.
+     *
+     * Nothing else in this app ships a `.web.*` file, so this is inert
+     * outside the preview's import graph.
+     */
+    resolveExtensions: [
+      ".web.tsx",
+      ".web.ts",
+      ".web.jsx",
+      ".web.js",
+      ".tsx",
+      ".ts",
+      ".jsx",
+      ".js",
+      ".mjs",
+      ".json",
+    ],
     resolveAlias: {
       "react-native": "react-native-web",
+      "@react-navigation/native": "./lib/rn-web-stubs/react-navigation.tsx",
+      // The two app modules the preview mounts. Typed opaquely in
+      // types/preview-modules.d.ts so React Native's global types never
+      // enter the web program; resolved to the REAL files here so what
+      // renders is the app's own screen.
+      "@preview/challenge-screen":
+        "./apps/mobile/src/screens/challenges/ChallengeDetailScreen.tsx",
+      "@preview/safe-area": "./lib/rn-web-stubs/safe-area.tsx",
+      "react-native-safe-area-context": "./lib/rn-web-stubs/safe-area.tsx",
+      // Straight at the WEB elements, not the package entry. The entry's
+      // own `export * from "./elements"` relies on React Native's platform
+      // extensions to reach `elements.web.js`, and a web bundler does not
+      // apply those — so the entry alias alone still dragged in the native
+      // Fabric components, which are Flow source and unparseable here.
+      "react-native-svg":
+        "./node_modules/react-native-svg/lib/module/elements.web.js",
       "react-native-razorpay": "./lib/rn-web-stubs/razorpay.ts",
       "@react-native-firebase/messaging": "./lib/rn-web-stubs/noop.ts",
       "@react-native-firebase/analytics": "./lib/rn-web-stubs/noop.ts",
       "@react-native-firebase/app": "./lib/rn-web-stubs/noop.ts",
       "react-native-keychain": "./lib/rn-web-stubs/noop.ts",
       "@react-native-async-storage/async-storage": "./lib/rn-web-stubs/async-storage.ts",
+      "@react-native/assets-registry/registry": "./lib/rn-web-stubs/assets-registry.ts",
+      // ONE copy, or two React contexts. `apps/mobile` has its own
+      // node_modules, so the screen resolved its react-query there while the
+      // preview resolved the root one — two module instances, two providers,
+      // and the screen reporting "No QueryClient set" from inside a provider
+      // that was right there in the tree. The same trap applies to React
+      // itself and to anything else that holds context.
+      "@tanstack/react-query": "./node_modules/@tanstack/react-query",
+      react: "./node_modules/react",
+      "react-dom": "./node_modules/react-dom",
     },
   },
   // The letter generators (NDA / offer) read the authorised-signatory
