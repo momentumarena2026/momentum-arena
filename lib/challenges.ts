@@ -505,10 +505,23 @@ export async function counterChallenge(
   // so there could only ever be one counterer; now any number of strangers
   // may each suggest a time, and a shared counter would let the first of
   // them silence the rest.
-  const mine = await db.challengeWindow.count({
+  const asked = await db.challengeWindow.findMany({
     where: { challengeId, proposedByUserId: userId, status: { not: "SUPERSEDED" } },
+    select: { status: true, approvedAt: true },
   });
-  const refusal = suggestRefusal(c, userId, mine, limits, now);
+  const refusal = suggestRefusal(
+    c,
+    userId,
+    {
+      total: asked.length,
+      // Still waiting = offered and not yet agreed to. A declined one has
+      // been answered too, which is why this asks about the answer rather
+      // than about approval.
+      pending: asked.filter((w) => w.status === "OFFERED" && !w.approvedAt).length,
+    },
+    limits,
+    now,
+  );
   if (refusal) {
     await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
     return { ok: false, error: refusal };

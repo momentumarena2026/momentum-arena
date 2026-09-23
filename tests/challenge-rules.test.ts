@@ -162,47 +162,43 @@ test("expiry follows the LAST window offered, not the first", () => {
 });
 
 // ── Accepting ──────────────────────────────────────────────────────
-test("a stranger CANNOT accept for free — paying is what settles it", () => {
-  // The free-accept hole. A stranger reaching this path took a challenge
-  // off the board for nothing, and a matched challenge could not then be
-  // withdrawn, re-posted or expired — one call locked a captain out
-  // permanently. Strangers go through pay-order with a windowId instead.
-  assert.match(acceptRefusal(challenge(), "other", NOW, limits) ?? "", /paying your half/);
-});
+//
+// There is no free accept any more, and these replace a suite that asserted
+// there was. The old rule let anybody ALREADY IN the match settle a time
+// without paying, which read as harmless — they owe their half either way.
+// It was not: the poster has a side, so on a COUNTERED challenge one tap
+// produced AGREED with no money in it, recorded an acceptor who had paid
+// nothing, and dropped the match off the board, because AGREED is not a
+// board status. That is precisely the state the suggest rewrite removed
+// through the front door while this stayed open at the back.
 
-test("somebody already in the match may settle on a time for free", () => {
-  // The poster taking a counter owes their half either way, so no money is
-  // skipped by letting them agree a time.
+test("nobody settles a time without paying — not even the poster", () => {
+  // The poster on a COUNTERED challenge was the one reachable case, and the
+  // one that mattered: their app still rendered the button on every install
+  // that had not taken the OTA, so the server rule is the only one that
+  // reaches them.
   const countered = challenge({ status: "COUNTERED", acceptedByUserId: "other" });
-  assert.equal(acceptRefusal(countered, "poster", NOW, limits), null);
-  assert.equal(acceptRefusal(countered, "other", NOW, limits), null);
-});
-
-test("you cannot accept your own challenge", () => {
-  assert.match(acceptRefusal(challenge(), "poster", NOW, limits) ?? "", /your own/i);
-});
-
-test("an expired challenge cannot be accepted", () => {
-  const past = challenge({
-    status: "COUNTERED",
-    acceptedByUserId: "other",
-    expiresAt: new Date("2026-09-17T05:00:00+05:30"),
-  });
-  assert.match(acceptRefusal(past, "other", NOW, limits) ?? "", /expired/i);
-});
-
-test("once matched, nobody else can take it", () => {
-  for (const status of ["AGREED", "PART_PAID", "CONFIRMED"] as const) {
-    assert.ok(acceptRefusal(challenge({ status }), "other", NOW, limits), status);
+  for (const who of ["poster", "other", "stranger"]) {
+    assert.match(
+      acceptRefusal(countered, who, NOW, limits) ?? "",
+      /paying your half/,
+      `${who} was allowed to settle a time for free`,
+    );
   }
 });
 
-test("a third party cannot muscle into a live negotiation", () => {
-  const mid = challenge({ status: "COUNTERED", acceptedByUserId: "taker" });
-  assert.match(acceptRefusal(mid, "stranger", NOW, limits) ?? "", /already negotiating/i);
-  // But the two involved can settle it.
-  assert.equal(acceptRefusal(mid, "poster", NOW, limits), null);
-  assert.equal(acceptRefusal(mid, "taker", NOW, limits), null);
+test("there is no status, and no person, this path approves", () => {
+  // Stated as a whole rather than case by case, because the value of this
+  // rule is that it has no exceptions. An exception is what the last one
+  // died of.
+  for (const status of ["OPEN", "COUNTERED", "AGREED", "PART_PAID", "CONFIRMED", "EXPIRED", "WITHDRAWN", "SLOT_LOST"] as const) {
+    for (const who of ["poster", "other", "stranger"]) {
+      assert.ok(
+        acceptRefusal(challenge({ status }), who, NOW, limits),
+        `${who} on ${status} was not refused`,
+      );
+    }
+  }
 });
 
 // ── Suggesting a time ──────────────────────────────────────────────
@@ -216,7 +212,7 @@ test("a third party cannot muscle into a live negotiation", () => {
 // match stays on the board throughout.
 
 test("suggesting a time to an open challenge is how a negotiation starts", () => {
-  assert.equal(suggestRefusal(challenge(), "other", 0, limits, NOW), null);
+  assert.equal(suggestRefusal(challenge(), "other", { total: 0, pending: 0 }, limits, NOW), null);
 });
 
 test("a second interested captain is not turned away by the first", () => {
@@ -224,29 +220,29 @@ test("a second interested captain is not turned away by the first", () => {
   // which was true when the first counter took the match off the board. Now
   // three people can each ask about three different evenings.
   const asked = challenge({ status: "COUNTERED" });
-  assert.equal(suggestRefusal(asked, "alice", 0, limits, NOW), null);
-  assert.equal(suggestRefusal(asked, "bob", 0, limits, NOW), null);
+  assert.equal(suggestRefusal(asked, "alice", { total: 0, pending: 0 }, limits, NOW), null);
+  assert.equal(suggestRefusal(asked, "bob", { total: 0, pending: 0 }, limits, NOW), null);
 });
 
 test("each PERSON gets their own say, and is capped on their own record", () => {
   const asked = challenge({ status: "COUNTERED" });
   assert.match(
-    suggestRefusal(asked, "alice", 1, limits, NOW) ?? "",
+    suggestRefusal(asked, "alice", { total: 1, pending: 1 }, limits, NOW) ?? "",
     /already suggested/i,
   );
-  assert.equal(suggestRefusal(asked, "bob", 0, limits, NOW), null);
+  assert.equal(suggestRefusal(asked, "bob", { total: 0, pending: 0 }, limits, NOW), null);
 });
 
 test("the poster adds times to their own challenge rather than suggesting", () => {
   assert.match(
-    suggestRefusal(challenge(), "poster", 0, limits, NOW) ?? "",
+    suggestRefusal(challenge(), "poster", { total: 0, pending: 0 }, limits, NOW) ?? "",
     /your own challenge/i,
   );
 });
 
 test("the venue can switch suggestions off entirely", () => {
   assert.match(
-    suggestRefusal(challenge(), "other", 0, { ...limits, maxCountersPerSide: 0 }, NOW) ?? "",
+    suggestRefusal(challenge(), "other", { total: 0, pending: 0 }, { ...limits, maxCountersPerSide: 0 }, NOW) ?? "",
     /switched off/i,
   );
 });
@@ -466,10 +462,14 @@ test("a switched-off board refuses accepting and countering, not just posting", 
   };
   const now = new Date("2026-09-20T10:00:00Z");
   const inMatch: ChallengeView = { ...c, status: "COUNTERED", acceptedByUserId: "taker" };
-  assert.match(acceptRefusal(inMatch, "taker", now, off) ?? "", /switched off/);
-  assert.equal(acceptRefusal(inMatch, "taker", now, on), null);
-  assert.match(suggestRefusal(c, "taker", 0, off, now) ?? "", /switched off/);
-  assert.equal(suggestRefusal(c, "taker", 0, on, now), null);
+  // Accept is refused whether the board is on or off, which is stronger
+  // than what this test used to assert. It checked for the "switched off"
+  // wording specifically — reasonable when a live board approved a free
+  // accept, and misleading now that nothing does.
+  assert.ok(acceptRefusal(inMatch, "taker", now, off));
+  assert.ok(acceptRefusal(inMatch, "taker", now, on));
+  assert.match(suggestRefusal(c, "taker", { total: 0, pending: 0 }, off, now) ?? "", /switched off/);
+  assert.equal(suggestRefusal(c, "taker", { total: 0, pending: 0 }, on, now), null);
 });
 
 test("the built-in wheel is judged against the band, not skipped", () => {
@@ -1040,21 +1040,21 @@ test("everybody gets their own say, not a shared one", () => {
   // spent the only one there was, and every other interested captain was
   // told they had "used" a counter they never had.
   const now = new Date();
-  assert.equal(suggestRefusal(liveChallenge, "alice", 0, suggestLimits, now), null);
-  assert.equal(suggestRefusal(liveChallenge, "bob", 0, suggestLimits, now), null);
+  assert.equal(suggestRefusal(liveChallenge, "alice", { total: 0, pending: 0 }, suggestLimits, now), null);
+  assert.equal(suggestRefusal(liveChallenge, "bob", { total: 0, pending: 0 }, suggestLimits, now), null);
   // …and each is capped on their own record.
-  assert.ok(suggestRefusal(liveChallenge, "alice", 1, suggestLimits, now));
+  assert.ok(suggestRefusal(liveChallenge, "alice", { total: 1, pending: 1 }, suggestLimits, now));
 });
 
 test("the poster cannot suggest a time to themselves", () => {
-  const r = suggestRefusal(liveChallenge, "poster", 0, suggestLimits, new Date());
+  const r = suggestRefusal(liveChallenge, "poster", { total: 0, pending: 0 }, suggestLimits, new Date());
   assert.ok(r && /your own challenge/i.test(r), r ?? "expected a refusal");
 });
 
 test("once money is in, the haggling is over", () => {
   const now = new Date();
   for (const status of ["PART_PAID", "AGREED"] as const) {
-    const r = suggestRefusal({ ...liveChallenge, status }, "alice", 0, suggestLimits, now);
+    const r = suggestRefusal({ ...liveChallenge, status }, "alice", { total: 0, pending: 0 }, suggestLimits, now);
     assert.ok(r && /already paid/i.test(r), `${status}: ${r}`);
   }
 });
@@ -1074,3 +1074,20 @@ test("only the poster answers a suggestion, and only once", () => {
   assert.ok(twice && /already answered/i.test(twice), twice ?? "expected a refusal");
 });
 
+
+test("somebody whose suggestion was ANSWERED is not told to wait for an answer", () => {
+  // Seen in production: a captain whose suggested time had been agreed to
+  // nine hours earlier — and who had been pushed about it — opened the
+  // match and read "Wait for their answer". The cap counts what they have
+  // asked; the sentence has to say whether they are still waiting.
+  const now = new Date();
+  const asked = { ...liveChallenge, status: "COUNTERED" as const };
+
+  const waiting = suggestRefusal(asked, "kartikey", { total: 1, pending: 1 }, suggestLimits, now);
+  assert.match(waiting ?? "", /wait for their answer/i);
+
+  const answered = suggestRefusal(asked, "kartikey", { total: 1, pending: 0 }, suggestLimits, now);
+  assert.ok(answered, "still capped — they have had their say");
+  assert.doesNotMatch(answered ?? "", /wait for their answer/i);
+  assert.match(answered ?? "", /answered your suggestion/i);
+});
