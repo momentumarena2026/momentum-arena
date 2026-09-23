@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-23 · accurate as of `main` = `7d2e7577` (app 1.0.8). iOS deep links only ever worked on a cold launch — `AppDelegate` never forwarded warm URLs to `RCTLinkingManager`, so `linking.ts` was half-dead (§6b); Android was checked and is fine. Challenges: a match leaves the board when somebody PAYS and at no other moment — suggesting a time claims nothing, and the free accept is closed on the server because the app fix only reached 20% of installs (§9).
+**Last substantive update:** 2026-09-23 · accurate as of `main` = `689a5812` (app 1.0.8). iOS deep links only ever worked on a cold launch — `AppDelegate` never forwarded warm URLs to `RCTLinkingManager`, so `linking.ts` was half-dead (§6b); Android was checked and is fine. Challenges: a match leaves the board when somebody PAYS and at no other moment — suggesting a time claims nothing, and the free accept is closed on the server because the app fix only reached 20% of installs (§9).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -1001,6 +1001,48 @@ hard way twice: **never ship a setting the runtime does not read** —
 `pushAudience` and `pushDailyCap` were saved, validated and bounded while no
 broadcast existed to consume them, and their help text described behaviour
 the product did not have. The admin panel was deleted rather than left lying.
+
+**THE ADMIN CHALLENGE PREVIEW RENDERS THE APP'S REAL SCREEN** (2026-09-23).
+`/admin/challenges/<id>/preview` imports `apps/mobile`'s own
+`ChallengeDetailScreen` through react-native-web and feeds it
+`challengeDetailPayload` — the same builder `GET /api/mobile/challenges`
+uses — once per person involved. There is deliberately no admin copy of
+either, because a preview that is a separate implementation is wrong within
+a month. `tests/preview-parity.test.ts` fails if anybody forks the screen,
+repoints the alias, splits the payload, or deletes a `.web` shim.
+
+How the native chain is cut, and why it matters more than the trick itself:
+the screen's import graph reaches the keychain, MMKV, expo-modules-core and
+Firebase. Rather than stub six packages in the web build — every stub being
+a place the preview can silently differ from a phone — the cut is made IN
+THE APP with React Native's own platform extensions:
+`AuthProvider.web.tsx`, `storage.web.ts`, `env.web.ts`. Metro never
+resolves a `.web.*` file; the web bundler prefers it. Add another one rather
+than another stub.
+
+Four traps, each of which cost an hour:
+
+- **RN's types must never enter the web tsconfig.** They declare their own
+  global `FormData` and `fetch` which REPLACE the DOM's, and
+  `formData.get()` then stops existing across every API route. `exclude`
+  cannot fix it — Next's generated route validators import every page back
+  in — so the boundary is at the import: `@preview/*` specifiers, typed
+  opaquely in `types/preview-modules.d.ts`, aliased to the real files in
+  `next.config.ts`. Those two files are a pair.
+- **`__DEV__` is a Metro global.** `lib/rn-web-stubs/globals.ts` defines it
+  and must be imported ABOVE anything reaching React Native; ES imports
+  evaluate in order.
+- **One copy of anything holding context.** `apps/mobile` has its own
+  `node_modules`, so react-query resolved twice and the screen reported
+  "No QueryClient set" from inside a provider that was right there. React,
+  react-dom and react-query are aliased to the root copies.
+- **A green local build proved nothing.** `env.ts` imports
+  `build-config.generated`, which Metro writes and `.gitignore` excludes —
+  present on every developer machine, absent in CI. It passed locally and
+  **failed the production deploy**. For anything that reaches into
+  `apps/mobile`, build a clean `git clone` with `npm ci` before promoting;
+  `git ls-files --others --ignored --exclude-standard apps/mobile/src`
+  names the files that can lie to you.
 
 **A CHALLENGE LEAVES THE BOARD WHEN SOMEBODY PAYS, AND AT NO OTHER MOMENT**
 (2026-09-22/23). The single rule the whole board now turns on, and three
