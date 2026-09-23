@@ -129,6 +129,8 @@ type Row = {
     endHour: number;
     proposedBy: string;
     status: string;
+    /** Set once the poster agreed to a time somebody else suggested. */
+    approvedAt: string | null;
   }[];
   bookingId: string | null;
   /** So the board can tell a live court from one that has been cancelled. */
@@ -351,7 +353,7 @@ export function ChallengesAdmin({
   const hint = "mt-1 text-xs text-zinc-600 leading-relaxed";
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6">
+    <div className="mx-auto max-w-5xl px-4 py-6 pb-24">
       <div className="flex flex-wrap items-center gap-3">
         <Swords className="h-5 w-5 text-emerald-400" />
         <h1 className="text-xl font-bold text-white">Challenge board</h1>
@@ -370,12 +372,16 @@ export function ChallengesAdmin({
         there is no customer web page for this.
       </p>
 
-      <div className="mt-4 flex gap-2">
+      {/* Five tabs did not fit a phone and the row did not wrap, so the last
+          two were simply off-screen with no way to reach them. Scrolled
+          rather than wrapped: wrapping costs three lines on a narrow screen
+          and pushes the board itself below the fold. */}
+      <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {(["board", "activity", "promo", "settings", "guide"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`rounded-lg border px-3 py-1.5 text-sm ${
+            className={`shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm ${
               tab === t
                 ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-300"
                 : "border-zinc-800 text-zinc-400 hover:bg-zinc-900"
@@ -894,9 +900,18 @@ export function ChallengesAdmin({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-white">
+                    {/* The whole story is one tap away. The card shows a
+                        STATUS, and a status is a summary — who agreed with
+                        whom, what they turned down, whether anybody paid and
+                        why it is sitting where it is all live on the detail
+                        page. Working that out used to mean reading the
+                        source. */}
+                    <a
+                      href={`/admin/challenges/${c.id}`}
+                      className="font-medium text-white underline decoration-zinc-700 underline-offset-4 hover:decoration-emerald-400"
+                    >
                       {c.teamName || c.createdBy?.name || "A team"}
-                    </span>
+                    </a>
                     <span
                       className={`rounded-full border px-2 py-0.5 text-[11px] ${STATUS_TONE[c.status] ?? ""}`}
                     >
@@ -906,11 +921,13 @@ export function ChallengesAdmin({
                       {c.sport[0] + c.sport.slice(1).toLowerCase()} · {c.playerCount} players
                     </span>
                   </div>
-                  <p className="mt-0.5 text-xs text-zinc-500">
+                  <p className="mt-0.5 break-words text-xs text-zinc-500">
                     {c.createdBy?.name || "—"} {c.createdBy?.phone || ""}
                     {c.acceptedBy && ` · taken by ${c.acceptedBy.name || c.acceptedBy.phone}`}
                   </p>
-                  {c.notes && <p className="mt-1 text-sm text-zinc-400">{c.notes}</p>}
+                  {c.notes && (
+                    <p className="mt-1 break-words text-sm text-zinc-400">{c.notes}</p>
+                  )}
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {c.windows.map((w) => (
                       <span
@@ -925,7 +942,11 @@ export function ChallengesAdmin({
                       >
                         {new Date(w.date).toISOString().slice(0, 10)} {hr(w.startHour)}–{hr(w.endHour)}
                         <span className="ml-1 text-zinc-600">
-                          {w.proposedBy === "CHALLENGER" ? "them" : "reply"}
+                          {w.proposedBy === "CHALLENGER"
+                            ? "them"
+                            : w.approvedAt
+                              ? "agreed"
+                              : "asked"}
                         </span>
                       </span>
                     ))}
@@ -1745,7 +1766,7 @@ function PushEditor({
           </div>
         ))}
       </div>
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         {!single && (
           <button
             onClick={() => setList([...list, { minsLeft: 10, title: "", body: "" }])}

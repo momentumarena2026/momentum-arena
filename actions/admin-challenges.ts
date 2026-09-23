@@ -82,6 +82,10 @@ export async function getChallengeAdmin() {
             endHour: true,
             proposedBy: true,
             status: true,
+            // So the chip can say "asked" versus "agreed". Without it the
+            // board showed "reply" for both, which described a counter-offer
+            // in a model that no longer exists.
+            approvedAt: true,
           },
           orderBy: { createdAt: "asc" },
         },
@@ -1101,4 +1105,157 @@ export async function adminWithdrawChallenge(
   });
   revalidatePath("/admin/challenges");
   return { ok: true };
+}
+
+/**
+ * Everything about ONE challenge, for the detail page.
+ *
+ * The list view shows a status, and a status is a summary: "agreed" is true
+ * and says nothing about who agreed with whom, what they turned down first,
+ * whether anybody paid, or why it is sitting where it is. Answering those
+ * meant reading the event feed with a filter and then three more queries by
+ * hand — which is how a challenge sat in production for a day with nobody
+ * able to say what had happened to it.
+ *
+ * Everything is already recorded; none of this is new bookkeeping. The
+ * event log has carried the whole story since the module shipped, including
+ * the REFUSED rows that say, in the customer's own words, what the server
+ * turned them away with. This just puts it on one page.
+ */
+export async function getChallengeDetail(id: string) {
+  await gate();
+
+  const c = await db.challenge.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      sport: true,
+      teamName: true,
+      playerCount: true,
+      notes: true,
+      status: true,
+      createdAt: true,
+      expiresAt: true,
+      announcedAt: true,
+      acceptedAt: true,
+      withdrawReason: true,
+      bookingId: true,
+      agreedWindowId: true,
+      counterCountChallenger: true,
+      counterCountAcceptor: true,
+      createdByUserId: true,
+      acceptedByUserId: true,
+      createdBy: { select: { id: true, name: true, phone: true } },
+      acceptedBy: { select: { id: true, name: true, phone: true } },
+      booking: {
+        select: { id: true, status: true, date: true, totalAmount: true },
+      },
+      windows: {
+        select: {
+          id: true,
+          date: true,
+          startHour: true,
+          endHour: true,
+          proposedBy: true,
+          proposedByUserId: true,
+          status: true,
+          approvedAt: true,
+          createdAt: true,
+          courtConfig: { select: { label: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      payments: {
+        select: {
+          id: true,
+          side: true,
+          amount: true,
+          createdAt: true,
+          paidAt: true,
+          placedAt: true,
+          notifiedAt: true,
+          refundOwedAt: true,
+          refundOwedReason: true,
+          refundedAt: true,
+          refundedBy: true,
+          refundNote: true,
+          razorpayOrderId: true,
+          razorpayPaymentId: true,
+          phonePeMerchantTxnId: true,
+          user: { select: { id: true, name: true, phone: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      spin: {
+        select: {
+          id: true,
+          wonPct: true,
+          createdAt: true,
+          user: { select: { name: true } },
+          offer: {
+            select: {
+              id: true,
+              kind: true,
+              expiresAt: true,
+              takenAt: true,
+              date: true,
+              startHour: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!c) return null;
+
+  const [events, orders, settings] = await Promise.all([
+    // OLDEST FIRST. This is a story, and a story read backwards is a puzzle.
+    // The list view's own feed is newest-first because it is a monitor; this
+    // one is a history.
+    db.challengeEvent.findMany({
+      where: { challengeId: id },
+      select: {
+        id: true,
+        type: true,
+        detail: true,
+        meta: true,
+        createdAt: true,
+        userId: true,
+        user: { select: { id: true, name: true, phone: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    // The order ledger, which outlives the payment row. A capture whose slot
+    // was reassigned leaves nothing on the challenge and everything here —
+    // that is the whole reason the ledger exists, so a detail page that
+    // omitted it would be missing exactly the money somebody is chasing.
+    db.challengeOrder.findMany({
+      where: { challengeId: id },
+      orderBy: { createdAt: "asc" },
+    }),
+    db.challengeSettings.findFirst({
+      select: { paymentWindowMins: true, advancePct: true },
+    }),
+  ]);
+
+  // Who appears in this story at all, by id, so the page can name people the
+  // challenge itself does not reference — a stranger who was refused, or
+  // somebody whose payment slot was taken over.
+  const ids = new Set<string>();
+  for (const e of events) if (e.userId) ids.add(e.userId);
+  for (const o of orders) ids.add(o.userId);
+  for (const w of c.windows ?? []) ids.add(w.proposedByUserId);
+  const people = await db.user.findMany({
+    where: { id: { in: [...ids] } },
+    select: { id: true, name: true, phone: true },
+  });
+
+  return {
+    challenge: c,
+    events,
+    orders,
+    people,
+    paymentWindowMins: settings?.paymentWindowMins ?? 120,
+    advancePct: settings?.advancePct ?? 50,
+  };
 }
