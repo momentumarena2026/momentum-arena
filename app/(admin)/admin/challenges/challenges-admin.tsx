@@ -23,6 +23,7 @@ import {
   saveChallengeSettings,
   adminWithdrawChallenge,
   markChallengePaymentRefunded,
+  listChallengesForAdmin,
   type ChallengeSettingsInput,
 } from "@/actions/admin-challenges";
 import { ChallengesGuide } from "./challenges-guide";
@@ -294,6 +295,14 @@ export function ChallengesAdmin({
       teamName: string | null;
     }[];
     counts: Record<string, number>;
+    board: {
+      total: number;
+      page: number;
+      pageCount: number;
+      status: string;
+      sport: string;
+      activeCount: number;
+    };
     events: EventRow[];
     eventCounts: Record<string, number>;
     refusals: { reason: string; count: number }[];
@@ -303,6 +312,41 @@ export function ChallengesAdmin({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"board" | "activity" | "promo" | "settings" | "guide">("board");
+  // The board's own filter/page state. Server-side, so what the chips say
+  // and what the list shows are the same query — the old page counted every
+  // challenge ever and listed the newest 200, which disagreed the moment
+  // there were more than 200 and gave no way to reach an older one.
+  const [rows, setRows] = useState(initial.challenges);
+  const [board, setBoard] = useState(initial.board);
+  const [counts, setCounts] = useState(initial.counts);
+  const [loadingBoard, setLoadingBoard] = useState(false);
+
+  const loadBoard = (next: { status?: string; sport?: string; page?: number }) => {
+    const q = {
+      status: next.status ?? board.status,
+      sport: next.sport ?? board.sport,
+      // A filter change goes back to page 1. Keeping the page across a
+      // filter change lands the venue on an empty page 4 of a 2-page result
+      // and reads as "there is nothing here".
+      page: next.page ?? (next.status || next.sport ? 1 : board.page),
+    };
+    setLoadingBoard(true);
+    listChallengesForAdmin(q)
+      .then((r) => {
+        setRows(r.rows.map((c) => ({ ...c, bookingStatus: c.booking?.status ?? null })));
+        setCounts(r.counts);
+        setBoard({
+          total: r.total,
+          page: r.page,
+          pageCount: r.pageCount,
+          status: r.status,
+          sport: r.sport,
+          activeCount: r.activeCount,
+        });
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : "Couldn't load that page"))
+      .finally(() => setLoadingBoard(false));
+  };
   const [s, setS] = useState<Settings>(initial.settings);
 
   /**
@@ -829,23 +873,66 @@ export function ChallengesAdmin({
         </div>
       ) : (
         <div className="mt-5 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(initial.counts).map(([k, v]) => (
-              <span
-                key={k}
-                className={`rounded-full border px-2.5 py-0.5 text-xs ${STATUS_TONE[k] ?? "border-zinc-700 text-zinc-400"}`}
-              >
-                {k.replace("_", " ").toLowerCase()} {v}
-              </span>
-            ))}
-            {initial.challenges.length === 0 && (
-              <p className="text-sm text-zinc-500">
-                {initial.settings.enabled
-                  ? "Nothing posted yet. It'll show up here the moment somebody puts a match up."
-                  : "Nothing posted yet — and the board is switched off, so nobody can."}
-              </p>
+          {/* SPORT first, then status: a venue thinks "the cricket ones"
+              before "the open ones". Both are real queries — clicking a chip
+              re-asks the database rather than hiding rows the page already
+              had, which is what makes the counts trustworthy. */}
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {[{ id: "ALL", label: "All sports" }, ...SPORTS.map((sp) => ({ id: sp, label: sp[0] + sp.slice(1).toLowerCase() }))].map(
+              (sp) => (
+                <button
+                  key={sp.id}
+                  onClick={() => loadBoard({ sport: sp.id })}
+                  disabled={loadingBoard}
+                  className={`shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm ${
+                    board.sport === sp.id
+                      ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-300"
+                      : "border-zinc-800 text-zinc-400 hover:bg-zinc-900"
+                  }`}
+                >
+                  {sp.label}
+                </button>
+              ),
             )}
           </div>
+
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {[
+              // ACTIVE is first and is the default, because it is the working
+              // set: somebody opening this page is looking for matches that
+              // still need something to happen, not a history of everything
+              // that ever expired.
+              { id: "ACTIVE", label: "Active", count: board.activeCount },
+              { id: "ALL", label: "All", count: Object.values(counts).reduce((t, n) => t + n, 0) },
+              ...Object.entries(counts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([k, v]) => ({ id: k, label: k.replace("_", " ").toLowerCase(), count: v })),
+            ].map((f) => (
+              <button
+                key={f.id}
+                onClick={() => loadBoard({ status: f.id })}
+                disabled={loadingBoard}
+                className={`shrink-0 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs ${
+                  board.status === f.id
+                    ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-200"
+                    : (STATUS_TONE[f.id] ?? "border-zinc-700 text-zinc-400")
+                }`}
+              >
+                {f.label} {f.count}
+              </button>
+            ))}
+          </div>
+
+          <p className="text-xs text-zinc-500">
+            {loadingBoard
+              ? "Loading…"
+              : board.total === 0
+                ? initial.settings.enabled
+                  ? "Nothing matches that filter."
+                  : "Nothing posted yet — and the board is switched off, so nobody can."
+                : `${board.total} challenge${board.total === 1 ? "" : "s"}` +
+                  (board.pageCount > 1 ? ` · page ${board.page} of ${board.pageCount}` : "")}
+          </p>
 
           {/* Money the arena has taken and cannot honour. Every branch of
               the payment code that refuses a CAPTURED payment stamps
@@ -961,7 +1048,7 @@ export function ChallengesAdmin({
             </div>
           )}
 
-          {initial.challenges.map((c) => (
+          {rows.map((c) => (
             <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1109,6 +1196,31 @@ export function ChallengesAdmin({
               </div>
             </div>
           ))}
+
+          {/* Page controls, shown only when there IS another page. A pager
+              under a single page of results is noise that makes a short list
+              look truncated. */}
+          {board.pageCount > 1 && (
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <button
+                onClick={() => loadBoard({ page: board.page - 1 })}
+                disabled={loadingBoard || board.page <= 1}
+                className="rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-40"
+              >
+                ← Newer
+              </button>
+              <span className="text-xs text-zinc-500">
+                page {board.page} of {board.pageCount}
+              </span>
+              <button
+                onClick={() => loadBoard({ page: board.page + 1 })}
+                disabled={loadingBoard || board.page >= board.pageCount}
+                className="rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-40"
+              >
+                Older →
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

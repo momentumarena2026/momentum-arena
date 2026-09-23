@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { wheelRefusal, resolveWheel, KNOWN_SPORTS } from "@/lib/challenge-rules";
+import type { Prisma, ChallengeStatus } from "@prisma/client";
 import {
   pushScheduleRefusal,
   resolvePushes,
@@ -47,13 +48,157 @@ async function gate() {
   return requireAdmin(PERMISSION);
 }
 
+/**
+ * The columns the board's cards need. Shared by the initial page load and
+ * by every filter or page change, because two selects drifting is how one
+ * of them starts missing the field a card reads.
+ */
+const ADMIN_CHALLENGE_SELECT = {
+  id: true,
+  bookingId: true,
+  sport: true,
+  teamName: true,
+  playerCount: true,
+  status: true,
+  notes: true,
+  expiresAt: true,
+  createdAt: true,
+  withdrawReason: true,
+  booking: { select: { status: true } },
+  createdBy: { select: { name: true, phone: true } },
+  acceptedBy: { select: { name: true, phone: true } },
+  windows: {
+    select: {
+      id: true,
+      date: true,
+      startHour: true,
+      endHour: true,
+      proposedBy: true,
+      status: true,
+      // So the chip can say "asked" versus "agreed". Without it the board
+      // showed "reply" for both, which described a counter-offer in a model
+      // that no longer exists.
+      approvedAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  },
+  payments: {
+    select: {
+      side: true,
+      amount: true,
+      paidAt: true,
+      placedAt: true,
+      refundedAt: true,
+      refundOwedAt: true,
+      refundOwedReason: true,
+      user: { select: { name: true, phone: true } },
+    },
+  },
+} satisfies Prisma.ChallengeSelect;
+
+/** What the board counts as still in play. Matches `isLive` in the rules. */
+const ACTIVE: ChallengeStatus[] = ["OPEN", "COUNTERED", "AGREED", "PART_PAID"];
+
+export type AdminChallengeFilter = {
+  /** "ACTIVE" (the default), "ALL", or one exact status. */
+  status?: string;
+  /** "ALL" or one sport. */
+  sport?: string;
+  page?: number;
+};
+
+const PAGE_SIZE = 25;
+
+/**
+ * What a value looks like AFTER it has crossed to the browser.
+ *
+ * The page serialises its payload with `JSON.parse(JSON.stringify(...))`,
+ * so every `Date` arrives as a string. Casting the rows back to the Prisma
+ * shape made the type say `Date` where the value is a string — the client
+ * then type-checks `x.expiresAt.getTime()` and throws at runtime. Saying so
+ * in the type is the whole fix.
+ */
+type Jsonified<T> = T extends Date
+  ? string
+  : T extends (infer U)[]
+    ? Jsonified<U>[]
+    : T extends object
+      ? { [K in keyof T]: Jsonified<T[K]> }
+      : T;
+
+/**
+ * One page of the board, filtered.
+ *
+ * Filtering and counting happen in the DATABASE, not in the browser. The
+ * page used to load a flat 200 newest challenges and show status chips
+ * computed over every row ever — so the chips and the list disagreed the
+ * moment there were more than 200, and the venue had no way to reach an
+ * older one at all. A cap that silently hides rows is worse than a pager.
+ *
+ * The default is ACTIVE because that is the working set: a venue opening
+ * this page is looking for matches that still need something to happen, not
+ * for a history of everything that ever expired.
+ */
+export async function listChallengesForAdmin(filter: AdminChallengeFilter = {}) {
+  await gate();
+  const page = Math.max(1, Math.floor(filter.page ?? 1));
+  const status = filter.status ?? "ACTIVE";
+  const sport = filter.sport ?? "ALL";
+
+  const where: Prisma.ChallengeWhereInput = {};
+  if (status === "ACTIVE") where.status = { in: ACTIVE };
+  else if (status !== "ALL") where.status = status as ChallengeStatus;
+  // Validated against the arena's real list, not cast: an unknown string
+  // reaching the Prisma enum 500s the whole page, which this module has
+  // already been bitten by once on the customer board.
+  if (sport !== "ALL" && KNOWN_SPORTS.includes(sport)) {
+    where.sport = sport as never;
+  }
+
+  const [rows, total, counts] = await Promise.all([
+    db.challenge.findMany({
+      where,
+      select: ADMIN_CHALLENGE_SELECT,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    db.challenge.count({ where }),
+    // Counted under the SPORT filter but across every status, so the chips
+    // say how many of each there are to switch to. Counting them under the
+    // status filter as well would make every chip read its own number or
+    // zero, which tells the reader nothing.
+    db.challenge.groupBy({
+      by: ["status"],
+      where: sport !== "ALL" && KNOWN_SPORTS.includes(sport) ? { sport: sport as never } : {},
+      _count: true,
+    }),
+  ]);
+
+  return {
+    rows: JSON.parse(JSON.stringify(rows)) as Jsonified<typeof rows>,
+    total,
+    page,
+    pageSize: PAGE_SIZE,
+    pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    status,
+    sport,
+    counts: Object.fromEntries(counts.map((c) => [c.status, c._count])) as Record<string, number>,
+    activeCount: counts
+      .filter((c) => ACTIVE.includes(c.status))
+      .reduce((t, c) => t + c._count, 0),
+  };
+}
+
 export async function getChallengeAdmin() {
   await gate();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const [
     settings,
-    challenges,
-    counts,
+    // The FIRST PAGE, from the same function every later page comes from.
+    // A separate query here is how page 1 ends up filtered differently from
+    // page 2 — the exact bug a shared select was extracted to prevent.
+    board,
     events,
     eventCounts,
     refusals,
@@ -62,53 +207,7 @@ export async function getChallengeAdmin() {
     owedOnOrders,
   ] = await Promise.all([
     challengeSettings(),
-    db.challenge.findMany({
-      select: {
-        id: true,
-        bookingId: true,
-        sport: true,
-        teamName: true,
-        playerCount: true,
-        status: true,
-        notes: true,
-        expiresAt: true,
-        createdAt: true,
-        withdrawReason: true,
-        booking: { select: { status: true } },
-        createdBy: { select: { name: true, phone: true } },
-        acceptedBy: { select: { name: true, phone: true } },
-        windows: {
-          select: {
-            id: true,
-            date: true,
-            startHour: true,
-            endHour: true,
-            proposedBy: true,
-            status: true,
-            // So the chip can say "asked" versus "agreed". Without it the
-            // board showed "reply" for both, which described a counter-offer
-            // in a model that no longer exists.
-            approvedAt: true,
-          },
-          orderBy: { createdAt: "asc" },
-        },
-        payments: {
-          select: {
-            side: true,
-            amount: true,
-            paidAt: true,
-            placedAt: true,
-            refundedAt: true,
-            refundOwedAt: true,
-            refundOwedReason: true,
-            user: { select: { name: true, phone: true } },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    }),
-    db.challenge.groupBy({ by: ["status"], _count: true }),
+    listChallengesForAdmin(),
     // The trail. 300 is enough to see a day's worth at launch volume and
     // small enough that the page stays a page rather than a report.
     db.challengeEvent.findMany({
@@ -315,10 +414,21 @@ export async function getChallengeAdmin() {
     // the page hands this object through `JSON.parse(JSON.stringify(...))`, so
     // a field the client declares but the server never sets is `undefined` at
     // runtime and typechecks perfectly.
-    challenges: challenges.map((c) => ({ ...c, bookingStatus: c.booking?.status ?? null })),
+    challenges: board.rows.map((c) => ({ ...c, bookingStatus: c.booking?.status ?? null })),
     halfPaid,
     refundsOwed,
-    counts: Object.fromEntries(counts.map((c) => [c.status, c._count])),
+    counts: board.counts,
+    // The paging state the first page came back with, so the client starts
+    // where the server left off rather than assuming page 1 of an unknown
+    // total — which is how a pager shows "1 of 1" over a list of hundreds.
+    board: {
+      total: board.total,
+      page: board.page,
+      pageCount: board.pageCount,
+      status: board.status,
+      sport: board.sport,
+      activeCount: board.activeCount,
+    },
     events,
     eventCounts: Object.fromEntries(eventCounts.map((e) => [e.type, e._count])),
     refusals: refusals.map((r) => ({ reason: r.detail ?? "(no reason)", count: r._count })),
