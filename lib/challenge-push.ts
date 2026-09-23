@@ -239,6 +239,21 @@ export const LIFECYCLE_VARIABLES: { name: keyof LifecycleVars; example: string; 
  * copy in the module beyond the venue's reach.
  */
 export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
+  // ── Chasing. The only messages here that are sent REPEATEDLY, which
+  // changes how they have to read: a nudge that sounds identical to the
+  // first one reads as a system stuck in a loop, and a nudge that scolds
+  // loses the sale. Both lead with what is still available rather than with
+  // what the customer has failed to do, and both name the deadline, because
+  // the deadline is the only new information a second message carries.
+  remindHalf: {
+    title: "Your ₹{amount} is still due",
+    body: "{name} has paid their half for {date} {hour}. The court is NOT held until yours is in — somebody else can still book that hour.",
+  },
+  remindTake: {
+    title: "{date} {hour} is still yours to take",
+    body: "{team} agreed to your time and nobody has taken it yet. ₹{amount} holds your half — the hour is open to anyone until somebody pays.",
+  },
+
   // ── The haggle. Three messages, one round trip.
   //
   // A suggestion is a QUESTION, not a claim: it takes nothing off the board
@@ -281,6 +296,8 @@ export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
 };
 
 export type LifecyclePush =
+  | "remindHalf"
+  | "remindTake"
   | "suggested"
   | "suggestOk"
   | "suggestNo"
@@ -292,6 +309,14 @@ export type LifecyclePush =
 
 /** How each of the five reads in the admin screen. */
 export const LIFECYCLE_LABELS: Record<LifecyclePush, { title: string; desc: string }> = {
+  remindHalf: {
+    title: "Reminder — your half is still due",
+    desc: "Repeated, on the interval below, to the captain who owes after the other side has paid. This is the one with money already at risk: their half is what buys the court, and until it lands the hour can still be sold.",
+  },
+  remindTake: {
+    title: "Reminder — the time you asked for is still free",
+    desc: "Repeated to somebody whose suggested time the poster agreed to and who has not paid. They asked for that hour specifically, so they are the likeliest person to buy it — and until this existed they were told once and never again.",
+  },
   suggested: {
     title: "Somebody suggested a different time",
     desc: "To the POSTER, who decides. Nothing is taken off the board and nobody has paid — this is a question, not a booking.",

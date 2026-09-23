@@ -294,6 +294,7 @@ model User {
   challengeSpins      ChallengeSpin[]
   challengeOffers     ChallengeOffer[]
   challengeEvents     ChallengeEvent[]
+  challengeReminders  ChallengeReminder[]
   couponEligibilities CouponEligibleUser[]
 
   // FCM push tokens for the mobile app — one row per device the user
@@ -4186,6 +4187,8 @@ model Challenge {
   spin     ChallengeSpin?
   events   ChallengeEvent[]
 
+  reminders ChallengeReminder[]
+
   @@index([status, expiresAt])
   @@index([sport, status])
   @@index([createdByUserId])
@@ -4338,6 +4341,42 @@ model ChallengePayment {
  * into a refund the venue can see, rather than money in Razorpay with nothing
  * in the arena's data pointing at it.
  */
+/// One row per reminder actually sent, per person per challenge.
+///
+/// A ledger rather than a counter on the payment row, for two reasons. A
+/// suggester being chased has no payment row at all — that is the whole
+/// point, they have not paid — so there is nowhere on the existing models
+/// to put "we have nudged them twice". And the venue's question is never
+/// "how many" on its own; it is "when, and what did we say", which a
+/// counter cannot answer and an append-only log can.
+///
+/// It is also the throttle. The sweep reads the newest row for a person and
+/// refuses to send again inside `remindEveryMins`, so two overlapping cron
+/// passes cannot double-nudge: the second reads the first's row.
+model ChallengeReminder {
+  id String @id @default(cuid())
+
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// HALF_DUE  — the other side paid, this person's half is outstanding.
+  /// TAKE_TIME — a time they asked for was agreed and is still unpaid.
+  kind String
+
+  sentAt DateTime @default(now())
+
+  /// The words sent, kept so the venue can see what a customer actually
+  /// received rather than what the template says today.
+  title String
+  body  String
+
+  @@index([challengeId, userId, sentAt])
+  @@index([sentAt])
+}
+
 model ChallengeOrder {
   id String @id @default(cuid())
 
@@ -4596,6 +4635,34 @@ model ChallengeSettings {
   /// switch: a venue may want the board running quietly while the regulars
   /// find it, then start announcing once there is something to arrive to.
   postedPushEnabled Boolean @default(true)
+
+  // ── Chasing the money.
+  //
+  // Everything below exists because a captain was told ONCE that a time was
+  // theirs to pay for, and then never again. Nothing in the module chased
+  // anybody: the one-shot messages fire on an event and a person who does
+  // not act on them is simply lost, silently, until the challenge expires.
+  /// Whether unpaid halves are chased at all.
+  remindEnabled Boolean @default(true)
+  /// Minutes between reminders TO THE SAME PERSON, measured from the last
+  /// one sent rather than from the event — so a slow responder is nudged on
+  /// a rhythm rather than in a burst.
+  remindEveryMins Int @default(180)
+  /// How many reminders one person gets for one challenge, ever. Past this
+  /// they are left alone: somebody who has ignored four pushes is not
+  /// persuaded by a fifth, and the venue's reputation is worth more than
+  /// the half.
+  remindMaxPerPerson Int @default(3)
+  /// Quiet hours in IST, as whole hours. Nothing is sent between them.
+  /// A payment nudge at 3am costs the arena more than the payment.
+  remindQuietFromHour Int @default(22)
+  remindQuietToHour   Int @default(8)
+  /// "Your half is still due" — to the captain who owes, after the other
+  /// side has paid.
+  remindHalfPush Json?
+  /// "That time is still yours to take" — to somebody whose suggested time
+  /// the poster agreed to and who has not paid for it.
+  remindTakePush Json?
 
   /// Who hears a new post: ALL | SPORT | RECENT.
   ///
