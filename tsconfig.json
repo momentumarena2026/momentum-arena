@@ -19,7 +19,17 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      // The admin challenge PREVIEW type-checks the app's own screen, so
+      // `react-native` has to resolve here the same way the bundler
+      // resolves it (see next.config.ts). Types and bundle must agree or
+      // one of them is lying about what the preview actually renders.
+      "react-native-razorpay": ["./lib/rn-web-stubs/razorpay.ts"],
+      "@react-native-firebase/*": ["./lib/rn-web-stubs/noop.ts"],
+      "react-native-keychain": ["./lib/rn-web-stubs/noop.ts"],
+      "@react-native-async-storage/async-storage": [
+        "./lib/rn-web-stubs/async-storage.ts"
+      ]
     }
   },
   "include": [
@@ -30,5 +40,6 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "apps"]
+  "exclude": [
+    "node_modules", "apps"]
 }

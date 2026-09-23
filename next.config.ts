@@ -13,6 +13,31 @@ const SHARP_NATIVE = [
 const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
+    /**
+     * The admin's challenge PREVIEW renders the app's own
+     * `ChallengeDetailScreen` — the real component, not a copy — so the
+     * venue can see exactly what each captain is looking at. That means the
+     * web bundle has to resolve React Native.
+     *
+     * `react-native` maps to `react-native-web`, and the handful of modules
+     * that are pure native bridges map to stubs under
+     * `lib/rn-web-stubs/`. Those stubs exist so the import graph resolves;
+     * the preview never runs a payment, spins a wheel or reads a keychain.
+     *
+     * A NEW native import in that screen will fail this build rather than
+     * the preview page at runtime, which is the failure we want — and
+     * `tests/preview-parity.test.ts` names every stub so the next person
+     * can see at a glance what has been faked and why.
+     */
+    resolveAlias: {
+      "react-native": "react-native-web",
+      "react-native-razorpay": "./lib/rn-web-stubs/razorpay.ts",
+      "@react-native-firebase/messaging": "./lib/rn-web-stubs/noop.ts",
+      "@react-native-firebase/analytics": "./lib/rn-web-stubs/noop.ts",
+      "@react-native-firebase/app": "./lib/rn-web-stubs/noop.ts",
+      "react-native-keychain": "./lib/rn-web-stubs/noop.ts",
+      "@react-native-async-storage/async-storage": "./lib/rn-web-stubs/async-storage.ts",
+    },
   },
   // The letter generators (NDA / offer) read the authorised-signatory
   // signature + company stamp at render time via fs. They live OUTSIDE
