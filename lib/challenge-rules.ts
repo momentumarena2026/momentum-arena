@@ -225,57 +225,44 @@ export function expiryFor(
 
 // ── Taking it up ───────────────────────────────────────────────────
 
-/** Why this user cannot accept this window — or null. */
+/**
+ * Why this user cannot settle on a time WITHOUT paying — which is now
+ * always, and this function exists to say so in the customer's words.
+ *
+ * The free accept was the last route to a matched challenge with no money
+ * in it, and it stayed open after the rest of the module closed. The guard
+ * below refused anybody with no side — but the POSTER has a side, so on a
+ * COUNTERED challenge they could settle a suggested time for nothing: the
+ * challenge went AGREED, an acceptor was recorded who had paid nothing, and
+ * because AGREED is not a board status it vanished from everybody else's
+ * board. Exactly the state the suggest rewrite was built to remove,
+ * reachable by one tap.
+ *
+ * It was reachable in the app too, and worse than a server hole: the
+ * button was removed from the screen in the same release, but 80% of
+ * installs were still on the previous OTA and still rendering it. A server
+ * rule is the only kind that reaches a build somebody has not updated.
+ *
+ * Every other branch was already a refusal — a stranger, an OPEN challenge,
+ * an already-matched one — so closing the poster's case leaves nothing this
+ * can approve. That is the correct outcome, not an oversight: a time is
+ * settled by paying for it, and there is no second way. The endpoint stays
+ * so an old build gets this sentence instead of silently creating the bad
+ * state; it is a tombstone that explains itself.
+ */
 export function acceptRefusal(
   c: ChallengeView,
   userId: string,
   now: Date,
-  /**
-   * REQUIRED. A board that is switched off must stop new commitments, not
-   * merely hide its own screen — a notification deep-link drops the user
-   * straight onto the detail view, where Accept was still live. This was
-   * optional, which meant a caller could omit it and silently reopen that
-   * hole; there is no default worth having here.
-   */
   limits: ChallengeLimits,
-  /** The window being settled on, so its start can be checked. */
   win?: { date: Date; startHour: number } | null,
 ): string | null {
-  if (!limits.enabled) return "The challenge board is currently switched off.";
-  if (!isLive(c.status)) return "That challenge is no longer open.";
-  if (c.status === "AGREED" || c.status === "PART_PAID") {
-    return "That challenge has already been matched.";
-  }
-  // You cannot take up your OWN offer — but once somebody has countered,
-  // the ball is back with the poster and accepting is precisely what they
-  // are meant to do. Guarding on the author alone locked the poster out of
-  // settling their own negotiation.
-  if (c.status === "OPEN" && c.createdByUserId === userId) {
-    return "You can't accept your own challenge.";
-  }
-  // A countered challenge belongs to the two already in it.
-  if (c.status === "COUNTERED" && sideOf(c, userId) === null) {
-    return "Someone else is already negotiating this one.";
-  }
-  // THE FREE-ACCEPT HOLE. Accepting is paying, so this path exists only for
-  // somebody ALREADY in the match settling on a time — the poster taking a
-  // counter, or an acceptor taking a counter back. A stranger reaching it
-  // took a challenge off the board for nothing, and because a matched
-  // challenge cannot be withdrawn, posted again, or expired, one free API
-  // call removed a captain from the board permanently.
-  if (sideOf(c, userId) === null) {
-    return "Take this one by paying your half — that's what settles it.";
-  }
-  // The window being settled on must still be far enough out. Without this
-  // the poster could free-accept a counter 3.5 hours away and both sides
-  // then paid straight through the gate.
-  if (win && limits.minLeadMins) {
-    const start = new Date(win.date.getTime() + (win.startHour - 5.5) * 3600000);
-    const late = leadTimeRefusal(start, now, limits.minLeadMins);
-    if (late) return late;
-  }
-  if (c.expiresAt.getTime() <= now.getTime()) return "That challenge has expired.";
-  return null;
+  void c;
+  void userId;
+  void now;
+  void limits;
+  void win;
+  return "Take this one by paying your half — that's what settles it.";
 }
 
 
@@ -718,7 +705,16 @@ export function windowAwaitsPoster(w: WindowView): boolean {
 export function suggestRefusal(
   c: ChallengeView,
   userId: string,
-  mySuggestionsSoFar: number,
+  /**
+   * What this person has already asked, split by whether the poster has
+   * answered it.
+   *
+   * A bare count told somebody whose suggestion was agreed to NINE HOURS
+   * earlier — and who had been pushed about it — to "wait for their
+   * answer". The count is what caps them; whether they are still waiting is
+   * what the sentence has to say.
+   */
+  mine: { total: number; pending: number },
   limits: ChallengeLimits,
   now: Date,
 ): string | null {
@@ -735,8 +731,10 @@ export function suggestRefusal(
   if (limits.maxCountersPerSide < 1) {
     return "Suggesting other times is switched off — take one of the times on the table, or leave it.";
   }
-  if (mySuggestionsSoFar >= limits.maxCountersPerSide) {
-    return "You've already suggested a time on this one. Wait for their answer, or take a time they offered.";
+  if (mine.total >= limits.maxCountersPerSide) {
+    return mine.pending > 0
+      ? "You've already suggested a time on this one. Wait for their answer, or take a time they offered."
+      : "They've answered your suggestion — take one of the times on the table.";
   }
   return null;
 }

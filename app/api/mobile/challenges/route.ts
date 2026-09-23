@@ -111,13 +111,17 @@ export async function GET(request: NextRequest) {
     // else is already negotiating this one" — true under the old model,
     // where a counter claimed the acceptor slot, and wrong now that any
     // number of people may each ask about a different evening.
-    const myAsks = await db.challengeWindow.count({
+    const myAsks = await db.challengeWindow.findMany({
       where: { challengeId: id, proposedByUserId: user.id, status: { not: "SUPERSEDED" } },
+      select: { status: true, approvedAt: true },
     });
     const counterBlock = suggestRefusal(
       one,
       user.id,
-      myAsks,
+      {
+        total: myAsks.length,
+        pending: myAsks.filter((w) => w.status === "OFFERED" && !w.approvedAt).length,
+      },
       await challengeLimits(),
       new Date(),
     );
