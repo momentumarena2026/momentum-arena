@@ -731,9 +731,73 @@ export function ChallengesGuide({
         </div>
       </Section>
 
-      {/* 7 ── the announcement */}
+      {/* 7 ── chasing */}
       <Section
         n="7"
+        title="Chasing an unpaid half"
+        lead="The only messages the board sends more than once."
+      >
+        <p className="text-sm text-zinc-400">
+          Every other notification here fires on an event — a time agreed, a
+          half paid — so anybody who did not act on the first one was lost in
+          silence until the challenge expired. That is not hypothetical: a
+          captain asked for a specific hour, the poster agreed, he was told
+          once, and the match sat there for the rest of the day.
+        </p>
+
+        <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+          <Field
+            name="Who gets chased"
+            what="Two people, and nobody else."
+            examples={[
+              ["The half that is due", "The other side has PAID. Their money is at risk and the court is not held until this half lands — the urgent one."],
+              ["Somebody who asked for a time", "You agreed to a time they suggested and nobody has bought it. They asked for that hour specifically, so they are the likeliest buyer."],
+            ]}
+          />
+          <Field
+            name="Hours between reminders"
+            what="How long before the same person is nudged again."
+            examples={[
+              ["3", "What the arena runs. Three hours between one person's reminders."],
+              ["24", "One a day — gentler, and fine for matches days out."],
+            ]}
+            careful="Counted from the LAST reminder that person received, not from when they started owing. That is what stops a sweep which was down for a day coming back and firing every missed nudge at once — the difference between chasing somebody and harassing them."
+          />
+          <Field
+            name="Reminders per person"
+            what="A hard cap, per person, per challenge, for ever."
+            examples={[
+              ["3", "Three nudges and then they are left alone."],
+              ["0", "No chasing at all — the same as the switch above."],
+            ]}
+            careful="Somebody who has ignored four pushes is not persuaded by a fifth. Past the cap they are left alone: the arena's reputation is worth more than one half."
+          />
+          <Field
+            name="Quiet from / until"
+            what="IST hours, 24-hour clock. Nothing is sent between them."
+            examples={[
+              ["22 – 8", "Nothing overnight. What the arena runs."],
+              ["0 – 0", "No quiet period — reminders at any hour."],
+            ]}
+            careful="A payment nudge at 3am costs you more than the payment does."
+          />
+        </div>
+
+        <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+          <p className="text-sm font-semibold text-white">It stops on its own</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Chasing ends the moment somebody pays, when the challenge is taken
+            down or expires, at the cap — and, importantly, once the hour moves
+            inside your notice period. There is nothing left to sell at that
+            point, so a nudge would be the last thing that customer remembers
+            about the arena rather than a sale.
+          </p>
+        </div>
+      </Section>
+
+      {/* 8 ── the announcement */}
+      <Section
+        n="8"
         title="Telling everybody a match is up"
         lead="The one message in this module that goes to people who are not in the match."
       >
@@ -797,9 +861,9 @@ export function ChallengesGuide({
         </div>
       </Section>
 
-      {/* 8 ── every other setting */}
+      {/* 9 ── every other setting */}
       <Section
-        n="8"
+        n="9"
         title="Every other setting, with examples"
         lead="In the same order as the Settings tab."
       >
@@ -941,8 +1005,8 @@ export function ChallengesGuide({
         </div>
       </Section>
 
-      {/* 9 ── where to look */}
-      <Section n="9" title="Where to look for what" lead="The other four tabs on this page.">
+      {/* 10 ── where to look */}
+      <Section n="10" title="Where to look for what" lead="The other four tabs on this page.">
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
           <table className="w-full min-w-[520px] text-sm">
             <thead className="bg-zinc-950 text-xs uppercase tracking-wide text-zinc-500">
@@ -977,9 +1041,9 @@ export function ChallengesGuide({
         </div>
       </Section>
 
-      {/* 10 ── turning it on */}
+      {/* 11 ── turning it on */}
       <Section
-        n="10"
+        n="11"
         title="Turning it on for the first time"
         lead="The board ships switched off. Nothing happens until somebody turns it on here."
       >
@@ -990,7 +1054,8 @@ export function ChallengesGuide({
             "Read the five match messages and put them in the venue's own words.",
             "Set the refund message so it carries the amount and the phone number — that message is how a refund reaches a person.",
             "Decide whether the prize wheel runs at all, and check its average in section 5 against what you are willing to give away.",
-            "Decide whether new posts are announced by push, and to whom — section 7. Start narrow and widen; you can lower a cap, but you cannot un-send.",
+            "Decide whether new posts are announced by push, and to whom — section 8. Start narrow and widen; you can lower a cap, but you cannot un-send.",
+            "Check the chasing settings in section 7 — how often, how many, and the quiet hours. They are on by default.",
             "Turn the master switch on, and watch the Activity tab for the first day.",
           ].map((t, i) => (
             <li key={t} className="flex gap-3">

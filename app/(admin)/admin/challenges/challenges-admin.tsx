@@ -73,6 +73,13 @@ type Settings = {
   spinsPerPosterPerDays: number;
   spinWonPush: unknown;
   ownerRefundPush: unknown;
+  remindEnabled: boolean;
+  remindEveryMins: number;
+  remindMaxPerPerson: number;
+  remindQuietFromHour: number;
+  remindQuietToHour: number;
+  remindHalfPush: unknown;
+  remindTakePush: unknown;
   suggestedPush: unknown;
   suggestOkPush: unknown;
   suggestNoPush: unknown;
@@ -149,6 +156,8 @@ type Row = {
 
 /** The five lifecycle messages, as settings keys. Mirrors the server's list. */
 const LIFECYCLE_KEYS = [
+  "remindHalfPush",
+  "remindTakePush",
   "suggestedPush",
   "suggestOkPush",
   "suggestNoPush",
@@ -636,6 +645,63 @@ export function ChallengesAdmin({
               now (`announceNewChallenges`, on the per-minute sweep), and
               every field below is read by it. Do not re-add a field here
               that nothing consumes. */}
+          <Panel
+            title="Chasing an unpaid half"
+            desc="The only messages the board sends REPEATEDLY. Everything else fires once on an event, which meant anybody who did not act on the first message was lost in silence until the challenge expired."
+          >
+            <Toggle
+              label="Chase unpaid halves"
+              value={s.remindEnabled}
+              onChange={(v) => { setS({ ...s, remindEnabled: v }); save({ remindEnabled: v }); }}
+            />
+            <p className={hint}>
+              Two people get chased: the captain who owes after the other side
+              has paid — their half is what buys the court, and the hour can
+              still be sold until it lands — and somebody whose suggested time
+              you agreed to and who has not bought it. Nobody else.
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Num
+                label="Hours between reminders"
+                value={Math.round(s.remindEveryMins / 60)}
+                onSave={(v) => {
+                  const mins = Math.max(1, v) * 60;
+                  setS({ ...s, remindEveryMins: mins });
+                  save({ remindEveryMins: mins });
+                }}
+                hint="Measured from the LAST reminder that person got, not from when they started owing — so a sweep that was down for a day comes back and carries on the rhythm instead of firing every missed nudge at once."
+              />
+              <Num
+                label="Reminders per person"
+                value={s.remindMaxPerPerson}
+                onSave={(v) => { setS({ ...s, remindMaxPerPerson: v }); save({ remindMaxPerPerson: v }); }}
+                hint="Per person, per challenge, ever. Zero switches chasing off the same as the toggle. Somebody who has ignored four pushes is not persuaded by a fifth, and your reputation is worth more than the half."
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Num
+                label="Quiet from (hour)"
+                value={s.remindQuietFromHour}
+                onSave={(v) => { setS({ ...s, remindQuietFromHour: v }); save({ remindQuietFromHour: v }); }}
+                hint="IST, 24-hour. 22 = 10pm."
+              />
+              <Num
+                label="Quiet until (hour)"
+                value={s.remindQuietToHour}
+                onSave={(v) => { setS({ ...s, remindQuietToHour: v }); save({ remindQuietToHour: v }); }}
+                hint="Nothing is sent between these two. Set them the same for no quiet period at all. A payment nudge at 3am costs the arena more than the payment."
+              />
+            </div>
+            <p className={hint}>
+              Nobody is chased for an hour they can no longer take — once a
+              slot is inside the notice period below, the chasing stops on its
+              own. The words are the two <span className="text-emerald-300">Reminder</span>{" "}
+              messages further down.
+            </p>
+          </Panel>
+
           <Panel
             title="Telling people a match is up"
             desc="The only message in this module that reaches people who are not in the match. Everything else goes to the two captains involved; this lands on strangers' phones, which is why it has its own switch and its own daily ceiling."

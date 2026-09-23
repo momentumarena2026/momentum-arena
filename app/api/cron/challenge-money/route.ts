@@ -3,6 +3,7 @@ import {
   resumeStalledPayments,
   discardChallengesWhoseHourWent,
   renotifyUntoldHalves,
+  sendPaymentReminders,
 } from "@/lib/challenge-payments";
 
 /**
@@ -69,13 +70,28 @@ async function handle(request: Request) {
     return 0;
   });
 
+  // And then the people who WERE told and have not acted. Everything above
+  // repairs a failure; this one chases a customer who is simply slow, which
+  // until now nothing did — every other message in the module fires on an
+  // event, so anyone who did not act on the first one was lost in silence
+  // until the challenge expired.
+  //
+  // It rides this five-minute tick rather than the per-minute one because
+  // the interval it enforces is measured in HOURS. Finer granularity would
+  // buy nothing and cost a query.
+  const reminded = await sendPaymentReminders(now).catch((e) => {
+    console.error("[challenge-money] reminder sweep failed:", e);
+    return 0;
+  });
+  if (reminded > 0) console.log(`[challenge-money] reminded=${reminded}`);
+
   // Reported so a slow pass is visible in the logs before it becomes a
   // timeout. The combined pass used to exceed its caller's 90s limit with
   // nobody noticing, because the caller reported success either way.
   const ms = Date.now() - started;
   if (ms > 60_000) console.warn(`[challenge-money] slow pass: ${ms}ms`);
 
-  return NextResponse.json({ ok: true, finished, discarded, renotified, ms });
+  return NextResponse.json({ ok: true, finished, discarded, renotified, reminded, ms });
 }
 
 export const GET = handle;

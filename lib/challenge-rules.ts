@@ -760,3 +760,77 @@ export function suggestAnswerRefusal(
   if (!windowAwaitsPoster(w)) return "You've already answered that one.";
   return null;
 }
+
+/* ── Chasing an unpaid half ──────────────────────────────────────── */
+
+/** What the venue has set for reminders. */
+export type ReminderLimits = {
+  enabled: boolean;
+  everyMins: number;
+  maxPerPerson: number;
+  /** IST hours. Nothing is sent from `quietFromHour` until `quietToHour`. */
+  quietFromHour: number;
+  quietToHour: number;
+};
+
+/**
+ * Is `now` inside the venue's quiet hours?
+ *
+ * Wraps midnight, which is the normal case — 22 to 8 is an overnight
+ * window, not an empty one. Reading it as a plain `from <= h < to` makes
+ * every sensible setting a no-op, and the bug is invisible because
+ * reminders simply keep sending.
+ *
+ * Equal bounds mean NO quiet period rather than a 24-hour one: a venue
+ * clearing both fields wants reminders at any hour, and silently muting
+ * them for ever is the opposite of that.
+ */
+export function inQuietHours(istHour: number, from: number, to: number): boolean {
+  if (from === to) return false;
+  return from < to ? istHour >= from && istHour < to : istHour >= from || istHour < to;
+}
+
+/**
+ * Why this person must NOT be reminded right now — or null to send.
+ *
+ * Pure, so the conditions that stop a nudge can be stated as facts and
+ * tested. The sweep around it only gathers rows.
+ *
+ * `lastSentAt` is the previous reminder for THIS person on THIS challenge.
+ * The interval runs from that, not from the event that created the debt:
+ * measuring from the event means a sweep that was down for a day comes back
+ * and fires every missed reminder at once, which is how a chaser becomes
+ * harassment.
+ */
+export function reminderRefusal(args: {
+  limits: ReminderLimits;
+  sentSoFar: number;
+  lastSentAt: Date | null;
+  now: Date;
+  istHour: number;
+  /** When the hour being paid for starts. Past the notice period there is
+   *  nothing left to buy, so chasing is cruelty rather than sales. */
+  slotStartsAt: Date | null;
+  minLeadMins: number;
+}): string | null {
+  const { limits, sentSoFar, lastSentAt, now, istHour } = args;
+  if (!limits.enabled) return "reminders are switched off";
+  if (limits.maxPerPerson <= 0) return "the venue sends no reminders";
+  if (sentSoFar >= limits.maxPerPerson) {
+    return `already reminded ${sentSoFar} time(s), which is the cap`;
+  }
+  if (inQuietHours(istHour, limits.quietFromHour, limits.quietToHour)) {
+    return "quiet hours";
+  }
+  if (lastSentAt) {
+    const due = lastSentAt.getTime() + Math.max(1, limits.everyMins) * 60_000;
+    if (now.getTime() < due) return "too soon since the last one";
+  }
+  if (args.slotStartsAt) {
+    const latest = args.slotStartsAt.getTime() - args.minLeadMins * 60_000;
+    if (now.getTime() >= latest) {
+      return "too late to take that hour — nothing left to chase";
+    }
+  }
+  return null;
+}

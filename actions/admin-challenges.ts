@@ -17,6 +17,9 @@ const LIFECYCLE_KEYS = [
   // The arena's own message is validated and stored exactly like the five
   // customer ones; only its variable list differs, and that lives in the UI.
   "ownerRefundPush",
+  // Chasing.
+  "remindHalfPush",
+  "remindTakePush",
   // The haggle, in the order a customer meets it.
   "suggestedPush",
   "suggestOkPush",
@@ -436,6 +439,13 @@ export type ChallengeSettingsInput = {
   pushAudience?: string;
   pushDailyCap?: number;
   pushRecentDays?: number;
+  remindEnabled?: boolean;
+  remindEveryMins?: number;
+  remindMaxPerPerson?: number;
+  remindQuietFromHour?: number;
+  remindQuietToHour?: number;
+  remindHalfPush?: unknown;
+  remindTakePush?: unknown;
   postedPush?: unknown;
   postedPushEnabled?: boolean;
   boardTitle?: string | null;
@@ -514,6 +524,23 @@ export async function saveChallengeSettings(
         : {}),
       ...(num(input.pushRecentDays, 1, 3650, "Recent window") !== undefined
         ? { pushRecentDays: input.pushRecentDays }
+        : {}),
+      ...(input.remindEnabled !== undefined ? { remindEnabled: input.remindEnabled } : {}),
+      // A floor of 15 minutes, not 1. The interval is the difference between
+      // chasing and harassing, and there is no venue that wants a payment
+      // nudge every minute — an accidental 1 there would be indistinguishable
+      // from a runaway loop to the customer receiving it.
+      ...(num(input.remindEveryMins, 15, 10080, "Reminder interval") !== undefined
+        ? { remindEveryMins: input.remindEveryMins }
+        : {}),
+      ...(num(input.remindMaxPerPerson, 0, 10, "Reminders per person") !== undefined
+        ? { remindMaxPerPerson: input.remindMaxPerPerson }
+        : {}),
+      ...(num(input.remindQuietFromHour, 0, 23, "Quiet from") !== undefined
+        ? { remindQuietFromHour: input.remindQuietFromHour }
+        : {}),
+      ...(num(input.remindQuietToHour, 0, 23, "Quiet until") !== undefined
+        ? { remindQuietToHour: input.remindQuietToHour }
         : {}),
       ...(input.postedPushEnabled !== undefined
         ? { postedPushEnabled: input.postedPushEnabled }

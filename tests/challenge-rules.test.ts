@@ -24,6 +24,8 @@ import {
   splitShare,
   sharesAgainstBooking,
   payRefusal,
+  reminderRefusal,
+  inQuietHours,
   statusAfterPayment,
   wheelAveragePct,
   wheelOdds,
@@ -1090,4 +1092,89 @@ test("somebody whose suggestion was ANSWERED is not told to wait for an answer",
   assert.ok(answered, "still capped — they have had their say");
   assert.doesNotMatch(answered ?? "", /wait for their answer/i);
   assert.match(answered ?? "", /answered your suggestion/i);
+});
+
+/* ── Chasing an unpaid half ──────────────────────────────────────── */
+
+const remindLimits = {
+  enabled: true,
+  everyMins: 180,
+  maxPerPerson: 3,
+  quietFromHour: 22,
+  quietToHour: 8,
+};
+const askReminder = (over: Partial<Parameters<typeof reminderRefusal>[0]> = {}) =>
+  reminderRefusal({
+    limits: remindLimits,
+    sentSoFar: 0,
+    lastSentAt: null,
+    now: new Date("2026-09-23T09:00:00Z"),
+    istHour: 14,
+    slotStartsAt: new Date("2026-09-30T13:30:00Z"),
+    minLeadMins: 240,
+    ...over,
+  });
+
+test("quiet hours wrap around midnight", () => {
+  // 22–8 is an overnight window, not an empty one. Read as a plain
+  // `from <= h < to` every sensible setting becomes a no-op, and the bug is
+  // invisible because reminders simply keep sending — at 3am.
+  for (const h of [22, 23, 0, 3, 7]) {
+    assert.equal(inQuietHours(h, 22, 8), true, `${h}:00 should be quiet`);
+  }
+  for (const h of [8, 12, 21]) {
+    assert.equal(inQuietHours(h, 22, 8), false, `${h}:00 should not be quiet`);
+  }
+  // A same-day window still works the obvious way.
+  assert.equal(inQuietHours(14, 13, 15), true);
+  assert.equal(inQuietHours(16, 13, 15), false);
+});
+
+test("equal quiet bounds mean NO quiet period, not a silent 24 hours", () => {
+  // A venue clearing both fields wants reminders at any hour. Muting them
+  // for ever instead is the opposite of that, and would look like the
+  // sweep being broken.
+  for (const h of [0, 9, 17, 23]) {
+    assert.equal(inQuietHours(h, 0, 0), false, `${h}:00 with 0–0 should send`);
+  }
+});
+
+test("nobody is reminded past the cap", () => {
+  assert.equal(askReminder({ sentSoFar: 2 }), null);
+  assert.match(askReminder({ sentSoFar: 3 }) ?? "", /cap/i);
+  assert.match(askReminder({ sentSoFar: 9 }) ?? "", /cap/i);
+});
+
+test("the interval runs from the LAST reminder, not from the debt", () => {
+  // Measuring from the event means a sweep that was down for a day comes
+  // back and fires every missed reminder at once — a chaser becoming
+  // harassment, which is the failure mode that loses the customer AND the
+  // sale.
+  const now = new Date("2026-09-23T09:00:00Z");
+  const twoHoursAgo = new Date(now.getTime() - 120 * 60_000);
+  const fourHoursAgo = new Date(now.getTime() - 240 * 60_000);
+  assert.match(askReminder({ now, lastSentAt: twoHoursAgo }) ?? "", /too soon/i);
+  assert.equal(askReminder({ now, lastSentAt: fourHoursAgo }), null);
+});
+
+test("nobody is chased for an hour they can no longer take", () => {
+  // Past the notice period there is nothing left to buy, so a nudge is
+  // cruelty rather than sales — and it would be the message a customer
+  // remembers.
+  const now = new Date("2026-09-23T09:00:00Z");
+  const inTwoHours = new Date(now.getTime() + 120 * 60_000);
+  const inSixHours = new Date(now.getTime() + 360 * 60_000);
+  assert.match(
+    askReminder({ now, slotStartsAt: inTwoHours }) ?? "",
+    /too late/i,
+    "a slot inside the 4h notice period must not be chased",
+  );
+  assert.equal(askReminder({ now, slotStartsAt: inSixHours }), null);
+  // No slot at all — an open challenge — is chaseable.
+  assert.equal(askReminder({ now, slotStartsAt: null }), null);
+});
+
+test("the venue can switch chasing off outright", () => {
+  assert.match(askReminder({ limits: { ...remindLimits, enabled: false } }) ?? "", /switched off/i);
+  assert.match(askReminder({ limits: { ...remindLimits, maxPerPerson: 0 } }) ?? "", /no reminders/i);
 });

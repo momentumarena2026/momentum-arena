@@ -80,6 +80,8 @@ import {
   releasedFreeAt,
   releaseGraceMins,
   windowIsTakeable,
+  reminderRefusal,
+  type ReminderLimits,
   type ChallengeSide,
   type ChallengeStatus,
 } from "@/lib/challenge-rules";
@@ -3698,4 +3700,251 @@ export async function confirmDqrChallenge(
     status: res.status,
     bookingId: res.bookingId,
   };
+}
+
+/* ── Chasing an unpaid half ──────────────────────────────────────── */
+
+/** The venue's reminder settings, read once per sweep. */
+async function reminderLimits(): Promise<ReminderLimits & { minLeadMins: number }> {
+  const s = await db.challengeSettings.findFirst({
+    select: {
+      remindEnabled: true,
+      remindEveryMins: true,
+      remindMaxPerPerson: true,
+      remindQuietFromHour: true,
+      remindQuietToHour: true,
+      minLeadMins: true,
+    },
+  });
+  return {
+    enabled: s?.remindEnabled ?? true,
+    everyMins: s?.remindEveryMins ?? 180,
+    maxPerPerson: s?.remindMaxPerPerson ?? 3,
+    quietFromHour: s?.remindQuietFromHour ?? 22,
+    quietToHour: s?.remindQuietToHour ?? 8,
+    minLeadMins: s?.minLeadMins ?? 240,
+  };
+}
+
+/**
+ * Chase the people who can still pay and have not.
+ *
+ * The module had no chaser at all. Every message it sent fired on an event
+ * — a time agreed, a half paid — so anybody who did not act on the first
+ * one was lost silently until the challenge expired. That was visible in
+ * production: a captain asked for a specific hour, the poster agreed, he
+ * was told once, and nine hours later nothing further had happened to a
+ * match that was still there for the taking.
+ *
+ * Two kinds, and they are different sales:
+ *
+ *   HALF_DUE   somebody has ALREADY PAID and this person owes the other
+ *              half. Money is at risk and the court is not held, so this is
+ *              the urgent one.
+ *   TAKE_TIME  a time this person ASKED FOR was agreed and nobody has
+ *              bought it. Nothing is at risk; they are simply the likeliest
+ *              buyer of that hour.
+ *
+ * Every send is written to `ChallengeReminder` BEFORE the push, and the
+ * newest row is what the interval is measured from — so two overlapping
+ * cron passes cannot double-nudge, and a push that fails still counts. A
+ * failed send is better lost than repeated: the customer may well have
+ * received it.
+ */
+export async function sendPaymentReminders(now = new Date()): Promise<number> {
+  const limits = await reminderLimits();
+  if (!limits.enabled || limits.maxPerPerson <= 0) return 0;
+
+  // IST hour, for the quiet-hours window.
+  const istHour = new Date(now.getTime() + 5.5 * 3600_000).getUTCHours();
+
+  const stored = await db.challengeSettings.findFirst({
+    select: { remindHalfPush: true, remindTakePush: true },
+  });
+  const halfTpl = resolveTemplate(stored?.remindHalfPush, DEFAULT_LIFECYCLE_PUSHES.remindHalf);
+  const takeTpl = resolveTemplate(stored?.remindTakePush, DEFAULT_LIFECYCLE_PUSHES.remindTake);
+
+  type Candidate = {
+    challengeId: string;
+    userId: string;
+    kind: "HALF_DUE" | "TAKE_TIME";
+    windowId: string | null;
+    slotStartsAt: Date | null;
+    /** Carried, not re-queried: the sweep already has them. */
+    hourLabel: string;
+    dayLabel: string;
+    otherName: string;
+    teamName: string;
+  };
+  const candidates: Candidate[] = [];
+
+  // ── HALF_DUE: one side placed, the other has not paid.
+  const halfPaid = await db.challenge.findMany({
+    where: {
+      status: "PART_PAID",
+      bookingId: null,
+      payments: { some: { placedAt: { not: null }, refundOwedAt: null } },
+    },
+    select: {
+      id: true,
+      teamName: true,
+      createdByUserId: true,
+      acceptedByUserId: true,
+      agreedWindowId: true,
+      createdBy: { select: { name: true } },
+      acceptedBy: { select: { name: true } },
+      windows: { select: { id: true, date: true, startHour: true, endHour: true } },
+      payments: {
+        where: { refundOwedAt: null },
+        select: { side: true, placedAt: true, userId: true },
+      },
+    },
+    // OLDEST FIRST, so a backlog drains in order rather than the same page
+    // circling — the lesson the other sweeps in this file already carry.
+    orderBy: { createdAt: "asc" },
+    take: 100,
+  });
+
+  for (const c of halfPaid) {
+    const placed = new Set(c.payments.filter((p) => p.placedAt).map((p) => p.side));
+    if (placed.size !== 1) continue;
+    const owingSide = placed.has("CHALLENGER") ? "ACCEPTOR" : "CHALLENGER";
+    const owes = owingSide === "CHALLENGER" ? c.createdByUserId : c.acceptedByUserId;
+    if (!owes) continue;
+    const win = c.windows.find((w) => w.id === c.agreedWindowId) ?? null;
+    candidates.push({
+      challengeId: c.id,
+      userId: owes,
+      kind: "HALF_DUE",
+      windowId: win?.id ?? null,
+      slotStartsAt: win ? slotStart(win.date, win.startHour) : null,
+      hourLabel: win ? `${hourWord(win.startHour)}–${hourWord(win.endHour)}` : "",
+      dayLabel: win ? istDayLabel(win.date) : "",
+      otherName:
+        (owingSide === "CHALLENGER" ? c.acceptedBy?.name : c.createdBy?.name) ??
+        "The other captain",
+      teamName: c.teamName?.trim() || "They",
+    });
+  }
+
+  // ── TAKE_TIME: a suggested time the poster agreed to, still unbought.
+  const agreedTimes = await db.challengeWindow.findMany({
+    where: {
+      status: "OFFERED",
+      proposedBy: "ACCEPTOR",
+      approvedAt: { not: null },
+      challenge: {
+        status: { in: ["OPEN", "COUNTERED"] },
+        bookingId: null,
+        expiresAt: { gt: now },
+      },
+    },
+    select: {
+      id: true,
+      date: true,
+      startHour: true,
+      endHour: true,
+      proposedByUserId: true,
+      challenge: {
+        select: {
+          id: true,
+          teamName: true,
+          createdBy: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: { approvedAt: "asc" },
+    take: 100,
+  });
+
+  for (const w of agreedTimes) {
+    candidates.push({
+      challengeId: w.challenge.id,
+      userId: w.proposedByUserId,
+      kind: "TAKE_TIME",
+      windowId: w.id,
+      slotStartsAt: slotStart(w.date, w.startHour),
+      hourLabel: `${hourWord(w.startHour)}–${hourWord(w.endHour)}`,
+      dayLabel: istDayLabel(w.date),
+      otherName: w.challenge.createdBy?.name ?? "The other captain",
+      teamName: w.challenge.teamName?.trim() || w.challenge.createdBy?.name || "They",
+    });
+  }
+
+  let sent = 0;
+  for (const cand of candidates) {
+    const prior = await db.challengeReminder.findMany({
+      where: { challengeId: cand.challengeId, userId: cand.userId },
+      select: { sentAt: true },
+      orderBy: { sentAt: "desc" },
+    });
+    const refusal = reminderRefusal({
+      limits,
+      sentSoFar: prior.length,
+      lastSentAt: prior[0]?.sentAt ?? null,
+      now,
+      istHour,
+      slotStartsAt: cand.slotStartsAt,
+      minLeadMins: limits.minLeadMins,
+    });
+    if (refusal) continue;
+
+    // The price this person is being chased for. Quoted live, because the
+    // number in a reminder has to be the number they will be charged — a
+    // court can be repriced between the first nudge and the third.
+    const money = await challengeQuote(
+      cand.challengeId,
+      cand.userId,
+      cand.kind === "TAKE_TIME" ? (cand.windowId ?? undefined) : undefined,
+    ).catch(() => null);
+    const amount = money?.yourShare ?? 0;
+    // Nothing to ask for is nothing to send. A "pay ₹0" reminder is worse
+    // than silence — it reads as a bug to the customer and tells the venue
+    // nothing.
+    if (amount <= 0) continue;
+
+    const vars = {
+      name: cand.otherName,
+      team: cand.teamName,
+      hour: cand.hourLabel,
+      date: cand.dayLabel,
+      court: money?.courtLabel ?? "",
+      amount,
+      total: money?.total ?? 0,
+      balance: money?.venueBalance ?? 0,
+    };
+
+    const tpl = cand.kind === "HALF_DUE" ? halfTpl : takeTpl;
+    const title = renderPush(tpl.title, vars);
+    const body = renderPush(tpl.body, vars);
+
+    // WRITTEN BEFORE SENT. The row is the throttle, so it has to exist
+    // before anything can race it — and a push that fails after this is
+    // deliberately not retried, because the customer may well have got it.
+    await db.challengeReminder.create({
+      data: {
+        challengeId: cand.challengeId,
+        userId: cand.userId,
+        kind: cand.kind,
+        title,
+        body,
+      },
+    });
+
+    await notifyUser(cand.userId, {
+      type: cand.kind === "HALF_DUE" ? "CHALLENGE_REMIND_HALF" : "CHALLENGE_REMIND_TAKE",
+      title,
+      body,
+      link: `/challenges/${cand.challengeId}`,
+    });
+    await logChallengeEvent({
+      type: "MONEY_NOTE",
+      userId: cand.userId,
+      challengeId: cand.challengeId,
+      detail: `reminder ${prior.length + 1}/${limits.maxPerPerson} sent — ${cand.kind === "HALF_DUE" ? "half still due" : "agreed time still unbought"} · ₹${amount}`,
+    });
+    sent++;
+  }
+
+  return sent;
 }
