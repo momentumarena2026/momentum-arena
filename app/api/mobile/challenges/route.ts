@@ -133,8 +133,6 @@ export async function GET(request: NextRequest) {
     // take button can show the number before the payment sheet does.
     // Without the window argument every stranger got shares of zero and the
     // Razorpay sheet was the first place they saw a price.
-    const isParticipant =
-      one.createdByUserId === user.id || one.acceptedByUserId === user.id;
     // Everything a stranger could actually buy: the poster's own times, and
     // the suggested ones the poster has agreed to. `windowIsTakeable` is the
     // single rule — pricing a window the server would then refuse is how the
@@ -144,9 +142,12 @@ export async function GET(request: NextRequest) {
     // stamped on every button, so a 1-hour slot's ₹500 appeared on a 3-hour
     // slot costing ₹1,300 and the payment sheet was the first place anyone
     // saw the real number.
-    const windowQuotes = isParticipant
-      ? []
-      : (
+    // PRICED FOR THE POSTER TOO. This was gated on being a stranger, so the
+    // one person who could not see what their own match costs was the
+    // captain who put it up. They get no Pay button — `challengeQuote`
+    // still refuses a payment nobody has taken yet — but they get the
+    // numbers, which is what the screen was missing.
+    const windowQuotes = (
           await Promise.all(
             offered.map(async (w) => {
               const q = await challengeQuote(id, user.id, w.id).catch(() => null);
@@ -176,10 +177,15 @@ export async function GET(request: NextRequest) {
             refusal: string | null;
           } => !!x,
         );
+    // A window is named whenever there is no settled one yet — for the
+    // POSTER as much as a stranger. Passing undefined for a participant is
+    // what left the poster's panel with a zero quote and no money shape at
+    // all. Once a time IS settled, `agreedWindowId` wins on its own and no
+    // OFFERED window survives to override it.
     const quote = await challengeQuote(
       id,
       user.id,
-      isParticipant ? undefined : offered[0]?.id,
+      one.agreedWindowId ? undefined : offered[0]?.id,
     ).catch(() => null);
     // Who is holding a payment slot, if anyone. Without this the hold was
     // invisible until somebody tapped Pay and was refused — a dead end

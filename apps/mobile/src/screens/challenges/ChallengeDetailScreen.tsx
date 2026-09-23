@@ -211,6 +211,7 @@ export function ChallengeDetailScreen() {
   const spinEnabled = q.data?.spinEnabled ?? false;
   const windowQuotes = q.data?.windowQuotes ?? [];
   const hold: PaymentHold | null = q.data?.hold ?? null;
+  const iHavePaid = !!q.data?.quote?.youHavePaid;
 
   // The arena's real hours, not a hard-coded 5–25. When the venue moved its
   // closing time the chips kept offering the old range while the board
@@ -739,6 +740,54 @@ export function ChallengeDetailScreen() {
           </View>
         ) : null}
 
+        {/* THE POSTER'S OWN SCREEN, before anybody has taken it.
+            They had nothing: four times, no price, no next step, no idea
+            what their own match was worth or what happens when somebody
+            takes it — while every stranger looking at the same screen saw
+            exactly what each time cost. The one person who cannot find out
+            what their match is worth should not be the person who put it
+            up. */}
+        {mine && !iHavePaid && ["OPEN", "COUNTERED"].includes(c.status) && quote?.total ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.zinc800,
+              backgroundColor: colors.card,
+              borderRadius: radius.md,
+              padding: 14,
+              gap: 8,
+            }}
+          >
+            <Text variant="bodyStrong" color={colors.foreground}>
+              Waiting for somebody to take it
+            </Text>
+            <Text variant="small" color={colors.zinc300}>
+              ₹{quote.total} for the court · ₹{quote.advance} online, split ₹
+              {quote.shares.CHALLENGER}/₹{quote.shares.ACCEPTOR}
+              {quote.venueBalance > 0
+                ? ` — ₹${quote.venueBalance} at the venue on the day.`
+                : "."}
+            </Text>
+            <Text variant="small" color={colors.zinc400}>
+              {/* The order matters and is the thing posters get wrong: their
+                  half is NOT due now, and the hour is NOT held when the
+                  other captain pays. Saying only "you'll owe ₹X" invites
+                  both mistakes. */}
+              Whoever takes one of these times pays their ₹{quote.shares.ACCEPTOR} first.
+              We&apos;ll tell you the moment that happens, and your ₹
+              {quote.shares.CHALLENGER} is due then — the hour is NOT held until both
+              halves are in, so pay yours quickly.
+            </Text>
+            {awaitingMe.length > 0 ? (
+              <Text variant="small" color="#fbbf24">
+                {awaitingMe.length === 1
+                  ? "Somebody has asked about a different time — answer it below."
+                  : `${awaitingMe.length} people have asked about different times — answer them below.`}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
         {/* ABOVE the times, not after them. The hold is the reason the
             buttons below will refuse, so it has to be read before they are
             tapped — that was the whole failure: a live-looking button and
@@ -838,11 +887,29 @@ export function ChallengeDetailScreen() {
                       // "you're in this match" on every time of an unpaid
                       // challenge nobody had taken — on the poster's own
                       // screen, under their own unsold times.
-                      quote?.youHavePaid ? (
+                      iHavePaid ? (
                         <Text variant="tiny" color={colors.zinc600}>
                           you&apos;re in this match
                         </Text>
-                      ) : null
+                      ) : (
+                        // What THIS time is worth. Times differ — a two-hour
+                        // slot is not a one-hour slot — so a single price in
+                        // the panel above is not enough for a poster deciding
+                        // which times to leave up.
+                        (() => {
+                          const wq = windowQuotes.find((x) => x.windowId === w.id);
+                          if (!wq || !wq.total) return null;
+                          return (
+                            <Text
+                              variant="tiny"
+                              color={colors.zinc600}
+                              style={{ flexShrink: 1, textAlign: "right" }}
+                            >
+                              ₹{wq.total} court · your ₹{wq.share ?? 0}
+                            </Text>
+                          );
+                        })()
+                      )
                     ) : (
                       // Taking a stranger's challenge IS paying for it. The
                       // button says so rather than leading with "Take this

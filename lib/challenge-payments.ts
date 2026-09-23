@@ -306,10 +306,27 @@ export async function challengeQuote(
   const side: ChallengeSide | null =
     existingSide ?? (acceptingNow ? "ACCEPTOR" : null);
 
-  const win =
-    c.windows.find(
-      (w) => w.id === (acceptingNow ? acceptWindowId : c.agreedWindowId),
-    ) ?? null;
+  // PRICE A NAMED TIME FOR SOMEBODY ALREADY IN THE MATCH TOO.
+  //
+  // The window was only ever resolved for a prospective acceptor or from
+  // `agreedWindowId`, so a POSTER looking at their own live challenge got
+  // no window, and therefore no price — their screen showed four times,
+  // no numbers and no next step, while every stranger looking at the same
+  // screen saw exactly what each one cost. The poster is the one person who
+  // cannot find out what their own match is worth.
+  //
+  // It prices, it does not permit: `payRefusal` still says "nobody has
+  // agreed a time yet" for an OPEN or COUNTERED challenge, so the caller
+  // gets real numbers AND the reason there is nothing to pay yet.
+  const pricingWindowId = acceptingNow
+    ? acceptWindowId
+    : existingSide &&
+        acceptWindowId &&
+        c.windows.some((w) => w.id === acceptWindowId && windowIsTakeable(w))
+      ? acceptWindowId
+      : c.agreedWindowId;
+
+  const win = c.windows.find((w) => w.id === pricingWindowId) ?? null;
   const hours = win ? windowHours(win.startHour, win.endHour) : [];
 
   // Before a time is settled there is nothing to price. Say so through the
