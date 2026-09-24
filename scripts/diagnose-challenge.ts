@@ -87,11 +87,38 @@ async function main() {
 
     // The sentence somebody actually wants.
     const paid = c.payments.filter((p) => p.paidAt && !p.refundOwedAt);
+    // THE STORY, oldest first. The status says where a challenge is; only
+    // the event log says how it got there — and "how did this reach AGREED
+    // with no money in it" is a question that has now been asked twice,
+    // each time answerable only by reading source instead of records.
+    const events = await db.challengeEvent.findMany({
+      where: { challengeId: c.id },
+      select: { type: true, detail: true, createdAt: true, user: { select: { name: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    console.log(`  history (${events.length} events):`);
+    for (const e of events) {
+      // The telemetry types are noise in a diagnosis; the ones that MOVED
+      // something are the answer.
+      const noisy = ["HOME_CARD_SHOWN", "HOME_CARD_TAPPED", "BOARD_VIEWED", "DETAIL_VIEWED", "POST_OPENED", "COUNTER_OPENED"];
+      if (noisy.includes(e.type)) continue;
+      console.log(
+        `     ${ist(e.createdAt)}  ${e.type.padEnd(17)} ${(e.user?.name ?? "—").padEnd(18)} ${e.detail ?? ""}`,
+      );
+    }
+
     console.log(`  READING:`);
     if (c.status === "AGREED") {
       console.log(`     A time is settled and ${paid.length === 0 ? "NEITHER side has paid" : `${paid.length} side(s) have paid`}.`);
       console.log(`     No court is held and none is blocked — by design. The hour stays`);
       console.log(`     on sale until BOTH halves are in, so a walk-in can still take it.`);
+      // The question this line answers has now been asked twice.
+      console.log(`     BUT: AGREED also takes it OFF the board, because the board lists`);
+      console.log(`     OPEN and COUNTERED only. So nobody can find it to pay for it.`);
+      console.log(`     No route to this state survives: the free accept was closed on`);
+      console.log(`     2026-09-23 and suggesting a time stopped claiming the acceptor`);
+      console.log(`     slot the same day. Check the ACCEPTED/COUNTERED timestamps above`);
+      console.log(`     against that date — a row dated after it is a real bug.`);
       if (paid.length === 0) {
         console.log(`     Nothing is owed to anybody. If neither pays by ${ist(c.expiresAt)}`);
         console.log(`     the sweep marks it EXPIRED and it leaves the board.`);
