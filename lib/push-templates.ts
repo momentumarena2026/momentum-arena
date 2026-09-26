@@ -1,7 +1,9 @@
 import { db } from "@/lib/db";
 import {
   sendToAdmins,
+  sendToTokens,
   sendToUser,
+  type DispatchMeta,
   type PushKind,
   type SendResult,
 } from "@/lib/push";
@@ -397,6 +399,67 @@ export const PUSH_TEMPLATES = [
     ],
   },
 
+  // ── Customer: the daily push ──────────────────────────────────────
+  //
+  // The only non-transactional templates in this file. Everything above
+  // is sent because something happened to that person; these are sent
+  // because it is 7pm and the venue has something to say. The engine is
+  // lib/daily-push.ts and the decisions are lib/daily-push-rules.ts.
+  //
+  // PASS_EXPIRY is not here: it reuses `pass_expiring_soon` above, which
+  // has existed with an admin switch since the registry was written and
+  // has never once fired. Wiring it was the point.
+  //
+  // These three carry NO per-user variables, and that is a design
+  // constraint rather than an oversight. A message with {name} or
+  // {daysSince} in it has to be rendered and sent per person; without
+  // them one render feeds one multicast to four hundred phones. If you
+  // add a per-user variable here, you have also quietly turned one FCM
+  // call into four hundred — see the personal/shared split in
+  // lib/daily-push.ts before you do.
+  {
+    key: "daily_never_booked",
+    audience: "customer",
+    label: "Daily — installed but never booked",
+    trigger:
+      "Daily push: they have had the app a while and have never made a booking. Gentlest of the four; this is a stranger.",
+    defaultTitle: "Your first game at Momentum Arena",
+    defaultBody:
+      "Cricket, football and pickleball courts, booked by the hour. Pick a time and we'll see you there.",
+    variables: [],
+  },
+  {
+    key: "daily_lapsed",
+    audience: "customer",
+    label: "Daily — booked before, gone quiet",
+    trigger:
+      "Daily push: they have played before but not within the lapsed threshold (default 30 days).",
+    defaultTitle: "It's been a while",
+    defaultBody: "The courts are open this week. Tap to pick your hour.",
+    variables: [],
+  },
+  {
+    key: "daily_free_slots",
+    audience: "customer",
+    label: "Daily — free slots tonight",
+    trigger:
+      "Daily push: the fallback for everyone no personal rule matched. Only fires when the evening genuinely has slots open — the count below is read from real availability, never assumed.",
+    defaultTitle: "{count} slots open tonight",
+    defaultBody: "{sports} still free this evening at Momentum Arena. Tap to grab one.",
+    variables: [
+      {
+        name: "count",
+        description: "Free slots this evening — a real count, not a guess",
+        example: "3",
+      },
+      {
+        name: "sports",
+        description: "Which sports have them, already comma-joined",
+        example: "Cricket and football",
+      },
+    ],
+  },
+
   // ── Admin ─────────────────────────────────────────────────────────
   {
     key: "admin_pending_booking",
@@ -515,12 +578,45 @@ export async function sendTemplatedToUser(
   key: PushTemplateKey,
   vars: Record<string, string>,
   data: { kind: PushKind } & Record<string, string>,
+  /** Optional dispatch context. Defaults to source:"event", which is what
+   *  every transactional caller wants; the daily push passes "scheduled"
+   *  so the analytics dashboard can tell a nudge from a confirmation. */
+  meta: DispatchMeta = {},
 ): Promise<SendResult & { skipped?: boolean }> {
   const rendered = await renderPushTemplate(key, vars);
   if (!rendered) {
     return { attempted: 0, succeeded: 0, failed: 0, cleanedUp: 0, skipped: true };
   }
-  return sendToUser(userId, { ...rendered, data });
+  return sendToUser(userId, { ...rendered, data }, meta);
+}
+
+/**
+ * Templated multicast to an explicit token list.
+ *
+ * The third sanctioned sender, and the one THE RULE would otherwise have
+ * had no answer for. A scheduled push to a segment is neither "this one
+ * user" nor "all admins": it is a few hundred customers who are all
+ * getting the SAME sentence, so it wants one render and one fan-out
+ * rather than four hundred of each.
+ *
+ * Because the render happens once, the caller must have already
+ * established that every recipient gets identical copy — a per-user
+ * variable in `vars` here would silently send one person's balance to
+ * the whole segment. lib/daily-push.ts enforces that by routing
+ * personalised rules through sendTemplatedToUser instead.
+ */
+export async function sendTemplatedToTokens(
+  tokens: string[],
+  key: PushTemplateKey,
+  vars: Record<string, string>,
+  data: { kind: PushKind } & Record<string, string>,
+  meta: DispatchMeta = {},
+): Promise<SendResult & { skipped?: boolean }> {
+  const rendered = await renderPushTemplate(key, vars);
+  if (!rendered) {
+    return { attempted: 0, succeeded: 0, failed: 0, cleanedUp: 0, skipped: true };
+  }
+  return sendToTokens(tokens, { ...rendered, data }, { scope: "customer", ...meta });
 }
 
 /** Templated admin fan-out. Same contract as sendTemplatedToUser. */
