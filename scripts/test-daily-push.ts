@@ -85,7 +85,28 @@ async function main() {
     where: { id: "singleton" },
   });
 
+  // Anything left over from a previous run that was killed mid-flight
+  // is swept FIRST. Without this, a leftover synthetic user counts as a
+  // "real" device owner, gets recorded for restoration, is deleted by
+  // cleanup, and then the restore fails on a row that no longer exists
+  // — which is how a killed run left the module switched on.
+  const stale = await db.user.findMany({
+    where: { name: { startsWith: TAG } },
+    select: { id: true },
+  });
+  if (stale.length) {
+    const ids = stale.map((x) => x.id);
+    await db.dailyPushSend.deleteMany({ where: { userId: { in: ids } } });
+    await db.pushDispatch.deleteMany({ where: { userId: { in: ids } } });
+    await db.userPass.deleteMany({ where: { userId: { in: ids } } });
+    await db.booking.deleteMany({ where: { userId: { in: ids } } });
+    await db.pushDevice.deleteMany({ where: { userId: { in: ids } } });
+    await db.user.deleteMany({ where: { id: { in: ids } } });
+    console.log(`Swept ${ids.length} leftover rows from an earlier interrupted run.\n`);
+  }
+
   const realDeviceOwners = await db.pushDevice.findMany({
+    where: { user: { name: { not: { startsWith: TAG } } } },
     select: { userId: true },
     distinct: ["userId"],
   });
@@ -96,8 +117,66 @@ async function main() {
   });
 
   try {
+    // ── Would FCM actually deliver this? ─────────────────────────────
+    //
+    // Everything else in this script sends to tokens registered to
+    // nothing, which proves the engine and proves nothing about
+    // delivery. FCM's validate-only mode closes that gap honestly: it
+    // takes the REAL device tokens and the REAL rendered payload all the
+    // way to Google's servers, which check the credentials, the message
+    // shape and whether each token is still registered — and then throw
+    // the message away instead of ringing anybody's phone.
+    //
+    // The one thing it cannot prove is that a banner appears. That needs
+    // a real send to a real handset and somebody looking at it.
+    console.log("── FCM deliverability (validate-only: nothing is delivered) ──");
+    try {
+      const { renderPushTemplate } = await import("../lib/push-templates");
+      const rendered = await renderPushTemplate("daily_lapsed", {});
+      const liveTokens = (await db.pushDevice.findMany({ select: { token: true } })).map((t) => t.token);
+
+      if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+        console.log("  skipped — FIREBASE_SERVICE_ACCOUNT_JSON is not set here");
+      } else if (liveTokens.length === 0 || !rendered) {
+        console.log("  skipped — no registered devices, or the template is switched off");
+      } else {
+        const [{ initializeApp, getApps, cert }, { getMessaging }] = await Promise.all([
+          import("firebase-admin/app"),
+          import("firebase-admin/messaging"),
+        ]);
+        if (!getApps().length) {
+          initializeApp({
+            credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
+          });
+        }
+        const res = await getMessaging().sendEachForMulticast(
+          {
+            tokens: liveTokens,
+            notification: { title: rendered.title, body: rendered.body },
+            data: { kind: "open_screen", url: "/book", source: "daily_push", rule: "LAPSED" },
+            apns: { payload: { aps: { sound: "default", contentAvailable: true } } },
+            android: { priority: "high", notification: { sound: "default" } },
+          },
+          true, // validate_only — Google checks it, then discards it
+        );
+        res.responses.forEach((r, i) => {
+          console.log(
+            `  token ${liveTokens[i].slice(0, 10)}… ${r.success ? "✓ would deliver" : `✗ ${r.error?.code}`}`,
+          );
+        });
+        check(
+          "FCM accepts the real payload for at least one live device",
+          res.successCount > 0,
+          `${res.successCount}/${liveTokens.length} accepted`,
+        );
+        check("the credentials and message shape are valid", res.successCount + res.failureCount === liveTokens.length);
+      }
+    } catch (err) {
+      check("FCM deliverability check ran", false, err instanceof Error ? err.message : String(err));
+    }
+
     // ── LAYER 3: silence every real device before anything runs ──────
-    console.log("── Isolating real devices ──");
+    console.log("\n── Isolating real devices ──");
     await db.user.updateMany({
       where: { id: { in: realOwnerIds } },
       data: { offersOptOut: true },
@@ -389,7 +468,10 @@ async function main() {
       console.log(`  removed ${ids.length} synthetic users and everything hanging off them`);
 
       for (const u of realPriorOptOut) {
-        await db.user.update({
+        // updateMany, not update: a missing row must not abort the rest
+        // of cleanup — the settings restore below is the important part
+        // and it used to be stranded behind this throwing.
+        await db.user.updateMany({
           where: { id: u.id },
           data: { offersOptOut: u.offersOptOut },
         });
@@ -406,11 +488,29 @@ async function main() {
       }
     } catch (err) {
       console.error(
-        "\n!! CLEANUP FAILED — the database still holds test data tagged " +
+        "\n!! CLEANUP FAILED — the database may still hold test data tagged " +
           `"${TAG}". Remove it by hand.\n`,
         err,
       );
       fail++;
+    }
+
+    // Belt and braces, outside the catch above: whatever else went
+    // wrong, the module must not be left switched on. An interrupted
+    // run once left it enabled with the send hour set to the current
+    // hour, which on a database that IS cron'd would have been a live
+    // fan-out nobody asked for.
+    try {
+      const left = await db.dailyPushSettings.findUnique({ where: { id: "singleton" } });
+      if (left?.enabled && !settingsBefore?.enabled) {
+        await db.dailyPushSettings.update({
+          where: { id: "singleton" },
+          data: { enabled: false },
+        });
+        console.log("  force-disabled the module (it was left on)");
+      }
+    } catch {
+      console.error("  !! COULD NOT CONFIRM THE MODULE IS OFF — check /admin/push/daily");
     }
 
     console.log(`\n${pass} passed, ${fail} failed`);

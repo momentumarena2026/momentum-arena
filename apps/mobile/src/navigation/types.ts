@@ -315,6 +315,7 @@ export type AdminMoreStackParamList = {
   AdminPush: undefined;
   // Automated (event-triggered) push templates — toggle + copy editor.
   AdminPushTemplates: undefined;
+  AdminDailyPush: undefined;
   AdminOta: undefined;
   AdminReleaseFlow: undefined;
   AdminUsers: undefined;
