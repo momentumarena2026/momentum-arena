@@ -3,9 +3,11 @@ import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View, Pressabl
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  BellOff,
   BellRing,
   CalendarCheck,
   Sparkles,
@@ -20,7 +22,9 @@ import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius, spacing } from "../../theme";
 import {
+  notificationPrefsApi,
   notificationsApi,
+  type NotificationPrefs,
   type UserNotification,
 } from "../../lib/user-notifications";
 
@@ -50,6 +54,74 @@ function timeAgo(iso: string): string {
     day: "numeric",
     month: "short",
   });
+}
+
+/**
+ * The one thing the customer can switch off.
+ *
+ * Optimistic, and deliberately so: a toggle that waits for a round trip
+ * before moving reads as broken on a slow connection, and someone
+ * turning this off is already mildly annoyed. It snaps back if the save
+ * fails, which is the honest behaviour — better a switch that visibly
+ * refuses than one that says "off" while the pushes keep arriving.
+ */
+function OffersToggle() {
+  const qc = useQueryClient();
+  const prefs = useQuery({
+    queryKey: ["notification-prefs"],
+    queryFn: () => notificationPrefsApi.get(),
+    staleTime: 60_000,
+  });
+
+  const save = useMutation({
+    mutationFn: (offers: boolean) => notificationPrefsApi.set(offers),
+    onMutate: async (offers) => {
+      await qc.cancelQueries({ queryKey: ["notification-prefs"] });
+      const prev = qc.getQueryData<NotificationPrefs>(["notification-prefs"]);
+      qc.setQueryData(["notification-prefs"], { offers });
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["notification-prefs"], ctx.prev);
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: ["notification-prefs"] }),
+  });
+
+  // Nothing at all until we know the answer. A switch that renders "on"
+  // and then flips to "off" a moment later tells the customer their
+  // choice was not saved.
+  if (prefs.isLoading || !prefs.data) return null;
+  const on = prefs.data.offers;
+
+  return (
+    <Pressable
+      onPress={() => save.mutate(!on)}
+      style={styles.prefRow}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on }}
+    >
+      <View style={styles.prefIcon}>
+        {on ? (
+          <BellRing size={18} color={colors.emerald400} />
+        ) : (
+          <BellOff size={18} color={colors.zinc400} />
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text weight="semibold" style={{ fontSize: 14 }}>
+          Tips & offers
+        </Text>
+        <Text style={styles.prefHint}>
+          {on
+            ? "Free slots, expiring passes and the occasional nudge."
+            : "Off. You'll still get booking confirmations and reminders."}
+        </Text>
+      </View>
+      <View style={[styles.track, on && styles.trackOn]}>
+        <View style={[styles.knob, on && styles.knobOn]} />
+      </View>
+    </Pressable>
+  );
 }
 
 /**
@@ -165,6 +237,13 @@ export function NotificationsScreen() {
         keyExtractor={(n) => n.id}
         renderItem={renderRow}
         contentContainerStyle={styles.scroll}
+        // The preference sits at the top of the list the customer opens
+        // when they are thinking about notifications, rather than behind
+        // its own row on the account menu. Somebody who has decided they
+        // get too many of these is on THIS screen; making them find a
+        // settings page first is how people reach for the OS switch
+        // instead, which silences their booking confirmations too.
+        ListHeaderComponent={<OffersToggle />}
         ItemSeparatorComponent={() => <View style={{ height: spacing["2"] }} />}
         refreshControl={
           <RefreshControl
@@ -221,6 +300,46 @@ export function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
+  prefRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["3"],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    padding: spacing["4"],
+    marginBottom: spacing["4"],
+  },
+  prefIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(16,185,129,0.10)",
+  },
+  prefHint: {
+    fontSize: 11,
+    color: colors.zinc400,
+    marginTop: 2,
+  },
+  track: {
+    width: 40,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.zinc700,
+    justifyContent: "center",
+  },
+  trackOn: { backgroundColor: colors.emerald500 },
+  knob: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#fff",
+    marginLeft: 2,
+  },
+  knobOn: { marginLeft: 20 },
   scroll: {
     padding: spacing["5"],
     paddingBottom: spacing["10"],
