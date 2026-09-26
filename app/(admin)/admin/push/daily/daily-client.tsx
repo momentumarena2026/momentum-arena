@@ -559,8 +559,15 @@ function Switch({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
         value ? "bg-emerald-600" : "bg-zinc-700"
       }`}
     >
+      {/* `left-0` is not cosmetic. Without a horizontal anchor the knob
+          falls back to its static position, which put the OFF knob flush
+          against the right edge and pushed the ON knob outside the track
+          entirely — so this switch rendered "off" as the universal
+          picture of "on", on the one control that decides whether the
+          arena starts pushing every customer daily. Anchor first, then
+          translate from it. */}
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+        className={`absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
           value ? "translate-x-4" : "translate-x-0.5"
         }`}
       />
