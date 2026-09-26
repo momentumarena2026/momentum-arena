@@ -5,6 +5,7 @@ import {
   daysSince,
   daysUntil,
   decide,
+  istDayKey,
   istDayStart,
   istHourOf,
   runRefusal,
@@ -278,9 +279,19 @@ export async function runDailyPush(
   }
 
   // ── Gather. Eight queries, none of them per-user. ───────────────────
+  //
+  // TWO date values, and they are not interchangeable. `dayStart` is the
+  // instant the IST day began (18:30 UTC yesterday) and belongs in
+  // timestamp comparisons. `dayKey` is the IST calendar date and is the
+  // only thing that may touch DailyPushSend.sentOn, a @db.Date column.
+  // Using dayStart there filed rows under the previous day and produced
+  // an equality check that could never be true.
   const dayStart = istDayStart(now);
+  const dayKey = istDayKey(now);
   const weekAgo = new Date(now.getTime() - 7 * 86400_000);
   const tomorrowEnd = new Date(dayStart.getTime() + 2 * 86400_000);
+  // Identifies the rows THIS run claims. See DailyPushSend.runId.
+  const runId = `${dayKey.toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 10)}`;
 
   const devices = await db.pushDevice.findMany({ select: { userId: true, token: true } });
   if (devices.length === 0) return empty("no registered devices");
@@ -338,7 +349,9 @@ export async function runDailyPush(
   const sentToday = new Set<string>();
   for (const s of recentSends) {
     sendsThisWeek.set(s.userId, (sendsThisWeek.get(s.userId) ?? 0) + 1);
-    if (s.sentOn.getTime() === dayStart.getTime()) sentToday.add(s.userId);
+    // Compared against dayKey, not dayStart — sentOn is a @db.Date and
+    // comes back at UTC midnight of the IST calendar date.
+    if (s.sentOn.getTime() === dayKey.getTime()) sentToday.add(s.userId);
   }
   const heardToday = new Set(pushedToday.map((p) => p.userId));
   const playingSoon = new Set(bookedSoon.map((b) => b.userId));
@@ -419,21 +432,26 @@ export async function runDailyPush(
     // CLAIM FIRST, for the whole bucket, before a single message goes.
     //
     // Same discipline as announceNewChallenges: the unique index on
-    // (userId, sentOn) means a second overlapping run finds these rows
-    // and skips those people. Claiming before the send makes the failure
-    // mode a missed message rather than a duplicated one — the right way
-    // round when the audience is four hundred strangers.
+    // (userId, sentOn) means a second overlapping run cannot write a
+    // second row for the same person on the same day. Claiming before
+    // the send makes the failure mode a missed message rather than a
+    // duplicated one — the right way round when the audience is four
+    // hundred strangers.
     const claim = await db.dailyPushSend.createMany({
-      data: group.map((g) => ({ userId: g.userId, ruleKey: rule, sentOn: dayStart })),
+      data: group.map((g) => ({ userId: g.userId, ruleKey: rule, sentOn: dayKey, runId })),
       skipDuplicates: true,
     });
     if (claim.count === 0) continue;
 
-    // Only the rows THIS run claimed may be sent to. Re-reading is what
-    // makes skipDuplicates meaningful: without it a concurrent run's
-    // people would be messaged twice despite the index doing its job.
+    // Only the rows THIS run won may be sent to, and `runId` is what
+    // makes that answerable. createMany reports how many rows it
+    // inserted but not which, so re-reading by (day, rule, users) hands
+    // back rows an EARLIER run wrote as well — and a bucket holding a
+    // mix of already-sent and newly-eligible people would then message
+    // all of them again. Filtering on runId returns exactly this run's,
+    // with the unique index arbitrating who won each contested row.
     const claimed = await db.dailyPushSend.findMany({
-      where: { sentOn: dayStart, ruleKey: rule, userId: { in: group.map((g) => g.userId) } },
+      where: { runId, ruleKey: rule },
       select: { userId: true },
     });
     const mine = new Set(claimed.map((c) => c.userId));

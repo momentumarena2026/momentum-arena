@@ -11,6 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  istDayKey,
   istDayStart,
   istHourOf,
   daysSince,
@@ -84,6 +85,31 @@ test("istDayStart anchors to IST midnight, not UTC midnight", () => {
   // ...and 23:00 IST the previous evening belongs to the day before.
   const lateEvening = new Date("2026-09-26T17:30:00.000Z");
   assert.equal(istDayStart(lateEvening).toISOString(), "2026-09-25T18:30:00.000Z");
+});
+
+test("istDayKey is the IST CALENDAR DATE, which istDayStart is not", () => {
+  // The bug this pins cost a real one. `sentOn` is a @db.Date; handing
+  // it istDayStart stored the IST day of the 26th as the 25th, and made
+  // the idempotency comparison permanently false — so the in-memory
+  // guard was dead code and a mixed bucket would have re-sent.
+  // Found by driving the engine against staging, invisible to any test
+  // that does not cross the database boundary. These two must never be
+  // confused again.
+  const evening = new Date("2026-09-26T15:07:58.142Z"); // 20:37 IST on the 26th
+
+  assert.equal(istDayStart(evening).toISOString(), "2026-09-25T18:30:00.000Z");
+  assert.equal(istDayKey(evening).toISOString(), "2026-09-26T00:00:00.000Z");
+  assert.notEqual(istDayStart(evening).getTime(), istDayKey(evening).getTime());
+
+  // A @db.Date round-trip yields UTC midnight, so only istDayKey can
+  // ever compare equal to a value read back out of that column.
+  const roundTripped = new Date(istDayKey(evening).toISOString().slice(0, 10) + "T00:00:00.000Z");
+  assert.equal(roundTripped.getTime(), istDayKey(evening).getTime());
+
+  // The IST date, not the UTC one, across the window where they differ.
+  assert.equal(istDayKey(new Date("2026-09-26T18:29:00.000Z")).toISOString().slice(0, 10), "2026-09-26");
+  assert.equal(istDayKey(new Date("2026-09-26T18:30:00.000Z")).toISOString().slice(0, 10), "2026-09-27");
+  assert.equal(istDayKey(new Date("2026-09-26T00:30:00.000Z")).toISOString().slice(0, 10), "2026-09-26");
 });
 
 test("istHourOf reads the IST wall clock", () => {

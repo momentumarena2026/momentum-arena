@@ -2611,10 +2611,24 @@ model DailyPushSend {
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// Which rule won for this person — the answer to "why did I get THAT".
   ruleKey String
-  /// IST calendar day, midnight-anchored. The uniqueness key, so it must
-  /// be derived the same way every time: istDayStart() in
-  /// lib/daily-push-rules.ts, never `new Date()` at the call site.
+  /// The IST calendar day. The uniqueness key, so it must be derived the
+  /// same way every time: `istDayKey()` in lib/daily-push-rules.ts, and
+  /// NOT `istDayStart()` — that one returns 18:30 UTC of the previous
+  /// day, which a @db.Date column silently truncates onto the wrong date
+  /// and reads back as a value that never compares equal. See the note
+  /// on istDayKey; both halves of that were live bugs.
   sentOn  DateTime @db.Date
+
+  /// Which engine run wrote this row.
+  ///
+  /// Not bookkeeping — it is what makes the claim exact. `createMany`
+  /// reports HOW MANY rows it inserted but not WHICH, so re-reading by
+  /// (user, day) alone hands back rows an earlier run wrote too, and a
+  /// bucket mixing already-sent people with newly-eligible ones would
+  /// message everybody in it a second time. Re-reading by runId returns
+  /// precisely the rows this run won, with the unique index arbitrating
+  /// between concurrent runs.
+  runId String?
 
   createdAt DateTime @default(now())
 
@@ -2622,6 +2636,7 @@ model DailyPushSend {
   @@index([userId, createdAt])
   @@index([createdAt])
   @@index([ruleKey, createdAt])
+  @@index([runId])
 }
 
 // ===========================

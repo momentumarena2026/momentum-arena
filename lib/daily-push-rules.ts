@@ -18,13 +18,46 @@
  * ──────────────────────────────────────────────────────────────────────
  */
 
-/** Midnight IST for the day `now` falls in, as a UTC instant. */
+/**
+ * Midnight IST for the day `now` falls in, as a UTC instant.
+ *
+ * For comparing against TIMESTAMP columns — `createdAt >= istDayStart(now)`
+ * is "since midnight tonight, IST". Do NOT store this in a `@db.Date`
+ * column; use `istDayKey` for that, and read the note there for what
+ * goes wrong when you don't.
+ */
 export function istDayStart(now: Date): Date {
   const IST = 5.5 * 3600_000;
   const ist = new Date(now.getTime() + IST);
   return new Date(
     Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST,
   );
+}
+
+/**
+ * The IST calendar DATE, as the UTC-midnight instant a `@db.Date`
+ * column round-trips unchanged.
+ *
+ * ── WHY THIS IS SEPARATE FROM istDayStart ─────────────────────────────
+ * `istDayStart` returns 18:30 UTC of the PREVIOUS calendar day, because
+ * that is genuinely when the IST day began. Handing that to a `@db.Date`
+ * column does two silent, compounding things:
+ *
+ *   - Postgres truncates it to the UTC date part, so the IST day of the
+ *     26th is stored as the 25th — the uniqueness key lands on the wrong
+ *     day.
+ *   - It reads back as 00:00 UTC, so `row.sentOn.getTime() === dayStart
+ *     .getTime()` is NEVER true, and any idempotency check written that
+ *     way is dead code that reports success.
+ *
+ * Both were live in the daily push and neither was visible to a unit
+ * test, because the bug lives in the database round-trip rather than in
+ * the arithmetic. Found by driving the real engine against staging.
+ * ──────────────────────────────────────────────────────────────────────
+ */
+export function istDayKey(now: Date): Date {
+  const ist = new Date(now.getTime() + 5.5 * 3600_000);
+  return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()));
 }
 
 /** Hour of the IST day, 0–23. */
