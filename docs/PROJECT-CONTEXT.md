@@ -1392,6 +1392,18 @@ restores them afterwards, drives the real engine through six runs, and cleans
 up in a `finally`. 24 assertions. This is what found gotcha 19 — the unit
 tests could not, and neither could reading the code.
 
+**Verified, and the one gap that is left.** On a real simulator against a
+local server: the customer's "Tips & offers" toggle renders, flips, persists
+and round-trips (checked in the database both ways). Via FCM validate-only:
+all three staging device tokens are live and Google accepts the real payload.
+Not verified: **a banner actually appearing on a handset** — that needs a real
+send to a real phone and somebody looking at it — and the **mobile admin
+screen has never been rendered**. Reaching it needs the 5-tap hidden entry,
+and each automated tap round-trip exceeds the gesture's 1500 ms window, so the
+counter resets; it is a tooling limit, not a product one. The screen
+typechecks and uses the platform `Switch` rather than hand-rolled geometry,
+which is the class of bug that bit the web dashboard.
+
 **Status: built, verified on staging, shipped with `enabled: false`.** The
 sequencing constraint is real — the customer opt-out ships over OTA, and while
 the canary sits at 20% most of the base would receive a daily push they cannot
