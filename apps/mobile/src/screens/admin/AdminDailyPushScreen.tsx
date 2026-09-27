@@ -159,12 +159,16 @@ export function AdminDailyPushScreen() {
             value={s.skipIfBookedSoon}
             onChange={(v) => setS({ ...s, skipIfBookedSoon: v })}
           />
-          <Row
-            label="Skip anyone who already heard from us today"
-            hint="Targeted pushes only — a broadcast has no single recipient, so it is invisible to this."
-            value={s.skipIfPushedToday}
-            onChange={(v) => setS({ ...s, skipIfPushedToday: v })}
+          <NumField
+            label="Most pushes one person can get in a day, all types"
+            value={s.maxPushesPerDay}
+            onChange={(v) => setS({ ...s, maxPushesPerDay: v })}
           />
+          <Text style={styles.note}>
+            Counts this nudge and transactional pushes together. At 2 it may be
+            somebody&apos;s second of the day but never their third. Zero
+            switches the check off.
+          </Text>
           <Text style={styles.note}>
             {d.optedOut} {d.optedOut === 1 ? "person has" : "people have"} switched it off in the app, and
             they are skipped regardless of everything above.

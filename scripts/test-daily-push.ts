@@ -286,7 +286,7 @@ async function main() {
       quietToHour: 4,
       maxPerUserPerWeek: 2,
       skipIfBookedSoon: true,
-      skipIfPushedToday: true,
+      maxPushesPerDay: 2,
       rulePassExpiryEnabled: true,
       rulePassExpiryDays: 3,
       ruleNeverBookedEnabled: true,

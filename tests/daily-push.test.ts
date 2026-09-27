@@ -39,7 +39,7 @@ const LIMITS: DailyPushLimits = {
   quietToHour: 8,
   maxPerUserPerWeek: 2,
   skipIfBookedSoon: true,
-  skipIfPushedToday: true,
+  maxPushesPerDay: 2,
   passExpiry: { enabled: true, days: 3 },
   neverBooked: { enabled: true, days: 7 },
   lapsed: { enabled: true, days: 30 },
@@ -51,7 +51,7 @@ const CLEAN: CandidateFacts = {
   optedOut: false,
   sendsInLastWeek: 0,
   alreadySentToday: false,
-  hadTargetedPushToday: false,
+  pushesToday: 0,
   hasBookingSoon: false,
   passExpiryInDays: null,
   accountAgeDays: 200,
@@ -233,9 +233,20 @@ test("the two 'leave them alone' guards can each be switched off", () => {
   assert.match(suppressionReason(booked, LIMITS) ?? "", /booking today or tomorrow/);
   assert.equal(suppressionReason(booked, limits({ skipIfBookedSoon: false })), null);
 
-  const heard = who({ hadTargetedPushToday: true });
-  assert.match(suppressionReason(heard, LIMITS) ?? "", /already heard from us today/);
-  assert.equal(suppressionReason(heard, limits({ skipIfPushedToday: false })), null);
+  // The daily ceiling counts THIS push as the next one, so at a cap of
+  // 2 someone who has had one already may still have this as their
+  // second — that is the whole difference from the boolean it replaced.
+  assert.equal(suppressionReason(who({ pushesToday: 1 }), LIMITS), null, "1 today, cap 2 → this is their second");
+  assert.match(
+    suppressionReason(who({ pushesToday: 2 }), LIMITS) ?? "",
+    /already had 2 pushes today \(max 2\)/,
+  );
+  assert.equal(suppressionReason(who({ pushesToday: 9 }), limits({ maxPushesPerDay: 0 })), null, "0 disables the check");
+  assert.match(
+    suppressionReason(who({ pushesToday: 1 }), limits({ maxPushesPerDay: 1 })) ?? "",
+    /already had 1 push today \(max 1\)/,
+    "singular, and a cap of 1 restores the old boolean's behaviour",
+  );
 });
 
 test("a booking today suppresses even a pass about to expire", () => {

@@ -29,7 +29,8 @@ export interface DailyPushSettings {
   quietToHour: number;
   maxPerUserPerWeek: number;
   skipIfBookedSoon: boolean;
-  skipIfPushedToday: boolean;
+  /** Total targeted pushes per person per day, counting this one. */
+  maxPushesPerDay: number;
   passExpiry: DailyPushRuleToggle;
   neverBooked: DailyPushRuleToggle;
   lapsed: DailyPushRuleToggle;

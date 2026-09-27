@@ -99,7 +99,7 @@ export async function saveDailyPushSettings(
     quietToHour: input.quietToHour,
     maxPerUserPerWeek: input.maxPerUserPerWeek,
     skipIfBookedSoon: input.skipIfBookedSoon,
-    skipIfPushedToday: input.skipIfPushedToday,
+    maxPushesPerDay: input.maxPushesPerDay,
     rulePassExpiryEnabled: input.passExpiry.enabled,
     rulePassExpiryDays: input.passExpiry.days,
     ruleNeverBookedEnabled: input.neverBooked.enabled,

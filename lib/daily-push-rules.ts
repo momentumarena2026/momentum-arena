@@ -134,7 +134,9 @@ export interface DailyPushLimits {
   quietToHour: number;
   maxPerUserPerWeek: number;
   skipIfBookedSoon: boolean;
-  skipIfPushedToday: boolean;
+  /** Total targeted pushes per person per day, counting this one and
+   *  counting transactional ones. 0 disables the check. */
+  maxPushesPerDay: number;
   passExpiry: RuleToggle;
   neverBooked: RuleToggle;
   lapsed: RuleToggle;
@@ -149,9 +151,9 @@ export interface CandidateFacts {
   sendsInLastWeek: number;
   /** Already sent to today — the idempotency fact, not a preference. */
   alreadySentToday: boolean;
-  /** Had a TARGETED push today. Multicasts are invisible here; see
-   *  PushDispatch.userId in the schema for exactly what that misses. */
-  hadTargetedPushToday: boolean;
+  /** How many TARGETED pushes they have already had today. Multicasts
+   *  are invisible here; see PushDispatch.userId for what that misses. */
+  pushesToday: number;
   /** Has a booking today or tomorrow. */
   hasBookingSoon: boolean;
   /** Days until the soonest-expiring pass that still has balance on it. */
@@ -223,7 +225,12 @@ export function suppressionReason(
     return `weekly cap reached (${f.sendsInLastWeek}/${limits.maxPerUserPerWeek})`;
   }
   if (limits.skipIfBookedSoon && f.hasBookingSoon) return "has a booking today or tomorrow";
-  if (limits.skipIfPushedToday && f.hadTargetedPushToday) return "already heard from us today";
+  // `>=` because this push would be the next one. At a cap of 2 a person
+  // who has had 1 today may still have this as their second; one who has
+  // had 2 is done until tomorrow.
+  if (limits.maxPushesPerDay > 0 && f.pushesToday >= limits.maxPushesPerDay) {
+    return `already had ${f.pushesToday} push${f.pushesToday === 1 ? "" : "es"} today (max ${limits.maxPushesPerDay})`;
+  }
   return null;
 }
 
@@ -332,6 +339,12 @@ export function settingsRefusal(limits: DailyPushLimits): string | null {
   }
   if (!whole(limits.maxPerUserPerWeek) || limits.maxPerUserPerWeek < 0) {
     return "The weekly cap must be zero or a whole number.";
+  }
+  if (!whole(limits.maxPushesPerDay) || limits.maxPushesPerDay < 0) {
+    return "The daily push ceiling must be zero or a whole number.";
+  }
+  if (limits.maxPushesPerDay > 20) {
+    return "A daily ceiling above 20 is not a ceiling. Leave it at 0 to switch the check off.";
   }
   if (limits.maxPerUserPerWeek > 7) {
     return "The weekly cap cannot exceed 7 — one a day is already the most this module can send.";

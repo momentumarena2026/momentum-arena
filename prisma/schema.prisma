@@ -2564,9 +2564,20 @@ model DailyPushSettings {
   /// their reminder, which they get from lib/reminders.ts.
   skipIfBookedSoon Boolean @default(true)
 
-  /// Skip anyone who already had a TARGETED push today (see
-  /// PushDispatch.userId for what that does and does not cover).
-  skipIfPushedToday Boolean @default(true)
+  /// Most pushes one person may receive in a day, counting THIS one and
+  /// counting transactional pushes — confirmations, reminders, rewards.
+  ///
+  /// A total, not a marketing budget. The venue asked for "daily maximum
+  /// two, including marketing push", and that is a different instrument
+  /// from the weekly cap: the weekly cap rations the nudges, this stops
+  /// a nudge landing on somebody who has already had a busy day from us.
+  /// The daily push is suppressed once a person has had this many
+  /// targeted pushes already, so at 2 it may be their second but never
+  /// their third.
+  ///
+  /// 0 disables the check entirely. Counted from PushDispatch.userId,
+  /// which means multicasts are invisible to it — see that column.
+  maxPushesPerDay Int @default(2)
 
   // ── The rules, in priority order. First match wins, per user. ─────
   /// Balance left on a pass that lapses within N days.

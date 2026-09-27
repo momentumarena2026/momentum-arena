@@ -51,7 +51,7 @@ export const DEFAULT_DAILY_PUSH: DailyPushLimits = {
   quietToHour: 8,
   maxPerUserPerWeek: 2,
   skipIfBookedSoon: true,
-  skipIfPushedToday: true,
+  maxPushesPerDay: 2,
   passExpiry: { enabled: true, days: 3 },
   neverBooked: { enabled: true, days: 7 },
   lapsed: { enabled: true, days: 30 },
@@ -81,7 +81,7 @@ export async function loadDailyPushSettings(): Promise<DailyPushLimits> {
     quietToHour: row.quietToHour,
     maxPerUserPerWeek: row.maxPerUserPerWeek,
     skipIfBookedSoon: row.skipIfBookedSoon,
-    skipIfPushedToday: row.skipIfPushedToday,
+    maxPushesPerDay: row.maxPushesPerDay,
     passExpiry: { enabled: row.rulePassExpiryEnabled, days: row.rulePassExpiryDays },
     neverBooked: { enabled: row.ruleNeverBookedEnabled, days: row.ruleNeverBookedDays },
     lapsed: { enabled: row.ruleLapsedEnabled, days: row.ruleLapsedDays },
@@ -420,7 +420,12 @@ export async function runDailyPush(
     // comes back at UTC midnight of the IST calendar date.
     if (s.sentOn.getTime() === dayKey.getTime()) sentToday.add(s.userId);
   }
-  const heardToday = new Set(pushedToday.map((p) => p.userId));
+  // A COUNT per person, not a set: the daily ceiling asks "how many",
+  // and a boolean could only ever answer "any".
+  const heardToday = new Map<string, number>();
+  for (const p of pushedToday) {
+    if (p.userId) heardToday.set(p.userId, (heardToday.get(p.userId) ?? 0) + 1);
+  }
   const playingSoon = new Set(bookedSoon.map((b) => b.userId));
   const lastPlayed = new Map(
     lastBookings.filter((b) => b._max.date).map((b) => [b.userId, b._max.date as Date]),
@@ -442,7 +447,7 @@ export async function runDailyPush(
       optedOut: u.offersOptOut,
       sendsInLastWeek: sendsThisWeek.get(u.id) ?? 0,
       alreadySentToday: sentToday.has(u.id),
-      hadTargetedPushToday: heardToday.has(u.id),
+      pushesToday: heardToday.get(u.id) ?? 0,
       hasBookingSoon: playingSoon.has(u.id),
       passExpiryInDays: pass ? daysUntil(pass.expiresAt, now) : null,
       accountAgeDays: daysSince(u.createdAt, now),

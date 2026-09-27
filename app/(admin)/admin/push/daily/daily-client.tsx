@@ -184,11 +184,13 @@ export function DailyPushClient({ view }: { view: DailyPushAdminView }) {
           value={s.skipIfBookedSoon}
           onChange={(v) => setS({ ...s, skipIfBookedSoon: v })}
         />
-        <Toggle
-          label="Skip anyone who already heard from us today"
-          hint="Counts targeted pushes only — booking confirmations, reminders, rewards. A broadcast to the whole fleet has no single recipient, so it is invisible to this check."
-          value={s.skipIfPushedToday}
-          onChange={(v) => setS({ ...s, skipIfPushedToday: v })}
+        <Number
+          label="Most pushes one person can get in a day, all types"
+          value={s.maxPushesPerDay}
+          min={0}
+          max={20}
+          onChange={(v) => setS({ ...s, maxPushesPerDay: v })}
+          hint="Counts this nudge AND transactional pushes — confirmations, reminders, rewards. At 2, the daily push may be someone's second of the day but never their third. Zero switches the check off. Broadcasts to the whole fleet have no single recipient, so they are invisible to it."
         />
         <p className="text-[11px] text-zinc-600">
           Anyone who has switched the daily push off in the app is skipped
