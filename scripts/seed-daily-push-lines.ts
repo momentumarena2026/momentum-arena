@@ -6,12 +6,15 @@
  * script adds what is missing and never overwrites, so running it again
  * after the venue has rewritten half the copy is safe.
  *
- * Refuses to run against production, like every other script here that
- * writes. Adding rows to production is a deploy decision, not a
- * terminal one.
+ * Refuses to touch production unless told to in as many words. Adding
+ * rows to the production library is a deliberate act, and the guard
+ * exists so it cannot be one somebody performs by having the wrong
+ * DATABASE_URL exported. The GitHub workflow passes the flag; a
+ * terminal almost never should.
  *
- *   npx tsx scripts/seed-daily-push-lines.ts          # add what's missing
- *   npx tsx scripts/seed-daily-push-lines.ts --list   # show what is there
+ *   npx tsx scripts/seed-daily-push-lines.ts                     # add what's missing
+ *   npx tsx scripts/seed-daily-push-lines.ts --list              # show what is there
+ *   npx tsx scripts/seed-daily-push-lines.ts --allow-production  # CI only
  */
 import { PrismaClient } from "@prisma/client";
 import { DEFAULT_DAILY_PUSH_LINES } from "../lib/daily-push-library";
@@ -23,9 +26,13 @@ const PRODUCTION_ENDPOINT = "ep-dark-hat-ampi5dah";
 async function main() {
   const url = process.env.DATABASE_URL ?? "";
   if (!url) throw new Error("DATABASE_URL is not set.");
-  if (url.includes(PRODUCTION_ENDPOINT)) {
-    throw new Error("REFUSING TO RUN: that is the PRODUCTION branch.");
+  const isProduction = url.includes(PRODUCTION_ENDPOINT);
+  if (isProduction && !process.argv.includes("--allow-production")) {
+    throw new Error(
+      "REFUSING TO RUN: that is the PRODUCTION branch. Pass --allow-production if you mean it.",
+    );
   }
+  if (isProduction) console.log("Writing to PRODUCTION, explicitly allowed.\n");
 
   if (process.argv.includes("--list")) {
     const rows = await db.dailyPushLine.findMany({
