@@ -61,6 +61,8 @@ import { AdminProductOrdersScreen } from "../screens/admin/AdminProductOrdersScr
 import { AdminPosScreen } from "../screens/admin/AdminPosScreen";
 import { AdminPushScreen } from "../screens/admin/AdminPushScreen";
 import { AdminPushTemplatesScreen } from "../screens/admin/AdminPushTemplatesScreen";
+import { AdminDailyPushScreen } from "../screens/admin/AdminDailyPushScreen";
+import { AdminDailyPushLinesScreen } from "../screens/admin/AdminDailyPushLinesScreen";
 import { AdminOtaScreen } from "../screens/admin/AdminOtaScreen";
 import { AdminReleaseFlowScreen } from "../screens/admin/AdminReleaseFlowScreen";
 import { AdminUsersScreen } from "../screens/admin/AdminUsersScreen";
@@ -210,6 +212,16 @@ function AdminMoreStackNav() {
         name="AdminPushTemplates"
         component={AdminPushTemplatesScreen}
         options={{ title: "Auto Push Messages" }}
+      />
+      <MoreStack.Screen
+        name="AdminDailyPush"
+        component={AdminDailyPushScreen}
+        options={{ title: "Daily push" }}
+      />
+      <MoreStack.Screen
+        name="AdminDailyPushLines"
+        component={AdminDailyPushLinesScreen}
+        options={{ title: "Line library" }}
       />
       <MoreStack.Screen
         name="AdminOta"

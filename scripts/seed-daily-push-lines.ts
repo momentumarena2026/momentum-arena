@@ -1,0 +1,85 @@
+/**
+ * Install the starting creative library.
+ *
+ * Idempotent by title: a line already in the database is left exactly
+ * as it is, including its edits, its tags and its rotation state. This
+ * script adds what is missing and never overwrites, so running it again
+ * after the venue has rewritten half the copy is safe.
+ *
+ * Refuses to run against production, like every other script here that
+ * writes. Adding rows to production is a deploy decision, not a
+ * terminal one.
+ *
+ *   npx tsx scripts/seed-daily-push-lines.ts          # add what's missing
+ *   npx tsx scripts/seed-daily-push-lines.ts --list   # show what is there
+ */
+import { PrismaClient } from "@prisma/client";
+import { DEFAULT_DAILY_PUSH_LINES } from "../lib/daily-push-library";
+import { NEEDS_SLOTS } from "../lib/daily-push-lines";
+
+const db = new PrismaClient();
+const PRODUCTION_ENDPOINT = "ep-dark-hat-ampi5dah";
+
+async function main() {
+  const url = process.env.DATABASE_URL ?? "";
+  if (!url) throw new Error("DATABASE_URL is not set.");
+  if (url.includes(PRODUCTION_ENDPOINT)) {
+    throw new Error("REFUSING TO RUN: that is the PRODUCTION branch.");
+  }
+
+  if (process.argv.includes("--list")) {
+    const rows = await db.dailyPushLine.findMany({
+      orderBy: [{ enabled: "desc" }, { lastUsedAt: "asc" }],
+      select: { title: true, body: true, tags: true, enabled: true, useCount: true, lastUsedAt: true },
+    });
+    console.log(`${rows.length} lines\n`);
+    for (const r of rows) {
+      const tag = r.tags.length ? `  [${r.tags.join(", ")}]` : "";
+      const used = r.lastUsedAt ? ` · used ${r.useCount}x, last ${r.lastUsedAt.toISOString().slice(0, 10)}` : " · never used";
+      console.log(`${r.enabled ? " " : "✗"} ${r.title}${tag}${used}`);
+      console.log(`    ${r.body}`);
+    }
+    await db.$disconnect();
+    return;
+  }
+
+  const existing = new Set(
+    (await db.dailyPushLine.findMany({ select: { title: true } })).map((r) => r.title),
+  );
+
+  const toAdd = DEFAULT_DAILY_PUSH_LINES.filter((l) => !existing.has(l.title));
+  if (toAdd.length > 0) {
+    await db.dailyPushLine.createMany({
+      data: toAdd.map((l) => ({ title: l.title, body: l.body, tags: l.tags ?? [] })),
+    });
+  }
+
+  const total = await db.dailyPushLine.count();
+  const claims = await db.dailyPushLine.count({ where: { tags: { has: NEEDS_SLOTS } } });
+  console.log(`added ${toAdd.length}, skipped ${DEFAULT_DAILY_PUSH_LINES.length - toAdd.length} already present`);
+  console.log(`library now holds ${total} lines (${claims} of them claim free slots and are gated on real availability)`);
+
+  // Which occasion tags are used by lines but have no dated window?
+  // Day-of-week and season are computed, so only the calendar ones can
+  // be missing — and a festival line with no date never fires, quietly.
+  const COMPUTED = new Set([
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "weekend", "weekday", "monsoon", "winter", "summer", "pleasant", NEEDS_SLOTS,
+  ]);
+  const used = new Set<string>();
+  for (const l of await db.dailyPushLine.findMany({ select: { tags: true } })) {
+    for (const t of l.tags) if (!COMPUTED.has(t)) used.add(t);
+  }
+  const dated = new Set((await db.dailyPushOccasion.findMany({ select: { tag: true } })).map((o) => o.tag));
+  const missing = [...used].filter((t) => !dated.has(t)).sort();
+  if (missing.length) {
+    console.log(
+      `\nThese tags have lines but no dates, so they will never fire:\n  ${missing.join(", ")}\n` +
+        `Add windows in the admin (Daily push → Occasions). They are lunar or\n` +
+        `fixture-dependent, which is exactly why they are not hard-coded.`,
+    );
+  }
+  await db.$disconnect();
+}
+
+main();

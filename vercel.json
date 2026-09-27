@@ -60,6 +60,10 @@
     {
       "path": "/api/cron/store-availability",
       "schedule": "20 * * * *"
+    },
+    {
+      "path": "/api/cron/daily-push",
+      "schedule": "30 * * * *"
     }
   ]
 }

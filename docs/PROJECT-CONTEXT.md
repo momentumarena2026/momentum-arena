@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-23 · accurate as of `main` = `689a5812` (app 1.0.8). iOS deep links only ever worked on a cold launch — `AppDelegate` never forwarded warm URLs to `RCTLinkingManager`, so `linking.ts` was half-dead (§6b); Android was checked and is fine. Challenges: a match leaves the board when somebody PAYS and at no other moment — suggesting a time claims nothing, and the free accept is closed on the server because the app fix only reached 20% of installs (§9).
+**Last substantive update:** 2026-09-27 · accurate as of `main` = `4474a3a4` (app 1.0.8). New module: the **daily push** (§7c) — the first scheduled, non-transactional push in the product, now carrying a rotating Hinglish creative library for its catch-all rule. Driven end-to-end against staging and **shipped disabled on production**, because its customer opt-out rides an OTA canary still at 20%. Settings are live on STAGING (send 15:00 IST, 2 pushes per person per day across all types, all four rules on). Facts from it that generalise: **gotcha 19** — an IST "day" is two different values and a `@db.Date` column silently takes the wrong one, which killed an idempotency guard while a unique index hid it; Vercel crons are UTC, so an hourly cron on the hour fires at *half past* every IST hour; and `PushDispatch` could not answer "has this person heard from us today?" until `userId` was added, and still cannot for multicasts. Earlier: iOS deep links only ever worked on a cold launch (§6b); challenges leave the board when somebody PAYS and at no other moment (§9).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -369,6 +369,37 @@ Anything else means main has drifted — stop and investigate, do not push.
     payers each saw one side and neither bought the hour. It takes a
     per-challenge advisory lock (`challengeLockKey`, a band above 2^31 so it
     cannot meet a court-hour key) so the second payer waits and then sees both.
+
+19. **An IST "day" is two different values, and a `@db.Date` column silently
+    takes the wrong one.** There is the INSTANT the IST day began — 18:30 UTC
+    of the previous calendar day — and there is the IST CALENDAR DATE. The
+    first belongs in timestamp comparisons (`createdAt >= …`); the second is
+    the only thing that may be stored in a `@db.Date`. Hand a `@db.Date` the
+    instant and two things go wrong at once, neither of them loudly:
+
+        write istDayStart(26 Sep 20:37 IST)  ->  2026-09-25T18:30:00Z
+        Postgres @db.Date truncates          ->  2026-09-25   (WRONG DAY)
+        reads back as                        ->  2026-09-25T00:00:00Z
+        row.sentOn.getTime() === dayStart.getTime()  ->  ALWAYS FALSE
+
+    So a uniqueness key lands on the wrong day AND every equality check
+    written against it is dead code that reports success. Both were live in
+    the daily push: the in-memory "already sent today" guard never once
+    fired, and only the database's unique index was actually preventing a
+    repeat send. `lib/daily-push-rules.ts` now exports `istDayStart` and
+    `istDayKey` as separate functions with the distinction written on them,
+    and a test pins the pair.
+
+    **Two general lessons worth more than the fix.** First: a unit test
+    cannot find this, because the bug lives entirely in the database
+    round-trip — it was found by driving the real engine against staging
+    with a synthetic cohort (`scripts/test-daily-push.ts`), which is the
+    argument for that script existing. Second: when an idempotency guard is
+    backed by BOTH application logic and a unique index, the index will hide
+    the application half being broken — right outcome, dead mechanism —
+    until something reaches the case the index alone does not cover. Here
+    that case was a batch mixing already-sent people with newly-eligible
+    ones, which would have re-sent to everyone in it.
 
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo
@@ -1275,9 +1306,170 @@ refund.
 
 ---
 
+## 7c. Daily push (scheduled, content-aware) — BUILT, SHIPPED DISABLED
+
+The only scheduled non-transactional push in the product. Everything else that
+reaches a customer's lock screen happened *to* them; this one is the arena
+starting the conversation, and that difference drives every design decision
+below. Engine `lib/daily-push.ts`, decisions `lib/daily-push-rules.ts` (pure,
+29 tests), cron `/api/cron/daily-push`, admin `/admin/push/daily`.
+
+**Four rules, first match wins, per person.** Pass expiring → never booked →
+lapsed → free slots tonight. Pass expiry is top because it is the only one
+where saying nothing costs the *customer* money rather than costing the arena
+a booking. Free slots is the venue-wide fallback for everyone no personal rule
+matched.
+
+**Why there are two send paths.** Pass expiry names your plan, balance and
+expiry date, so it renders and sends per person. The other three say one
+sentence to everybody who matched, so they render once and go out as a single
+multicast. That is why the `daily_*` templates deliberately carry **no
+per-user variables** — adding one silently turns one FCM call into four
+hundred. `sendTemplatedToTokens` exists because THE RULE (every automated push
+must be a registered template) previously had no sanctioned route for a
+segment send.
+
+**Things that are load-bearing and look arbitrary:**
+
+- **The cron is `30 * * * *`, not `0 * * * *`.** Vercel crons run in UTC and
+  IST is UTC+5:30, so an hourly cron on the hour fires at *half past* every
+  IST hour — an admin picking "19:00" would silently get 19:30. The :30 is
+  what makes the hour picker honest. It fires hourly and does nothing 23 times
+  out of 24, on purpose: encoding the time in the cron expression would make
+  changing it a deploy instead of a toggle.
+- **Free slots counts `(sport, hour)` pairs, not court configs.** A full pitch
+  and the two halves carved out of it are three rows describing one piece of
+  ground; counting configs advertises three openings where one game can be
+  booked. Hours already past are excluded for the same reason.
+- **`DailyPushSend` is unique on `(userId, sentOn)` and written BEFORE the
+  send.** Same discipline as `announceNewChallenges`: the failure mode is a
+  missed message, not a duplicated one — the right way round when the audience
+  is everybody. It also carries the per-person history the weekly cap counts,
+  which `PushDispatch` structurally cannot: one multicast to 400 people is one
+  dispatch row. **`sentOn` must come from `istDayKey`, never `istDayStart`** —
+  see gotcha 19 for the two bugs that caused.
+- **`runId` is what makes the claim exact, not bookkeeping.** `createMany`
+  reports how many rows it inserted but not which, so re-reading by
+  `(day, rule, users)` also returns rows an earlier run wrote — and a bucket
+  mixing already-sent with newly-eligible people would message all of them
+  again. Re-reading by `runId` returns precisely this run's, with the unique
+  index arbitrating contested rows.
+- **Its retention floor is 30 days and cannot be lowered by env.** The engine
+  reads the trailing 7 days to enforce the cap, so a shorter window would not
+  save space — it would delete the evidence the cap is counted from and
+  quietly uncap the module. An ops knob must not be able to disable a guard.
+
+**`PushDispatch.userId` was added for one question** the aggregate rows could
+never answer: "has this person heard from us today?". Only `sendToUser` fills
+it. **Multicasts stay null and therefore do not count** — the "already heard
+from us today" guard sees targeted pushes only, so a customer who got the
+challenge-board broadcast is still eligible. Known and documented at the
+column, not a bug to re-discover.
+
+**`User.offersOptOut` is scoped narrowly and must stay that way.** It silences
+this module and *nothing else*. Confirmations, reminders, refunds and match
+updates ignore it, because a customer muting marketing has not asked to stop
+being told the court they paid for is confirmed — and a single
+"notifications" switch that silenced both would push them to the OS toggle,
+which kills everything, permanently, somewhere the arena cannot see or undo.
+The toggle lives at the top of My Notifications rather than behind its own
+settings row, for the same reason: the person who wants fewer pushes is
+already on that screen.
+
+**`pass_expiring_soon` is now wired.** It had an admin switch since the
+registry was written and had never fired, so prepaid balances were lapsing on
+customers nobody told. **12 registered templates are still orphans** (camps,
+tournaments, shop, the other pass ones) — they have dashboard switches that
+control nothing, because those features notify through `notifyUser()` with
+copy hard-coded at the call site instead of through the registry. Not silence,
+but the switch is a decoy. Worth fixing as its own job.
+
+### The creative line (rule 4)
+
+Rule 4 is not a fixed message. It sends **one Hinglish line a day from a
+rotating library** — the Zomato-shaped thing the venue asked for — to everyone
+the three personal rules did not catch, which is most people most days.
+`lib/daily-push-lines.ts` decides (pure, 19 tests), `lib/daily-push-library.ts`
+holds the 82 starting lines, `/admin/push/daily/lines` edits them.
+
+- **Least-recently-used, not random.** Random repeats inside a week on a pool
+  of eighty and the venue would swear the rotation was broken. LRU cycles the
+  whole library before anything comes round again; a test walks the pool
+  forward and pins that property.
+- **Topical beats generic.** If any eligible line carries a live occasion tag,
+  the generic pool is set aside entirely — otherwise a Holi line loses a coin
+  toss to "monday, the turf isn't judging" on the one day of the year it lands.
+- **`needs-slots` is the honesty tag.** Rule 4 no longer gates on availability,
+  because most of the copy says nothing about it. Lines that DO claim free
+  courts carry `needs-slots` and are filtered out on a full evening. Anything
+  claiming space must carry it.
+- **Weekday and season are computed; festivals and cricket are not.** Holi and
+  Janmashtami are lunar and there is no fixtures feed, so those arrive as dated
+  windows in `DailyPushOccasion` that the venue maintains. **A tag with no
+  window never fires**, silently — so both dashboards list the undated tags
+  rather than leaving it to be discovered. Hard-coding lunar dates would have
+  rotted a year out with nobody noticing.
+- **THE ONE SANCTIONED EXCEPTION to THE RULE** in `lib/push-templates.ts`. A
+  registered template is one fixed sentence; this is deliberately a different
+  sentence every day. The intent behind THE RULE — no automated push with copy
+  nobody can see or switch off — is met by the library instead, which is
+  editable, switchable per line and in the same dashboard. `daily_free_slots`
+  was retired from the registry rather than left as a decoy.
+- **The library is gated the same way a template is.** If nothing is eligible
+  today, rule 4 does not match anybody. Matching without being able to send is
+  the bug that ate an audience once already (see below); it is not allowed to
+  happen a second way.
+
+### Two switches that must behave the same
+
+Turning a **rule** off makes people fall through to the next rule. Turning its
+**message** off used to do something else: the engine claims a bucket before it
+sends, so a disabled template marked its audience "sent today", spent their
+weekly cap and delivered nothing — and they did not fall through either,
+because the disabled rule had already matched them. **Switching off a message
+quietly ate its audience.** Template state is now read *before* deciding and
+ANDed into the rule's own flag, and both dashboards warn when a rule is on with
+its copy off. The same discipline is why the library gates rule 4.
+
+**How to re-verify it: `npx tsx scripts/test-daily-push.ts`.** It refuses to
+run against the production Neon endpoint, builds a synthetic cohort with FCM
+tokens registered to nothing, opts every real device out for the duration and
+restores them afterwards, drives the real engine through six runs, and cleans
+up in a `finally`. 24 assertions. This is what found gotcha 19 — the unit
+tests could not, and neither could reading the code.
+
+**Verified, and the one gap that is left.** On a real simulator against a
+local server: the customer's "Tips & offers" toggle renders, flips, persists
+and round-trips (checked in the database both ways). Via FCM validate-only:
+all three staging device tokens are live and Google accepts the real payload.
+Not verified: **a banner actually appearing on a handset** — that needs a real
+send to a real phone and somebody looking at it — and the **mobile admin
+screen has never been rendered**. Reaching it needs the 5-tap hidden entry,
+and each automated tap round-trip exceeds the gesture's 1500 ms window, so the
+counter resets; it is a tooling limit, not a product one. The screen
+typechecks and uses the platform `Switch` rather than hand-rolled geometry,
+which is the class of bug that bit the web dashboard.
+
+**Status: built, verified on staging, shipped with `enabled: false`.** The
+sequencing constraint is real — the customer opt-out ships over OTA, and while
+the canary sits at 20% most of the base would receive a daily push they cannot
+turn off. **Do not enable it until the OTA is at 100%.** Verified 2026-09-26
+against staging: the validator refuses a send hour inside quiet hours and
+disables Save; a dry run over 3 reachable customers matched 1 to LAPSED with
+the real rendered copy and correctly declined free slots on a night with none.
+
+---
+
 ## 8. File map — where things live
 
 **Server / shared**
+- `lib/daily-push-rules.ts` ↔ `tests/daily-push.test.ts` — the daily push's decisions,
+  pure and DB-free: rule priority, the five suppression checks, quiet-hours arithmetic
+  and the settings validator that refuses a combination which could never fire. The
+  engine (`lib/daily-push.ts`), the cron and the admin dry run all call these, so there
+  is one verdict rather than three. Its `inQuietHours` is a deliberate duplicate of the
+  challenge board's, pinned by a parity test — see the note in the file for why four
+  lines beat the coupling. §7c has the rest.
 - `lib/ist.ts` — IST calendar arithmetic that does not read the host timezone.
   **Any date bucketing on money must go through this**, never through JS local
   getters — see gotcha 18 for what that cost. Mirrors the SQL side's

@@ -6,10 +6,18 @@ import { db } from "@/lib/db";
  *
  *   - AnalyticsEvent  → ANALYTICS_RAW_RETENTION_DAYS (default 90)
  *   - ServerActionLog → SERVER_LOG_RETENTION_DAYS   (default 90)
+ *   - DailyPushSend   → DAILY_PUSH_RETENTION_DAYS   (default 90)
  *
  * AnalyticsSession + MetricRollup + UserCohort are kept indefinitely
  * (rollups are tiny; sessions are useful for retention queries;
  * cohorts are immutable).
+ *
+ * DailyPushSend is bounded rather than kept: the engine only ever reads
+ * the trailing seven days (the weekly cap) plus today (idempotency), so
+ * everything older is history the admin dashboard summarises and nothing
+ * depends on. The floor below is deliberately far above what the engine
+ * needs — a retention window set to 3 days would silently uncap the
+ * whole module, which is a worse failure than a large table.
  *
  * Auth: Bearer CRON_SECRET (same convention as the other crons).
  */
@@ -69,13 +77,26 @@ async function handle(request: Request) {
 
   const analyticsDays = retentionDays("ANALYTICS_RAW_RETENTION_DAYS");
   const serverLogDays = retentionDays("SERVER_LOG_RETENTION_DAYS");
+  // Floored at 30, whatever the env says. The daily push reads the
+  // trailing 7 days to enforce its per-person weekly cap, so a retention
+  // window shorter than that would not save space — it would delete the
+  // evidence the cap is counted from and quietly let the module send
+  // without limit. Never let an operations knob disable a guard.
+  const dailyPushDays = Math.max(30, retentionDays("DAILY_PUSH_RETENTION_DAYS"));
 
   const analyticsCutoff = cutoffDate(analyticsDays);
   const serverLogCutoff = cutoffDate(serverLogDays);
+  const dailyPushCutoff = cutoffDate(dailyPushDays);
 
-  const [analyticsDeleted, serverLogsDeleted] = await Promise.all([
+  const [analyticsDeleted, serverLogsDeleted, dailyPushDeleted] = await Promise.all([
     purgeTableByOccurredAt("AnalyticsEvent", analyticsCutoff),
     purgeTableByOccurredAt("ServerActionLog", serverLogCutoff),
+    db.dailyPushSend
+      .deleteMany({ where: { createdAt: { lt: dailyPushCutoff } } })
+      .then((r) => r.count)
+      // A missing table during a pre-migration deploy window must not
+      // fail the whole retention sweep, which has two other jobs.
+      .catch(() => 0),
   ]);
 
   return NextResponse.json({
@@ -88,6 +109,11 @@ async function handle(request: Request) {
       retentionDays: serverLogDays,
       cutoff: serverLogCutoff.toISOString(),
       deleted: serverLogsDeleted,
+    },
+    dailyPush: {
+      retentionDays: dailyPushDays,
+      cutoff: dailyPushCutoff.toISOString(),
+      deleted: dailyPushDeleted,
     },
     timestamp: new Date().toISOString(),
   });

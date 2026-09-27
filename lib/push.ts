@@ -142,9 +142,19 @@ export interface SendResult {
  */
 export interface DispatchMeta {
   scope?: "customer" | "admin";
-  source?: "event" | "broadcast" | "test";
+  source?: "event" | "broadcast" | "test" | "scheduled";
   sentByAdminId?: string | null;
   audience?: string | null;
+  /**
+   * The single recipient, when there was one.
+   *
+   * Set automatically by sendToUser and left null by every fan-out, so
+   * a dispatch row keeps describing a SEND rather than pretending to
+   * describe a person. What it buys is one question the aggregate rows
+   * could never answer — "how many pushes has this user had today?" —
+   * which the daily push's guards are built on.
+   */
+  userId?: string | null;
 }
 
 // Best-effort: record one row per dispatch for analytics. Never throws —
@@ -162,6 +172,7 @@ async function logDispatch(
         source: meta.source ?? "event",
         audience: meta.audience ?? null,
         sentByAdminId: meta.sentByAdminId ?? null,
+        userId: meta.userId ?? null,
         title: payload.title.slice(0, 200),
         body: payload.body.slice(0, 500),
         attempted: result.attempted,
@@ -199,6 +210,10 @@ export async function sendToUser(
     scope: "customer",
     source: "event",
     ...meta,
+    // After the spread, not inside it: this is the one send that always
+    // knows who it reached, and a caller's meta must not be able to
+    // mislabel the recipient of a targeted push.
+    userId,
   });
 }
 

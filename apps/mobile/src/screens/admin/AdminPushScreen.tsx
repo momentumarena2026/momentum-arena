@@ -28,6 +28,7 @@ import {
   Trash2,
   Loader2,
   SmartphoneCharging,
+  CalendarClock,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -340,6 +341,23 @@ export function AdminPushScreen() {
             />
           </View>
         )}
+
+        {/* The daily push — the one scheduled, non-transactional send.
+            Sits above the templates entry because it is the one an admin
+            comes here to check on, and the only one that can reach the
+            whole customer base on a clock rather than on an event. */}
+        <Pressable
+          style={styles.manageRow}
+          onPress={() => navigation.navigate("AdminDailyPush")}
+        >
+          <View style={styles.manageLeft}>
+            <CalendarClock size={16} color={colors.zinc400} />
+            <Text variant="small" color={colors.foreground} weight="500">
+              Daily push
+            </Text>
+          </View>
+          <ChevronRight size={16} color={colors.zinc500} />
+        </Pressable>
 
         {/* Automated (event-triggered) templates entry */}
         <Pressable

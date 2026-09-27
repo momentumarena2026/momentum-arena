@@ -29,6 +29,7 @@ import {
   Users,
   Wallet,
   Trophy,
+  CalendarClock,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -323,6 +324,13 @@ const GROUPS: Group[] = [
         icon: ic(Bell),
         perm: "MANAGE_PUSH",
         onPress: (nav) => nav.navigate("AdminPush"),
+      },
+      {
+        label: "Daily push",
+        sub: "The scheduled nudge — rules, guards, dry run",
+        icon: ic(CalendarClock),
+        perm: "MANAGE_PUSH",
+        onPress: (nav) => nav.navigate("AdminDailyPush"),
       },
       {
         label: "Auto push messages",

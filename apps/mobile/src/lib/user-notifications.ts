@@ -31,3 +31,24 @@ export const notificationsApi = {
   markAllRead: () =>
     api.post<{ ok: true }>("/api/mobile/notifications", {}),
 };
+
+/**
+ * What the customer has chosen to hear about.
+ *
+ * One switch, and it covers exactly one thing: the arena's daily nudge.
+ * Booking confirmations, reminders and match updates are not behind it
+ * and must never be — a single "notifications" switch that silenced
+ * those too would send anyone who wanted less marketing to the OS
+ * toggle, which kills everything, permanently, somewhere the arena
+ * cannot see or undo.
+ */
+export interface NotificationPrefs {
+  /** true = they want the daily push. */
+  offers: boolean;
+}
+
+export const notificationPrefsApi = {
+  get: () => api.get<NotificationPrefs>("/api/mobile/me/preferences"),
+  set: (offers: boolean) =>
+    api.patch<NotificationPrefs>("/api/mobile/me/preferences", { offers }),
+};
