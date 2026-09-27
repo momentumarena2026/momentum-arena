@@ -40,7 +40,9 @@ export interface DailyPushAdminView {
   settings: DailyPushSettings;
   reachable: number;
   optedOut: number;
-  lastWeekByRule: { rule: string; label: string; count: number }[];
+  /** copyOff = the rule is on but its message is switched off on the
+   *  templates page, so nobody matches it. */
+  lastWeekByRule: { rule: string; label: string; count: number; copyOff: boolean }[];
   lastSentAt: string | null;
 }
 

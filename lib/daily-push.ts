@@ -218,6 +218,70 @@ export interface DailyPushRun {
   ranAt: string;
 }
 
+/**
+ * Which of the four messages an admin has switched off.
+ *
+ * ── WHY THIS HAS TO BE READ BEFORE DECIDING, NOT BEFORE SENDING ──────
+ * There are two switches for each rule and they sit one click apart:
+ * the rule itself (on this module's page) and its copy (on the shared
+ * templates page). They read as the same action, so they must behave
+ * the same way.
+ *
+ * They did not. The engine claims a bucket BEFORE it sends, and a
+ * disabled template makes the send a no-op — so those people were
+ * marked "sent today", spent a slot against their weekly cap, and
+ * received nothing. Worse, they did not fall through to the next rule
+ * either, because the disabled rule had already matched them. Switching
+ * off a message quietly ate its audience.
+ *
+ * Folding the template state into the rule state here fixes both halves
+ * at once: a rule whose copy is off is simply not a rule, so matchRule
+ * moves to the next one exactly as it would for a rule the admin
+ * switched off directly.
+ * ──────────────────────────────────────────────────────────────────────
+ */
+export async function templateEnabledByRule(): Promise<Record<DailyPushRuleKey, boolean>> {
+  const all: Record<DailyPushRuleKey, boolean> = {
+    PASS_EXPIRY: true,
+    NEVER_BOOKED: true,
+    LAPSED: true,
+    FREE_SLOTS: true,
+  };
+  try {
+    const rows = await db.pushTemplate.findMany({
+      where: { key: { in: Object.values(TEMPLATE_FOR) } },
+      select: { key: true, enabled: true },
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r.enabled]));
+    for (const rule of Object.keys(all) as DailyPushRuleKey[]) {
+      // An absent row means defaults, and the default is enabled.
+      all[rule] = byKey.get(TEMPLATE_FOR[rule]) ?? true;
+    }
+  } catch (err) {
+    // Same reasoning as renderPushTemplate: a lookup failure must not
+    // silence the module, only fall back to the registry defaults.
+    console.warn(
+      "[daily-push] template state lookup failed, assuming all enabled:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+  return all;
+}
+
+/** Fold "is the copy switched on?" into "is the rule switched on?". */
+function withTemplateState(
+  limits: DailyPushLimits,
+  live: Record<DailyPushRuleKey, boolean>,
+): DailyPushLimits {
+  return {
+    ...limits,
+    passExpiry: { ...limits.passExpiry, enabled: limits.passExpiry.enabled && live.PASS_EXPIRY },
+    neverBooked: { ...limits.neverBooked, enabled: limits.neverBooked.enabled && live.NEVER_BOOKED },
+    lapsed: { ...limits.lapsed, enabled: limits.lapsed.enabled && live.LAPSED },
+    freeSlots: { ...limits.freeSlots, enabled: limits.freeSlots.enabled && live.FREE_SLOTS },
+  };
+}
+
 /** Which template carries each rule. PASS_EXPIRY reuses the orphan. */
 const TEMPLATE_FOR: Record<DailyPushRuleKey, "pass_expiring_soon" | "daily_never_booked" | "daily_lapsed" | "daily_free_slots"> = {
   PASS_EXPIRY: "pass_expiring_soon",
@@ -254,7 +318,10 @@ export async function runDailyPush(
 ): Promise<DailyPushRun> {
   const now = opts.now ?? new Date();
   const dryRun = opts.dryRun ?? false;
-  const limits = await loadDailyPushSettings();
+  // The rule switch and the copy switch are ANDed together before a
+  // single decision is made — see templateEnabledByRule for the bug
+  // that cost.
+  const limits = withTemplateState(await loadDailyPushSettings(), await templateEnabledByRule());
   const ranAt = now.toISOString();
 
   const empty = (refusal: string | null): DailyPushRun => ({

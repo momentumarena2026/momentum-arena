@@ -183,6 +183,7 @@ export function AdminDailyPushScreen() {
             n={1}
             title="Pass about to expire"
             sent={d.lastWeekByRule.find((r) => r.rule === "PASS_EXPIRY")?.count ?? 0}
+            copyOff={d.lastWeekByRule.find((r) => r.rule === "PASS_EXPIRY")?.copyOff ?? false}
             value={s.passExpiry.enabled}
             onChange={(v) => setS({ ...s, passExpiry: { ...s.passExpiry, enabled: v } })}
           >
@@ -197,6 +198,7 @@ export function AdminDailyPushScreen() {
             n={2}
             title="Installed but never booked"
             sent={d.lastWeekByRule.find((r) => r.rule === "NEVER_BOOKED")?.count ?? 0}
+            copyOff={d.lastWeekByRule.find((r) => r.rule === "NEVER_BOOKED")?.copyOff ?? false}
             value={s.neverBooked.enabled}
             onChange={(v) => setS({ ...s, neverBooked: { ...s.neverBooked, enabled: v } })}
           >
@@ -211,6 +213,7 @@ export function AdminDailyPushScreen() {
             n={3}
             title="Booked before, gone quiet"
             sent={d.lastWeekByRule.find((r) => r.rule === "LAPSED")?.count ?? 0}
+            copyOff={d.lastWeekByRule.find((r) => r.rule === "LAPSED")?.copyOff ?? false}
             value={s.lapsed.enabled}
             onChange={(v) => setS({ ...s, lapsed: { ...s.lapsed, enabled: v } })}
           >
@@ -225,6 +228,7 @@ export function AdminDailyPushScreen() {
             n={4}
             title="Free slots tonight"
             sent={d.lastWeekByRule.find((r) => r.rule === "FREE_SLOTS")?.count ?? 0}
+            copyOff={d.lastWeekByRule.find((r) => r.rule === "FREE_SLOTS")?.copyOff ?? false}
             value={s.freeSlots.enabled}
             onChange={(v) => setS({ ...s, freeSlots: { ...s.freeSlots, enabled: v } })}
           >
@@ -389,6 +393,7 @@ function Rule({
   title,
   sent,
   value,
+  copyOff,
   onChange,
   children,
 }: {
@@ -396,6 +401,7 @@ function Rule({
   title: string;
   sent: number;
   value: boolean;
+  copyOff: boolean;
   onChange: (v: boolean) => void;
   children: React.ReactNode;
 }) {
@@ -420,6 +426,12 @@ function Rule({
           thumbColor="#fff"
         />
       </View>
+      {value && copyOff ? (
+        <Text style={styles.copyOff}>
+          On, but its message is switched off under Auto push messages — nobody
+          matches it, they fall through to the next rule.
+        </Text>
+      ) : null}
       {value ? <View style={{ gap: spacing["2"] }}>{children}</View> : null}
     </View>
   );
@@ -503,6 +515,16 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 14 },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   note: { fontSize: 11, color: colors.zinc400 },
+  copyOff: {
+    fontSize: 11,
+    color: "#fcd34d",
+    borderWidth: 1,
+    borderColor: "rgba(252,211,77,0.30)",
+    backgroundColor: "rgba(252,211,77,0.08)",
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing["2"],
+    paddingVertical: spacing["2"],
+  },
   fieldLabel: { fontSize: 11, color: colors.zinc400, marginBottom: 4 },
   rule: {
     borderTopWidth: 1,

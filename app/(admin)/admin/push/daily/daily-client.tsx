@@ -211,6 +211,7 @@ export function DailyPushClient({ view }: { view: DailyPushAdminView }) {
           n={1}
           title="Pass about to expire"
           sent={view.lastWeekByRule.find((r) => r.rule === "PASS_EXPIRY")?.count ?? 0}
+          copyOff={view.lastWeekByRule.find((r) => r.rule === "PASS_EXPIRY")?.copyOff ?? false}
           enabled={s.passExpiry.enabled}
           onToggle={(v) => setS({ ...s, passExpiry: { ...s.passExpiry, enabled: v } })}
           note="The only rule where saying nothing costs the customer money rather than costing the arena a booking."
@@ -228,6 +229,7 @@ export function DailyPushClient({ view }: { view: DailyPushAdminView }) {
           n={2}
           title="Installed but never booked"
           sent={view.lastWeekByRule.find((r) => r.rule === "NEVER_BOOKED")?.count ?? 0}
+          copyOff={view.lastWeekByRule.find((r) => r.rule === "NEVER_BOOKED")?.copyOff ?? false}
           enabled={s.neverBooked.enabled}
           onToggle={(v) => setS({ ...s, neverBooked: { ...s.neverBooked, enabled: v } })}
           note="A stranger. Keep the copy gentle — this is the group most likely to read a nudge as spam."
@@ -245,6 +247,7 @@ export function DailyPushClient({ view }: { view: DailyPushAdminView }) {
           n={3}
           title="Booked before, gone quiet"
           sent={view.lastWeekByRule.find((r) => r.rule === "LAPSED")?.count ?? 0}
+          copyOff={view.lastWeekByRule.find((r) => r.rule === "LAPSED")?.copyOff ?? false}
           enabled={s.lapsed.enabled}
           onToggle={(v) => setS({ ...s, lapsed: { ...s.lapsed, enabled: v } })}
           note="Win-back. The audience shrinks on its own as it works."
@@ -262,6 +265,7 @@ export function DailyPushClient({ view }: { view: DailyPushAdminView }) {
           n={4}
           title="Free slots tonight"
           sent={view.lastWeekByRule.find((r) => r.rule === "FREE_SLOTS")?.count ?? 0}
+          copyOff={view.lastWeekByRule.find((r) => r.rule === "FREE_SLOTS")?.copyOff ?? false}
           enabled={s.freeSlots.enabled}
           onToggle={(v) => setS({ ...s, freeSlots: { ...s.freeSlots, enabled: v } })}
           note="The fallback for everyone no rule above matched. Only fires when the evening genuinely has slots — a full night says nothing rather than inventing availability."
@@ -477,6 +481,7 @@ function Rule({
   note,
   sent,
   enabled,
+  copyOff,
   onToggle,
   children,
 }: {
@@ -485,6 +490,7 @@ function Rule({
   note: string;
   sent: number;
   enabled: boolean;
+  copyOff: boolean;
   onToggle: (v: boolean) => void;
   children: React.ReactNode;
 }) {
@@ -519,6 +525,15 @@ function Rule({
               <Switch value={enabled} onChange={onToggle} />
             </div>
           </div>
+          {enabled && copyOff && (
+            <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-300">
+              This rule is on but its message is switched off on{" "}
+              <Link href="/admin/push/templates" className="underline">
+                Automated messages
+              </Link>
+              . Nobody matches it — they fall through to the next rule instead.
+            </p>
+          )}
           {enabled && <div className="mt-3">{children}</div>}
         </div>
       </div>

@@ -252,6 +252,30 @@ async function main() {
     await booking(uRecent.id, daysAgo(3));
     console.log(`  ${uRecent.name}: played 3 days ago — should fall through to the fallback`);
 
+    /**
+     * Give every synthetic user a device again.
+     *
+     * Queried by tag rather than from a list, so a user created later in
+     * the script is covered without anybody remembering to add them.
+     */
+    const restoreDevices = async () => {
+      const all = await db.user.findMany({
+        where: { name: { startsWith: TAG } },
+        select: { id: true, _count: { select: { pushDevices: true } } },
+      });
+      for (const u of all) {
+        if (u._count.pushDevices > 0) continue;
+        await db.pushDevice.create({
+          data: {
+            userId: u.id,
+            token: `fZZtest${Math.random().toString(36).slice(2)}:APA91b${"y".repeat(134)}`,
+            platform: "android",
+            appVersion: TAG,
+          },
+        });
+      }
+    };
+
     // ── Configure and run for real ───────────────────────────────────
     console.log("\n── Enabling the module at the current IST hour ──");
     const cfg = {
@@ -352,22 +376,11 @@ async function main() {
 
     // ── Idempotency ──────────────────────────────────────────────────
     console.log("\n── RUN 2 (same IST day — must send to nobody) ──");
-    // FCM pruned the invalid tokens, which is itself correct behaviour.
-    // Re-add them so run 2 genuinely reaches the suppression check
-    // rather than trivially finding no audience.
-    for (const u of [uPass, uNever, uLapsed, uRecent]) {
-      const has = await db.pushDevice.count({ where: { userId: u.id } });
-      if (has === 0) {
-        await db.pushDevice.create({
-          data: {
-            userId: u.id,
-            token: `fZZtest${Math.random().toString(36).slice(2)}:APA91b${"y".repeat(134)}`,
-            platform: "android",
-            appVersion: TAG,
-          },
-        });
-      }
-    }
+    // FCM prunes the invalid tokens on every send, which is itself
+    // correct behaviour — but it empties the audience, so each later
+    // run would trivially "pass" by having nobody to consider. Restore
+    // before any run whose point is a suppression check.
+    await restoreDevices();
     const r2 = await runDailyPush({ now });
     console.log(JSON.stringify({ sent: r2.sent, skipped: r2.skipped }, null, 2));
     check("run 2 sent to nobody", r2.sent === 0, `sent ${r2.sent}`);
@@ -409,6 +422,51 @@ async function main() {
       (await db.dailyPushSend.count({ where: { userId: uLapsed.id, sentOn: dayKey } })) === 1,
     );
 
+    // ── A switched-off MESSAGE must behave like a switched-off RULE ──
+    //
+    // The trap this pins: the engine claims a bucket before it sends,
+    // so a disabled template used to mark its audience "sent today",
+    // spend a slot against their weekly cap and deliver nothing — and
+    // they did not fall through either, because the rule had already
+    // matched them. Switching off a message quietly ate its audience.
+    console.log("\n── RUN 2c (LAPSED's copy switched off — must fall through) ──");
+    await db.dailyPushSend.deleteMany({ where: { user: { name: { startsWith: TAG } } } });
+    const priorTemplate = await db.pushTemplate.findUnique({ where: { key: "daily_lapsed" } });
+    await db.pushTemplate.upsert({
+      where: { key: "daily_lapsed" },
+      create: { key: "daily_lapsed", enabled: false },
+      update: { enabled: false },
+    });
+    await restoreDevices();
+    const r2c = await runDailyPush({ now });
+    const lapsedRule = await ruleOf(uLapsed.id);
+    console.log(JSON.stringify({ sent: r2c.sent, buckets: r2c.buckets.map((b) => b.rule) }, null, 2));
+    check(
+      "no LAPSED bucket was built at all",
+      !r2c.buckets.some((b) => b.rule === "LAPSED"),
+    );
+    check(
+      "the lapsed user was NOT claimed under a message that cannot send",
+      lapsedRule !== "LAPSED",
+      `claimed as ${lapsedRule}`,
+    );
+    check(
+      "they fell through to the venue-wide rule, or to nothing if it is quiet",
+      lapsedRule === "FREE_SLOTS" || lapsedRule === null,
+      `got ${lapsedRule}`,
+    );
+    // Restore the template before anything else runs.
+    if (priorTemplate) {
+      await db.pushTemplate.update({ where: { key: "daily_lapsed" }, data: { enabled: priorTemplate.enabled } });
+    } else {
+      await db.pushTemplate.deleteMany({ where: { key: "daily_lapsed" } });
+    }
+    await db.dailyPushSend.deleteMany({ where: { user: { name: { startsWith: TAG } } } });
+    // Re-establish the run-1 state the cap test below expects, with a
+    // live audience to do it with.
+    await restoreDevices();
+    await runDailyPush({ now });
+
     // ── Weekly cap ───────────────────────────────────────────────────
     console.log("\n── RUN 3 (weekly cap) ──");
     // Backdate the cohort's claims to yesterday so they are eligible
@@ -422,6 +480,7 @@ async function main() {
       where: { id: "singleton" },
       data: { maxPerUserPerWeek: 1 },
     });
+    await restoreDevices();
     const r3 = await runDailyPush({ now });
     console.log(JSON.stringify({ sent: r3.sent, skipped: r3.skipped }, null, 2));
     check("run 3 sent to nobody", r3.sent === 0, `sent ${r3.sent}`);

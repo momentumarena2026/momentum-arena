@@ -7,6 +7,7 @@ import {
   DEFAULT_DAILY_PUSH,
   loadDailyPushSettings,
   runDailyPush,
+  templateEnabledByRule,
   type DailyPushRun,
 } from "@/lib/daily-push";
 import {
@@ -24,8 +25,13 @@ export interface DailyPushAdminView {
   reachable: number;
   /** ...of whom, how many have switched the daily push off. */
   optedOut: number;
-  /** Sends in the trailing seven days, by rule. */
-  lastWeekByRule: { rule: string; label: string; count: number }[];
+  /** Sends in the trailing seven days, by rule.
+   *
+   *  `copyOff` is the answer to a question the page could not previously
+   *  ask: is this rule's MESSAGE switched off on the templates page? A
+   *  rule that is on with its copy off sends nothing, and before this
+   *  the dashboard showed it as fully live. */
+  lastWeekByRule: { rule: string; label: string; count: number; copyOff: boolean }[];
   /** The most recent send, so an admin can see it is actually running. */
   lastSentAt: string | null;
 }
@@ -34,7 +40,7 @@ export async function getDailyPushAdminView(): Promise<DailyPushAdminView> {
   await requireAdmin(PERMISSION);
 
   const weekAgo = new Date(Date.now() - 7 * 86400_000);
-  const [settings, deviceUsers, recent, latest] = await Promise.all([
+  const [settings, deviceUsers, recent, latest, copyLive] = await Promise.all([
     loadDailyPushSettings(),
     db.pushDevice.findMany({ select: { userId: true }, distinct: ["userId"] }),
     db.dailyPushSend.groupBy({
@@ -43,6 +49,7 @@ export async function getDailyPushAdminView(): Promise<DailyPushAdminView> {
       _count: { _all: true },
     }),
     db.dailyPushSend.findFirst({ orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+    templateEnabledByRule(),
   ]);
 
   const reachableIds = deviceUsers.map((d) => d.userId);
@@ -62,6 +69,7 @@ export async function getDailyPushAdminView(): Promise<DailyPushAdminView> {
       rule,
       label: RULE_LABEL[rule],
       count: counts.get(rule) ?? 0,
+      copyOff: !copyLive[rule],
     })),
     lastSentAt: latest?.createdAt.toISOString() ?? null,
   };
