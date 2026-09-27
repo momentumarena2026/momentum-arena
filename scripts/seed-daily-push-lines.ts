@@ -27,14 +27,22 @@ async function main() {
   const url = process.env.DATABASE_URL ?? "";
   if (!url) throw new Error("DATABASE_URL is not set.");
   const isProduction = url.includes(PRODUCTION_ENDPOINT);
-  if (isProduction && !process.argv.includes("--allow-production")) {
+  const listOnly = process.argv.includes("--list");
+
+  // The guard is on WRITING, not on looking. It was on the whole script
+  // to begin with, which failed the workflow's own "show what is now
+  // installed" step immediately after a successful seed — a red run over
+  // a read-only listing, on work that had in fact succeeded. Refusing to
+  // let somebody READ production content protects nothing and hides the
+  // confirmation they came for.
+  if (isProduction && !listOnly && !process.argv.includes("--allow-production")) {
     throw new Error(
       "REFUSING TO RUN: that is the PRODUCTION branch. Pass --allow-production if you mean it.",
     );
   }
-  if (isProduction) console.log("Writing to PRODUCTION, explicitly allowed.\n");
+  if (isProduction && !listOnly) console.log("Writing to PRODUCTION, explicitly allowed.\n");
 
-  if (process.argv.includes("--list")) {
+  if (listOnly) {
     const rows = await db.dailyPushLine.findMany({
       orderBy: [{ enabled: "desc" }, { lastUsedAt: "asc" }],
       select: { title: true, body: true, tags: true, enabled: true, useCount: true, lastUsedAt: true },
