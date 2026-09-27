@@ -45,6 +45,11 @@ export type Challenge = {
   counterCountChallenger: number;
   counterCountAcceptor: number;
   bookingId: string | null;
+  /** Loser-pays, as posted. The board badge reads both of these: a card
+   *  saying "loser pays" without saying whether it was agreed is the
+   *  half-truth that sends two captains to the ground disagreeing. */
+  loserPays: boolean;
+  loserPaysAgreed: boolean | null;
   createdBy: { id: string; name: string | null } | null;
   acceptedBy: { id: string; name: string | null } | null;
   windows: ChallengeWindow[];
@@ -112,10 +117,13 @@ export function trackChallenge(
 export async function fetchChallengeBoard(
   sport?: string,
   settingsOnly = false,
+  /** Show only matches posted as loser-pays. */
+  loserPaysOnly = false,
 ): Promise<ChallengeBoard> {
   const params = new URLSearchParams();
   if (sport) params.set("sport", sport);
   if (settingsOnly) params.set("for", "home");
+  if (loserPaysOnly) params.set("loserPays", "1");
   const q = params.toString();
   return api.get<ChallengeBoard>(`/api/mobile/challenges${q ? `?${q}` : ""}`);
 }
@@ -182,6 +190,22 @@ export async function fetchChallenge(id: string): Promise<{
     saving: number | null;
     date: string | null;
   } | null;
+  /**
+   * Loser-pays, already decided for THIS viewer by the server.
+   *
+   * The screen renders `phrase` and obeys the two booleans; it does not
+   * compose its own sentence. One state described two ways by two
+   * surfaces is the mistake the cricket engines made.
+   */
+  loserPays: {
+    proposed: boolean;
+    state: "NOT_PROPOSED" | "PROPOSED" | "AGREED" | "DECLINED";
+    phrase: string | null;
+    /** The poster may still change it — nobody has taken the match. */
+    canToggle: boolean;
+    /** Show the tick box in the payment sheet. */
+    askOnPay: boolean;
+  };
 }> {
   return api.get(`/api/mobile/challenges?id=${encodeURIComponent(id)}`);
 }
@@ -190,8 +214,31 @@ export async function createChallengePayOrder(
   challengeId: string,
   /** Present when this payment IS the acceptance of that window. */
   windowId?: string,
+  /** The acceptor's answer to loser-pays, ticked in the same sheet.
+   *  Leaving it undefined is NOT "no" — it means the question was never
+   *  put to them, which is a different thing to show the poster. */
+  loserPaysAgreed?: boolean,
 ): Promise<{ orderId: string; keyId: string; amount: number; courtLabel: string | null }> {
-  return api.post("/api/mobile/challenges", { op: "pay-order", challengeId, windowId });
+  return api.post("/api/mobile/challenges", {
+    op: "pay-order",
+    challengeId,
+    windowId,
+    loserPaysAgreed,
+  });
+}
+
+/**
+ * The poster turning loser-pays on or off.
+ *
+ * Only while the match is still on the board — once somebody has taken
+ * it the server refuses, because the terms are part of what they
+ * agreed to. A signal between two captains; it moves no money.
+ */
+export async function setLoserPays(
+  challengeId: string,
+  loserPays: boolean,
+): Promise<{ ok?: boolean; loserPays?: boolean; error?: string }> {
+  return api.post("/api/mobile/challenges", { op: "loser-pays", challengeId, loserPays });
 }
 
 /**
@@ -361,6 +408,8 @@ export async function postChallenge(input: {
   playerCount: number;
   notes?: string | null;
   windows: ProposedWindow[];
+  /** Propose loser-pays. Signal only — it changes no price. */
+  loserPays?: boolean;
 }): Promise<{ ok?: boolean; id?: string; error?: string }> {
   return api.post("/api/mobile/challenges", { op: "post", ...input });
 }

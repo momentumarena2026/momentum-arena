@@ -64,6 +64,13 @@ const ADMIN_CHALLENGE_SELECT = {
   expiresAt: true,
   createdAt: true,
   withdrawReason: true,
+  // Read-only here on purpose. The arena is not party to the
+  // settlement and has nothing to adjudicate — this exists so the desk
+  // can see the terms when two captains argue about them at the
+  // counter, not so the desk can change them.
+  loserPays: true,
+  loserPaysAgreed: true,
+  loserPaysAnsweredAt: true,
   booking: { select: { status: true } },
   createdBy: { select: { name: true, phone: true } },
   acceptedBy: { select: { name: true, phone: true } },

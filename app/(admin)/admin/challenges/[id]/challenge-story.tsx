@@ -148,6 +148,9 @@ export function ChallengeStory({
       announcedAt: string | null;
       acceptedAt: string | null;
       withdrawReason: string | null;
+      loserPays: boolean;
+      loserPaysAgreed: boolean | null;
+      loserPaysAnsweredAt: string | null;
       bookingId: string | null;
       agreedWindowId: string | null;
       counterCountChallenger: number;
@@ -275,6 +278,22 @@ export function ChallengeStory({
       c.withdrawReason
         ? `Pulled: ${c.withdrawReason}`
         : "Pulled by the captain, or taken down by the arena.",
+    );
+  }
+  // Loser-pays. The desk cannot change it and is not asked to settle
+  // it — this line exists for the moment two captains disagree at the
+  // counter and somebody has to say what was actually agreed, and when.
+  if (c.loserPays) {
+    reading.push(
+      c.loserPaysAgreed === true
+        ? `Posted as LOSER PAYS and the acceptor agreed${
+            c.loserPaysAnsweredAt ? ` at ${ist(new Date(c.loserPaysAnsweredAt))}` : ""
+          }. The losing side owes the winners their half AFTER the match — settled between the two teams, not by the arena.`
+        : c.loserPaysAgreed === false
+          ? `Posted as LOSER PAYS and the acceptor turned it down${
+              c.loserPaysAnsweredAt ? ` at ${ist(new Date(c.loserPaysAnsweredAt))}` : ""
+            }. Normal terms: each side paid their own half and that is the end of it.`
+          : "Posted as LOSER PAYS and nobody has answered yet — whoever takes the match will.",
     );
   }
   if (owed.length > 0) {

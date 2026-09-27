@@ -95,7 +95,11 @@ export async function GET(request: NextRequest) {
     });
   }
   const [board, mine] = await Promise.all([
-    listOpenChallenges({ sport: url.searchParams.get("sport") || undefined, viewerId: user.id }),
+    listOpenChallenges({
+      sport: url.searchParams.get("sport") || undefined,
+      viewerId: user.id,
+      loserPaysOnly: url.searchParams.get("loserPays") === "1",
+    }),
     listMyChallenges(user.id),
   ]);
   return NextResponse.json({
