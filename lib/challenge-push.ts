@@ -273,6 +273,19 @@ export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
     title: "{team} can't play {date} {hour}",
     body: "They turned that time down. Their own times are still up, so take one of those if any of them work.",
   },
+  // ── Loser pays. One message, back to the poster, either way.
+  //
+  // Both answers are sent for the same reason the suggestion pair are:
+  // a poster who asked for loser-pays and hears nothing will turn up
+  // believing it was agreed. "No" is the more important of the two.
+  loserPaysYes: {
+    title: "{team} are in for loser-pays",
+    body: "{date} {hour} is on. Losing side hands the winners ₹{amount} after the match — settle it between yourselves, the arena isn't involved.",
+  },
+  loserPaysNo: {
+    title: "{team} passed on loser-pays",
+    body: "{date} {hour} is still on, just on normal terms — you've each paid your own half and that's that.",
+  },
   agreed: {
     title: "Match on — your half is due",
     body: "{name} is in for {date} {hour}. The court is NOT held until you have BOTH paid your half — so somebody else can still book it. Pay yours and nudge them to pay theirs.",
@@ -296,6 +309,8 @@ export const DEFAULT_LIFECYCLE_PUSHES: Record<LifecyclePush, PushTemplate> = {
 };
 
 export type LifecyclePush =
+  | "loserPaysYes"
+  | "loserPaysNo"
   | "remindHalf"
   | "remindTake"
   | "suggested"
@@ -307,8 +322,16 @@ export type LifecyclePush =
   | "slotLost"
   | "refundOwed";
 
-/** How each of the five reads in the admin screen. */
+/** How each one reads in the admin screen. */
 export const LIFECYCLE_LABELS: Record<LifecyclePush, { title: string; desc: string }> = {
+  loserPaysYes: {
+    title: "Loser-pays — they're in",
+    desc: "Back to the poster when whoever took the match agreed to loser-pays. The arena is not party to the settlement, so the message says the amount and says plainly that it is between the two of them.",
+  },
+  loserPaysNo: {
+    title: "Loser-pays — they passed",
+    desc: "Back to the poster when the acceptor turned loser-pays down. The one that matters more of the two: a poster who asked and heard nothing will turn up at the ground believing it was agreed.",
+  },
   remindHalf: {
     title: "Reminder — your half is still due",
     desc: "Repeated, on the interval below, to the captain who owes after the other side has paid. This is the one with money already at risk: their half is what buys the court, and until it lands the hour can still be sold.",

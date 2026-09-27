@@ -5,7 +5,11 @@ import {
   challengeLimits,
   logChallengeEvent,
 } from "@/lib/challenges";
-import { suggestRefusal, windowIsTakeable } from "@/lib/challenge-rules";
+import { suggestRefusal, windowIsTakeable,
+  loserPaysState,
+  loserPaysPhrase,
+  loserPaysToggleRefusal,
+} from "@/lib/challenge-rules";
 import { getOperatingHours } from "@/lib/court-config";
 import { challengeQuote, paymentHoldFor } from "@/lib/challenge-payments";
 import { liveOfferFor, spinOutcomeFor, spinConfig } from "@/lib/challenge-spin";
@@ -155,8 +159,39 @@ export async function challengeDetailPayload(
     const offer = await liveOfferFor(id, viewerId).catch(() => null);
     const spin = await spinOutcomeFor(id, viewerId).catch(() => null);
     const liveSettings = await challengeSettings();
+    /**
+     * Loser-pays, already decided for this viewer.
+     *
+     * Derived here rather than in each client so the app, the admin
+     * preview and anything built later cannot describe the same state
+     * in three different ways — the mistake the two cricket engines
+     * made and this codebase paid for twice.
+     */
+    const lpState = loserPaysState(one);
+    const lpViewer: "poster" | "acceptor" | "stranger" =
+      one.createdByUserId === viewerId
+        ? "poster"
+        : one.acceptedByUserId === viewerId
+          ? "acceptor"
+          : "stranger";
+    const loserPays = {
+      proposed: one.loserPays,
+      state: lpState,
+      /** Null when there is nothing to say, which the UI treats as "hide". */
+      phrase: loserPaysPhrase(lpState, lpViewer, quote?.yourShare ?? null),
+      /** The poster may still change it while nobody has taken the match. */
+      canToggle:
+        loserPaysToggleRefusal(one, viewerId, !!hold) === null,
+      /** Shown in the payment sheet as a tick box for the acceptor. */
+      askOnPay:
+        one.loserPays &&
+        one.loserPaysAgreed === null &&
+        one.createdByUserId !== viewerId,
+    };
+
     return {
       challenge: one,
+      loserPays,
       viewerId: viewerId,
       counterBlock,
       quote,

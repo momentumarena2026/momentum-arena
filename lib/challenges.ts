@@ -8,6 +8,7 @@ import {
   acceptRefusal,
   suggestRefusal,
   suggestAnswerRefusal,
+  loserPaysToggleRefusal,
   windowIsTakeable,
   windowAwaitsPoster,
   withdrawRefusal,
@@ -120,6 +121,11 @@ const listSelect = {
   counterCountChallenger: true,
   counterCountAcceptor: true,
   bookingId: true,
+  // The board badge, and the filter above. Both flags travel together:
+  // a card that says "loser pays" without saying whether it was agreed
+  // is the half-truth that sends two captains to the ground disagreeing.
+  loserPays: true,
+  loserPaysAgreed: true,
   // Whether the poster has already spun, so the board card can stop
   // advertising "prize inside" on a prize that has been spent.
   spin: { select: { id: true } },
@@ -164,7 +170,11 @@ export type ChallengeRow = Awaited<ReturnType<typeof listOpenChallenges>>[number
  * `viewerId` is optional only because the admin board reads this with no
  * viewer; every app caller passes it.
  */
-export async function listOpenChallenges(args?: { sport?: string; viewerId?: string }) {
+export async function listOpenChallenges(args?: {
+  sport?: string;
+  viewerId?: string;
+  loserPaysOnly?: boolean;
+}) {
   const now = new Date();
   // Past the lead time nobody can take it, so it must not be advertised.
   // `expiryFor` pins expiry to the match start, so every challenge aged
@@ -197,6 +207,10 @@ export async function listOpenChallenges(args?: { sport?: string; viewerId?: str
       ...(args?.sport && KNOWN_SPORTS.includes(args.sport)
         ? { sport: args.sport as never }
         : {}),
+      // "Loser-pays only". A filter rather than a sort, because a captain
+      // who wants that kind of game does not want the others shown faintly
+      // — and one who does not want it is not helped by seeing them at all.
+      ...(args?.loserPaysOnly ? { loserPays: true } : {}),
     },
     select: listSelect,
     orderBy: { createdAt: "desc" },
@@ -263,6 +277,8 @@ export async function postChallenge(input: {
   playerCount: number;
   notes?: string | null;
   windows: ProposedWindow[];
+  /** Loser-pays, proposed at post time. Signal only. */
+  loserPays?: boolean;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const limits = await challengeLimits();
   const now = new Date();
@@ -310,6 +326,9 @@ export async function postChallenge(input: {
       teamName: input.teamName?.trim()?.slice(0, 60) || null,
       playerCount: input.playerCount,
       notes: input.notes?.trim()?.slice(0, 300) || null,
+      // A signal between the two captains, stored with the post. It
+      // changes no price, holds no money and cannot make a post fail.
+      loserPays: input.loserPays ?? false,
       expiresAt: expiryFor(input.windows, limits, now),
       windows: {
         create: input.windows.map((w) => ({
@@ -1040,4 +1059,154 @@ export async function announceNewChallenges(now = new Date()): Promise<number> {
     sent++;
   }
   return sent;
+}
+
+// ── Loser pays ─────────────────────────────────────────────────────
+
+/**
+ * The poster turns loser-pays on or off.
+ *
+ * A SIGNAL, and nothing else — see the note at the top of the
+ * loser-pays block in lib/challenge-rules.ts. No payment row, booking
+ * or refund is touched here, and this function cannot make a match
+ * unpostable, untakeable or unplayable. It writes one boolean.
+ *
+ * Conditional on the flag's current value so a double-tap cannot log
+ * two changes for one intent, and conditional on nobody having taken
+ * the match so the lock in `loserPaysToggleRefusal` cannot be raced by
+ * somebody paying in the same instant.
+ */
+export async function setLoserPays(
+  challengeId: string,
+  userId: string,
+  wanted: boolean,
+): Promise<{ ok: true; loserPays: boolean } | { ok: false; error: string }> {
+  const c = await db.challenge.findUnique({
+    where: { id: challengeId },
+    select: {
+      status: true,
+      createdByUserId: true,
+      acceptedByUserId: true,
+      loserPays: true,
+      payments: { where: { placedAt: { not: null } }, select: { id: true }, take: 1 },
+    },
+  });
+  if (!c) return { ok: false, error: "That challenge is gone." };
+
+  const refusal = loserPaysToggleRefusal(
+    c as never,
+    userId,
+    c.payments.length > 0,
+  );
+  if (refusal) {
+    await logChallengeEvent({ type: "REFUSED", userId, challengeId, detail: refusal });
+    return { ok: false, error: refusal };
+  }
+
+  if (c.loserPays === wanted) return { ok: true, loserPays: wanted };
+
+  // Re-check the lock inside the write. Between the read above and here
+  // somebody may have paid, and the terms would then change under a
+  // captain who had already committed money against them.
+  const claimed = await db.challenge.updateMany({
+    where: { id: challengeId, loserPays: !wanted, acceptedByUserId: null },
+    data: { loserPays: wanted },
+  });
+  if (claimed.count === 0) {
+    return {
+      ok: false,
+      error: "Somebody has taken this match — the terms are fixed now. Sort any change out between yourselves.",
+    };
+  }
+
+  await logChallengeEvent({
+    type: "LOSER_PAYS_SET",
+    userId,
+    challengeId,
+    detail: wanted ? "on" : "off",
+  });
+  return { ok: true, loserPays: wanted };
+}
+
+/**
+ * Record the acceptor's answer and tell the poster.
+ *
+ * Called from the payment path once a half from the ACCEPTOR side has
+ * actually settled — never from the checkout itself, because an
+ * abandoned payment must not record an answer from somebody who never
+ * became the acceptor. The answer travels on the payment row until
+ * then (ChallengePayment.loserPaysAgreed).
+ *
+ * Best-effort throughout: this is a message between two captains, and
+ * a failure to deliver it must never fail the payment that carried it.
+ */
+export async function recordLoserPaysAnswer(
+  challengeId: string,
+  acceptorUserId: string,
+  agreed: boolean,
+  half: number | null,
+): Promise<void> {
+  try {
+    const c = await db.challenge.findUnique({
+      where: { id: challengeId },
+      select: {
+        loserPays: true,
+        loserPaysAgreed: true,
+        createdByUserId: true,
+        teamName: true,
+        agreedWindowId: true,
+        windows: {
+          select: { id: true, date: true, startHour: true, endHour: true },
+        },
+      },
+    });
+    if (!c?.loserPays || c.loserPaysAgreed !== null) return;
+
+    // Conditional on still being unanswered — two confirmations racing
+    // must not send the poster two contradictory messages.
+    const claimed = await db.challenge.updateMany({
+      where: { id: challengeId, loserPays: true, loserPaysAgreed: null },
+      data: { loserPaysAgreed: agreed, loserPaysAnsweredAt: new Date() },
+    });
+    if (claimed.count === 0) return;
+
+    await logChallengeEvent({
+      type: "LOSER_PAYS_ANSWERED",
+      userId: acceptorUserId,
+      challengeId,
+      detail: agreed ? "agreed" : "declined",
+    });
+
+    const w =
+      c.windows.find((x) => x.id === c.agreedWindowId) ?? c.windows[0] ?? null;
+    const acceptor = await db.user.findUnique({
+      where: { id: acceptorUserId },
+      select: { name: true },
+    });
+
+    const s = await db.challengeSettings.findFirst({
+      select: { loserPaysYesPush: true, loserPaysNoPush: true },
+    });
+    const tpl = agreed
+      ? resolveTemplate(s?.loserPaysYesPush, DEFAULT_LIFECYCLE_PUSHES.loserPaysYes)
+      : resolveTemplate(s?.loserPaysNoPush, DEFAULT_LIFECYCLE_PUSHES.loserPaysNo);
+    const vars = {
+      team: acceptor?.name?.trim() || "The other team",
+      date: w ? istDayLabel(w.date) : "your match",
+      hour: w ? `${hourWord(w.startHour)}–${hourWord(w.endHour)}` : "",
+      amount: half && half > 0 ? String(half) : "their half",
+    };
+
+    await notifyUser(c.createdByUserId, {
+      type: "CHALLENGE_LOSER_PAYS",
+      title: renderPush(tpl.title, vars),
+      body: renderPush(tpl.body, vars),
+      link: `/challenges/${challengeId}`,
+    });
+  } catch (err) {
+    console.warn(
+      "[challenges] loser-pays answer not recorded:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 }

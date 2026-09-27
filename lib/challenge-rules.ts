@@ -834,3 +834,131 @@ export function reminderRefusal(args: {
   }
   return null;
 }
+
+// ── Loser pays ─────────────────────────────────────────────────────
+
+/**
+ * "Loser pays" is a SIGNAL between two captains, and nothing else.
+ *
+ * Both sides still pay their half in advance exactly as they always
+ * did. Agreeing means the losing side hands the winner's half back on
+ * the ground afterwards, so the loser has covered the court. The arena
+ * is not party to it, takes no cut, holds no stake and arbitrates
+ * nothing — which is why every function below returns a fact about
+ * *communication* and not one of them touches money.
+ *
+ * The consequence to hold on to while reading the rest: nothing here
+ * may ever block a match being posted, taken, paid for or played. If a
+ * change to this file could refuse a booking, the change is wrong.
+ */
+
+/** What the two captains have settled about loser-pays, if anything. */
+export type LoserPaysState =
+  /** The poster never asked for it. */
+  | "NOT_PROPOSED"
+  /** Asked for, and nobody has taken the match yet to answer. */
+  | "PROPOSED"
+  /** The acceptor said yes. */
+  | "AGREED"
+  /** The acceptor said no. The match is still on; the terms are not. */
+  | "DECLINED";
+
+export function loserPaysState(c: {
+  loserPays: boolean;
+  loserPaysAgreed: boolean | null;
+}): LoserPaysState {
+  if (!c.loserPays) return "NOT_PROPOSED";
+  if (c.loserPaysAgreed === true) return "AGREED";
+  if (c.loserPaysAgreed === false) return "DECLINED";
+  return "PROPOSED";
+}
+
+/**
+ * Why the poster cannot change the loser-pays flag right now — or null.
+ *
+ * Locked the moment somebody has taken the match, and that is the whole
+ * rule worth arguing about. A poster who could flip it after the fact
+ * would be changing terms the acceptor already agreed to and paid
+ * against — quietly, from their phone, with the other captain finding
+ * out at the ground. Before anyone has taken it there is nobody to
+ * mislead, so it is freely editable.
+ */
+export function loserPaysToggleRefusal(
+  c: {
+    status: ChallengeStatus;
+    createdByUserId: string;
+    acceptedByUserId: string | null;
+  },
+  userId: string,
+  /** True once any half has actually landed. */
+  anyPaymentPlaced: boolean,
+): string | null {
+  if (c.createdByUserId !== userId) {
+    return "Only the captain who posted this can set loser-pays.";
+  }
+  if (!isLive(c.status)) {
+    return "This match is no longer live.";
+  }
+  if (c.acceptedByUserId || anyPaymentPlaced) {
+    return "Somebody has taken this match — the terms are fixed now. Sort any change out between yourselves.";
+  }
+  return null;
+}
+
+/**
+ * Why this person cannot answer the loser-pays question — or null.
+ *
+ * Answering is not a separate step a captain performs; it rides along
+ * with taking the match. So the only refusals are "there is nothing to
+ * answer" and "you already did".
+ */
+export function loserPaysAnswerRefusal(
+  c: {
+    status: ChallengeStatus;
+    loserPays: boolean;
+    loserPaysAgreed: boolean | null;
+    createdByUserId: string;
+  },
+  userId: string,
+): string | null {
+  if (!c.loserPays) return "This match was not posted as loser-pays.";
+  if (c.createdByUserId === userId) {
+    return "You proposed loser-pays — the other captain answers it.";
+  }
+  if (c.loserPaysAgreed !== null) return "That has already been answered.";
+  if (!isLive(c.status)) return "This match is no longer live.";
+  return null;
+}
+
+/**
+ * The sentence each captain sees. Written here rather than in the app
+ * so the two surfaces cannot describe the same state differently — the
+ * lesson the cricket engines taught this codebase the expensive way.
+ *
+ * `half` is the amount one captain pays in advance, in rupees. It is
+ * what makes the message concrete: "hand ₹500 back" is actionable in a
+ * way "settle up" is not.
+ */
+export function loserPaysPhrase(
+  state: LoserPaysState,
+  viewer: "poster" | "acceptor" | "stranger",
+  half: number | null,
+): string | null {
+  const amount = half && half > 0 ? `₹${half.toLocaleString("en-IN")}` : "their half";
+  switch (state) {
+    case "NOT_PROPOSED":
+      return null;
+    case "PROPOSED":
+      return viewer === "poster"
+        ? "You have asked for loser-pays. Whoever takes the match will answer."
+        : "They have asked for loser-pays: the losing side hands the winners their half back afterwards.";
+    case "AGREED":
+      return viewer === "stranger"
+        ? "Loser pays — agreed by both captains."
+        : `Loser pays, agreed. After the match the losing side hands ${amount} to the winners. Settle it between yourselves — the arena is not involved.`;
+    case "DECLINED":
+      return viewer === "poster"
+        ? "They did not want loser-pays. The match is still on, just on normal terms."
+        : "You turned loser-pays down. The match is on as normal.";
+  }
+}

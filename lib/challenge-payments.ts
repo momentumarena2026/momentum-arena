@@ -569,6 +569,16 @@ export async function createChallengePaymentOrder(
   userId: string,
   acceptWindowId?: string,
   intent: "razorpay" | "slot" = "razorpay",
+  /**
+   * The acceptor's answer to loser-pays, ticked in the payment sheet.
+   *
+   * Stored on the payment row here and copied onto the challenge only
+   * once this payment settles, so an abandoned checkout cannot record
+   * an answer from somebody who never became the acceptor. It changes
+   * no amount and gates nothing — if this argument ever affects what
+   * is charged, something has gone wrong.
+   */
+  loserPaysAgreed?: boolean,
 ): Promise<
   | {
       ok: true;
@@ -668,12 +678,21 @@ export async function createChallengePaymentOrder(
         quotedCourtConfigId: quote.courtConfigId,
         quotedAdvance: quote.advance,
         quotedTotal: quote.total,
+        // Only the ACCEPTOR answers loser-pays; the poster proposed it.
+        loserPaysAgreed:
+          quote.yourSide === "ACCEPTOR" && loserPaysAgreed !== undefined
+            ? loserPaysAgreed
+            : null,
       },
       select: { id: true, paidAt: true, razorpayOrderId: true },
     });
   } catch {
     // The slot already exists. Only its owner, or a takeover of a hold that
     // has genuinely gone stale, may proceed.
+    //
+    // A captain who backs out and returns may tick the box differently the
+    // second time. The later answer is the one they meant, so it is
+    // re-stamped further down alongside the order id.
     const current = await db.challengePayment.findUnique({
       where: { challengeId_side: { challengeId, side: quote.yourSide } },
       select: {
@@ -909,7 +928,14 @@ export async function createChallengePaymentOrder(
 
   await db.challengePayment.update({
     where: { id: row.id },
-    data: { razorpayOrderId: order.id },
+    data: {
+      razorpayOrderId: order.id,
+      // Re-stamped with the order id, so a captain who backed out and
+      // returned with a different answer gets the later one recorded.
+      ...(quote.yourSide === "ACCEPTOR" && loserPaysAgreed !== undefined
+        ? { loserPaysAgreed }
+        : {}),
+    },
   });
 
   // The order ledger. Append-only and unrelated to either row above, so that
@@ -1579,6 +1605,29 @@ async function placeMoney(ctx: {
       orderBy: { placedAt: "asc" },
     });
   });
+
+  // The acceptor's loser-pays answer, now that their money has actually
+  // landed. Deliberately here rather than at checkout: an abandoned
+  // payment must not record an answer from somebody who never became
+  // the acceptor. Best-effort and awaited only for its side effect —
+  // recordLoserPaysAnswer swallows its own failures, because a message
+  // between two captains must never fail the payment that carried it.
+  const acceptorRow = placed.find((p) => p.side === "ACCEPTOR");
+  if (acceptorRow) {
+    const withAnswer = await db.challengePayment.findUnique({
+      where: { id: acceptorRow.id },
+      select: { loserPaysAgreed: true, amount: true, userId: true },
+    });
+    if (withAnswer?.loserPaysAgreed !== null && withAnswer?.loserPaysAgreed !== undefined) {
+      const { recordLoserPaysAnswer } = await import("@/lib/challenges");
+      await recordLoserPaysAnswer(
+        ctx.challengeId,
+        withAnswer.userId,
+        withAnswer.loserPaysAgreed,
+        withAnswer.amount,
+      );
+    }
+  }
 
   const sides = new Set(placed.map((p) => p.side as ChallengeSide));
   if (sides.size < 2) {
