@@ -12,6 +12,7 @@ import {
   challengeSettings,
   expireStaleChallenges,
   logChallengeEvent,
+  setLoserPays,
 } from "@/lib/challenges";
 import { getOperatingHours } from "@/lib/court-config";
 import { challengeDetailPayload } from "@/lib/challenge-view";
@@ -94,7 +95,11 @@ export async function GET(request: NextRequest) {
     });
   }
   const [board, mine] = await Promise.all([
-    listOpenChallenges({ sport: url.searchParams.get("sport") || undefined, viewerId: user.id }),
+    listOpenChallenges({
+      sport: url.searchParams.get("sport") || undefined,
+      viewerId: user.id,
+      loserPaysOnly: url.searchParams.get("loserPays") === "1",
+    }),
     listMyChallenges(user.id),
   ]);
   return NextResponse.json({
@@ -141,6 +146,9 @@ const postSchema = z.object({
   playerCount: z.number().int(),
   notes: z.string().max(300).nullish(),
   windows: z.array(windowSchema).min(1).max(6),
+  /** Loser-pays, proposed at post time. A signal between the two
+   *  captains — it changes no price and gates nothing. */
+  loserPays: z.boolean().optional(),
 });
 const acceptSchema = z.object({
   op: z.literal("accept"),
@@ -177,6 +185,10 @@ const payOrderSchema = z.object({
   challengeId: z.string().min(1),
   /** Present when this payment IS the acceptance. */
   windowId: z.string().min(1).nullish(),
+  /** The acceptor's answer to loser-pays, ticked in the same sheet.
+   *  Optional, and absent is NOT "no" — it means the question was never
+   *  put, which is a different thing to show the poster. */
+  loserPaysAgreed: z.boolean().optional(),
 });
 /* Giving a held slot back. The counterpart to `pay-order`: opening the
  * sheet claims the side, and until this existed nothing but the passage of
@@ -189,6 +201,16 @@ const suggestAnswerSchema = z.object({
   challengeId: z.string().min(1),
   windowId: z.string().min(1),
   agree: z.boolean(),
+});
+/* The poster turning loser-pays on or off while the match is still
+ * open. Its own op rather than a field on an edit, because it is the
+ * only thing about a posted challenge that can currently change — and
+ * keeping it separate makes it obvious in the route that it touches no
+ * price, no window and no payment. */
+const loserPaysSchema = z.object({
+  op: z.literal("loser-pays"),
+  challengeId: z.string().min(1),
+  loserPays: z.boolean(),
 });
 const payReleaseSchema = z.object({
   op: z.literal("pay-release"),
@@ -252,6 +274,7 @@ export async function POST(request: NextRequest) {
       withdrawSchema,
       trackSchema,
       suggestAnswerSchema,
+      loserPaysSchema,
       payOrderSchema,
       payReleaseSchema,
       payVerifySchema,
@@ -327,6 +350,8 @@ export async function POST(request: NextRequest) {
       body.challengeId,
       user.id,
       body.windowId ?? undefined,
+      "razorpay",
+      body.loserPaysAgreed,
     );
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
     return NextResponse.json(r);
@@ -339,6 +364,12 @@ export async function POST(request: NextRequest) {
       user.id,
       body.agree,
     );
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json(r);
+  }
+
+  if (body.op === "loser-pays") {
+    const r = await setLoserPays(body.challengeId, user.id, body.loserPays);
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
     return NextResponse.json(r);
   }
@@ -371,6 +402,7 @@ export async function POST(request: NextRequest) {
       playerCount: body.playerCount,
       notes: body.notes ?? null,
       windows: body.windows,
+      loserPays: body.loserPays ?? false,
     });
   } else if (body.op === "accept") {
     result = await acceptChallengeWindow(body.challengeId, body.windowId, user.id);

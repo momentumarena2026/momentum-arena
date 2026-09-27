@@ -54,6 +54,7 @@ export function PostChallengeScreen() {
   const [teamName, setTeamName] = useState("");
   const [players, setPlayers] = useState("");
   const [notes, setNotes] = useState("");
+  const [loserPays, setLoserPays] = useState(false);
   const [windows, setWindows] = useState<ProposedWindow[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -139,6 +140,7 @@ export function PostChallengeScreen() {
       teamName: teamName.trim() || null,
       playerCount: parseInt(players.replace(/[^\d]/g, ""), 10) || 0,
       notes: notes.trim() || null,
+      loserPays,
       windows,
     }).catch((e) => ({ error: challengeErrorMessage(e) }));
     setBusy(false);
@@ -371,6 +373,65 @@ export function PostChallengeScreen() {
             onChangeText={setNotes}
           />
         </View>
+
+        {/* Loser-pays.
+            
+            Sits with the match details, not with the money, because it
+            is NOT money as far as the arena is concerned — both sides
+            still pay their half here exactly as they would otherwise.
+            Putting it near the price would imply the arena collects it,
+            which is the one thing the copy has to avoid saying. */}
+        <Pressable
+          onPress={() => setLoserPays((v) => !v)}
+          style={{
+            gap: 8,
+            borderWidth: 1,
+            borderColor: loserPays ? colors.emerald500 : colors.zinc800,
+            backgroundColor: loserPays ? "rgba(16,185,129,0.08)" : colors.zinc900,
+            borderRadius: 12,
+            padding: 14,
+          }}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: loserPays }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Text weight="semibold" style={{ fontSize: 14 }}>
+                Loser pays
+              </Text>
+              <Text variant="tiny" color={colors.zinc400} style={{ marginTop: 2 }}>
+                {loserPays
+                  ? "The losing side hands the winners their half back after the match. Whoever takes this will say yes or no, and we'll tell you."
+                  : "Ask the other team to play for the court — loser settles up afterwards."}
+              </Text>
+            </View>
+            <View
+              style={{
+                width: 40,
+                height: 22,
+                borderRadius: 11,
+                justifyContent: "center",
+                backgroundColor: loserPays ? colors.emerald500 : colors.zinc700,
+              }}
+            >
+              <View
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  backgroundColor: "#fff",
+                  marginLeft: loserPays ? 20 : 2,
+                }}
+              />
+            </View>
+          </View>
+          {loserPays && (
+            <Text variant="tiny" color={colors.zinc500}>
+              You each still pay your own half now. The arena isn&apos;t involved in
+              settling up — that&apos;s between the two teams at the ground.
+            </Text>
+          )}
+        </Pressable>
 
         {/* The reason goes ABOVE the button. Below it, the hint sat off the
             bottom of the screen, so a disabled green button read as simply

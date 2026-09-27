@@ -31,6 +31,7 @@ import {
   trackChallenge,
   challengeErrorMessage,
   createChallengePayOrder,
+  setLoserPays,
   verifyChallengePayment,
   spinChallengeWheel,
   createOfferPayOrder,
@@ -91,6 +92,20 @@ export function ChallengeDetailScreen() {
   // sits on screen polling.
   const [choosing, setChoosing] = useState<{ windowId?: string } | null>(null);
   const [method, setMethod] = useState<"upi" | "razorpay">("upi");
+  /**
+   * The acceptor's answer to loser-pays, ticked before paying.
+   *
+   * Starts as null, NOT false. "They said no" and "they were never
+   * asked" are different things to show a poster, and the server
+   * treats undefined as the second.
+   *
+   * UP HERE WITH THE OTHER STATE, and that is load-bearing: this file
+   * early-returns at `if (!c)` a hundred lines below, so a hook added
+   * after it runs on some renders and not others — "Rendered more
+   * hooks than during the previous render", which is exactly what this
+   * one did when it was first written next to the code that uses it.
+   */
+  const [lpAgreed, setLpAgreed] = useState<boolean | null>(null);
   const [dqrFor, setDqrFor] = useState<{ windowId?: string; amount: number } | null>(null);
   const { state: authState } = useAuth();
 
@@ -310,7 +325,11 @@ export function ChallengeDetailScreen() {
     setPaying(true);
     setPayingWindowId(acceptWindowId ?? null);
     try {
-      const order = await createChallengePayOrder(id, acceptWindowId);
+      const order = await createChallengePayOrder(
+        id,
+        acceptWindowId,
+        q.data?.loserPays?.askOnPay ? lpAgreed ?? false : undefined,
+      );
       let paid: {
         razorpay_order_id?: string;
         razorpay_payment_id?: string;
@@ -786,6 +805,121 @@ export function ChallengeDetailScreen() {
               </Text>
             ) : null}
           </View>
+        ) : null}
+
+        {/* Loser-pays.
+            
+            Deliberately ABOVE the money, and deliberately not styled
+            like it: the arena collects nothing here and settles
+            nothing. Every sentence comes from the server so this
+            screen and the admin preview cannot describe one state two
+            different ways. */}
+        {q.data?.loserPays?.phrase ? (
+          <View
+            style={{
+              gap: 8,
+              borderWidth: 1,
+              borderColor:
+                q.data!.loserPays.state === "DECLINED" ? colors.zinc800 : colors.emerald500_30,
+              backgroundColor:
+                q.data!.loserPays.state === "DECLINED"
+                  ? colors.zinc900
+                  : "rgba(16,185,129,0.06)",
+              borderRadius: radius.lg,
+              padding: 14,
+            }}
+          >
+            <Text
+              weight="semibold"
+              style={{ fontSize: 13 }}
+              color={
+                q.data!.loserPays.state === "DECLINED" ? colors.zinc400 : colors.emerald400
+              }
+            >
+              {q.data!.loserPays.state === "AGREED"
+                ? "Loser pays · agreed"
+                : q.data!.loserPays.state === "DECLINED"
+                  ? "Loser pays · not agreed"
+                  : "Loser pays"}
+            </Text>
+            <Text variant="tiny" color={colors.zinc400}>
+              {q.data!.loserPays.phrase}
+            </Text>
+
+            {/* The acceptor answers here, and then again in the sheet —
+                this one is the explanation, the sheet's is the commit. */}
+            {q.data!.loserPays.askOnPay ? (
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[true, false].map((yes) => {
+                  const on = lpAgreed === yes;
+                  return (
+                    <Pressable
+                      key={String(yes)}
+                      onPress={() => setLpAgreed(yes)}
+                      style={{
+                        flex: 1,
+                        alignItems: "center",
+                        paddingVertical: 8,
+                        borderRadius: radius.md,
+                        borderWidth: 1,
+                        borderColor: on ? colors.emerald400 : colors.zinc800,
+                        backgroundColor: on ? colors.emerald500_10 : "transparent",
+                      }}
+                    >
+                      <Text variant="tiny" color={on ? colors.emerald400 : colors.zinc400}>
+                        {yes ? "I'm up for that" : "No thanks"}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+            {q.data!.loserPays.askOnPay ? (
+              <Text variant="tiny" color={colors.zinc600}>
+                Either way you pay the same half now — this only decides what
+                happens between the two teams afterwards.
+              </Text>
+            ) : null}
+
+            {/* The poster's toggle, only while nobody has taken it. */}
+            {q.data!.loserPays.canToggle ? (
+              <Pressable
+                onPress={async () => {
+                  const r = await setLoserPays(id, !q.data!.loserPays.proposed);
+                  if (r.error) Alert.alert("Couldn't change that", r.error);
+                  void refresh();
+                }}
+              >
+                <Text variant="tiny" color={colors.zinc500}>
+                  {q.data!.loserPays.proposed ? "Turn loser-pays off" : "Ask for loser-pays"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* The poster can still ASK for it even when nothing is proposed
+            yet — without this the only place to set it was the post form,
+            so a captain who thought of it afterwards had to withdraw and
+            repost. */}
+        {!q.data?.loserPays?.phrase && q.data?.loserPays?.canToggle ? (
+          <Pressable
+            onPress={async () => {
+              const r = await setLoserPays(id, true);
+              if (r.error) Alert.alert("Couldn't change that", r.error);
+              void refresh();
+            }}
+            style={{
+              borderWidth: 1,
+              borderColor: colors.zinc800,
+              borderRadius: radius.lg,
+              padding: 12,
+            }}
+          >
+            <Text variant="tiny" color={colors.zinc400}>
+              Ask for loser-pays — the losing side covers the court afterwards.
+            </Text>
+          </Pressable>
         ) : null}
 
         {/* ABOVE the times, not after them. The hold is the reason the

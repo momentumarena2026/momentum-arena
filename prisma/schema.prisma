@@ -4359,6 +4359,27 @@ model Challenge {
   counterCountChallenger Int @default(0)
   counterCountAcceptor   Int @default(0)
 
+  // ── Loser pays ────────────────────────────────────────────────────
+  //
+  // A SIGNAL, not money. The arena takes no part: both captains still
+  // pay their half in advance exactly as they always did, and "loser
+  // pays" means the losing side hands the winner's half back on the
+  // ground afterwards, so the loser has effectively covered the court.
+  // Nothing here touches a payment row, a booking or a refund, and
+  // nothing here can block a match from being posted, taken or played.
+  //
+  // It exists because captains were already agreeing this over the
+  // phone and turning up with different ideas of what was agreed.
+  /// The poster's proposal. Editable while the match is still open;
+  /// locked once somebody has taken it, because by then it is part of
+  /// what the acceptor agreed to.
+  loserPays           Boolean   @default(false)
+  /// The acceptor's answer. null = not answered (nobody has taken the
+  /// match yet, or the poster never proposed it). Tri-state on purpose:
+  /// "declined" and "not asked" are different things to show a poster.
+  loserPaysAgreed     Boolean?
+  loserPaysAnsweredAt DateTime?
+
   /// Set once the advance is in and the court is booked.
   /// When the "match confirmed" push went out. Claimed with a conditional
   /// update so two halves landing in the same instant announce the match
@@ -4494,6 +4515,13 @@ model ChallengePayment {
   /// saying ₹2200 was due. Pinning both means the deal the captains agreed is
   /// the deal they get.
   quotedTotal Int?
+
+  /// The acceptor's answer to loser-pays, ticked in the payment sheet.
+  /// Copied onto the challenge only once this payment settles, so an
+  /// abandoned checkout cannot record an answer from somebody who never
+  /// became the acceptor. Null on the CHALLENGER row always — the
+  /// poster proposes, the acceptor answers.
+  loserPaysAgreed Boolean?
 
   placedAt             DateTime?
   /// Claimed once this half's arrival has been ANNOUNCED — the PAID audit
@@ -4829,11 +4857,16 @@ model ChallengeSettings {
   ownerRefundPush Json?
 
   /// Somebody suggested a different time — to the POSTER, who decides.
-  suggestedPush Json?
+  /// Back to the poster when the acceptor answers loser-pays. Both
+  /// answers are sent; the "no" matters more, because a poster who
+  /// heard nothing turns up believing it was agreed.
+  loserPaysYesPush Json?
+  loserPaysNoPush  Json?
+  suggestedPush    Json?
   /// The poster agreed to it — back to whoever suggested it, to pay.
-  suggestOkPush Json?
+  suggestOkPush    Json?
   /// The poster cannot play then — back to whoever suggested it.
-  suggestNoPush Json?
+  suggestNoPush    Json?
 
   agreedPush     Json?
   payHalfPush    Json?
@@ -4947,6 +4980,13 @@ enum ChallengeEventType {
   OFFER_TAKEN
   /// They didn't, and it expired. The most diagnostic row in the promo.
   OFFER_LAPSED
+  /// The poster turned loser-pays on or off while the match was still
+  /// open. Recorded because the terms a captain saw on the board may
+  /// not be the terms in the row by the time anyone reads it back.
+  LOSER_PAYS_SET
+  /// The acceptor answered the loser-pays proposal. Detail carries
+  /// "agreed" or "declined".
+  LOSER_PAYS_ANSWERED
   /// The poster agreed to a time somebody else suggested. It joins their
   /// own times on the board and anyone may take it.
   SUGGEST_AGREED

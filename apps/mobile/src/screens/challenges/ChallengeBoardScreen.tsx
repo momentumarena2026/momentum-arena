@@ -30,10 +30,11 @@ export function ChallengeBoardScreen() {
   const nav = useNavigation<NativeStackNavigationProp<AccountStackParamList>>();
   const qc = useQueryClient();
   const [sport, setSport] = useState<string | null>(null);
+  const [loserPaysOnly, setLoserPaysOnly] = useState(false);
 
   const q = useQuery({
-    queryKey: ["challenges", sport],
-    queryFn: () => fetchChallengeBoard(sport ?? undefined),
+    queryKey: ["challenges", sport, loserPaysOnly],
+    queryFn: () => fetchChallengeBoard(sport ?? undefined, false, loserPaysOnly),
   });
 
   const refresh = useCallback(() => {
@@ -112,6 +113,27 @@ export function ChallengeBoardScreen() {
             nav.navigate("PostChallenge");
           }}
         />
+
+        {/* Loser-pays filter. A filter rather than a sort: a captain who
+            wants that kind of game is not helped by seeing the others
+            faintly, and one who does not is not helped by seeing them
+            at all. */}
+        <Pressable
+          onPress={() => setLoserPaysOnly((v) => !v)}
+          style={{
+            alignSelf: "flex-start",
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: loserPaysOnly ? colors.emerald400 : colors.zinc800,
+            backgroundColor: loserPaysOnly ? colors.emerald500_10 : "transparent",
+          }}
+        >
+          <Text variant="tiny" color={loserPaysOnly ? colors.emerald400 : colors.zinc400}>
+            Loser pays only
+          </Text>
+        </Pressable>
 
         {/* Sport filter. Only shown when the venue runs more than one. */}
         {sports.length > 1 && (
@@ -279,6 +301,35 @@ function ChallengeCard({
             {c.status === "OPEN" ? "" : ` · ${statusLabel(c.status)}`}
             {c.status === "CONFIRMED" && mine && spinEnabled && !c.spin ? " · prize inside" : ""}
           </Text>
+          {/* Both flags, always together. "Loser pays" without saying
+              whether it was agreed is the half-truth that sends two
+              captains to the ground disagreeing. */}
+          {c.loserPays && (
+            <View
+              style={{
+                alignSelf: "flex-start",
+                marginTop: 4,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: radius.sm,
+                backgroundColor:
+                  c.loserPaysAgreed === false
+                    ? colors.zinc800
+                    : "rgba(16,185,129,0.12)",
+              }}
+            >
+              <Text
+                variant="tiny"
+                color={c.loserPaysAgreed === false ? colors.zinc500 : colors.emerald400}
+              >
+                {c.loserPaysAgreed === true
+                  ? "Loser pays · agreed"
+                  : c.loserPaysAgreed === false
+                    ? "Loser pays · declined"
+                    : "Loser pays"}
+              </Text>
+            </View>
+          )}
         </View>
         <ChevronRight size={18} color={colors.zinc600} />
       </View>
