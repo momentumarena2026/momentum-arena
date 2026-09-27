@@ -438,28 +438,6 @@ export const PUSH_TEMPLATES = [
     defaultBody: "The courts are open this week. Tap to pick your hour.",
     variables: [],
   },
-  {
-    key: "daily_free_slots",
-    audience: "customer",
-    label: "Daily — free slots tonight",
-    trigger:
-      "Daily push: the fallback for everyone no personal rule matched. Only fires when the evening genuinely has slots open — the count below is read from real availability, never assumed.",
-    defaultTitle: "{count} slots open tonight",
-    defaultBody: "{sports} still free this evening at Momentum Arena. Tap to grab one.",
-    variables: [
-      {
-        name: "count",
-        description: "Free slots this evening — a real count, not a guess",
-        example: "3",
-      },
-      {
-        name: "sports",
-        description: "Which sports have them, already comma-joined",
-        example: "Cricket and football",
-      },
-    ],
-  },
-
   // ── Admin ─────────────────────────────────────────────────────────
   {
     key: "admin_pending_booking",

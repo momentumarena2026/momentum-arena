@@ -328,14 +328,41 @@ async function main() {
     check("lapsed user matched LAPSED", (await ruleOf(uLapsed.id)) === "LAPSED", `got ${await ruleOf(uLapsed.id)}`);
 
     const recentRule = await ruleOf(uRecent.id);
-    if (r1.venue.freeSlotsTonight > 0) {
-      check("recent user fell through to FREE_SLOTS", recentRule === "FREE_SLOTS", `got ${recentRule}`);
-    } else {
+    check(
+      "recent user fell through to the catch-all and got today's creative line",
+      recentRule === "EVERYONE_ELSE",
+      `got ${recentRule}`,
+    );
+    check("a line was actually chosen", r1.line !== null, r1.lineRefusal ?? "");
+    check(
+      "the line that went out is the one the report names",
+      !!r1.line &&
+        r1.buckets.some((b) => b.rule === "EVERYONE_ELSE" && b.title === r1.line!.title),
+    );
+    console.log(`  today reads as: ${r1.occasions.join(", ")}`);
+    console.log(`  line chosen   : "${r1.line?.title}" / "${r1.line?.body}"`);
+
+    // Honesty: on a full evening nothing that CLAIMS free courts may go.
+    if (r1.venue.freeSlotsTonight < 2 && r1.line) {
+      const chosen = await db.dailyPushLine.findUnique({
+        where: { id: r1.line.id },
+        select: { tags: true },
+      });
       check(
-        "recent user correctly got NOTHING (arena is full tonight — the honesty branch)",
-        recentRule === null,
-        `got ${recentRule}`,
+        "on a full evening the chosen line does not claim free slots",
+        !chosen?.tags.includes("needs-slots"),
+        `tags: ${chosen?.tags.join(", ")}`,
       );
+    }
+
+    // Rotation: the line that just went out must be stamped, or it
+    // repeats tomorrow instead of going to the back of the queue.
+    if (r1.line) {
+      const after = await db.dailyPushLine.findUnique({
+        where: { id: r1.line.id },
+        select: { lastUsedAt: true, useCount: true },
+      });
+      check("the sent line was stamped for rotation", !!after?.lastUsedAt && after.useCount > 0);
     }
 
     const optedOutCount = r1.skipped["opted out"] ?? 0;
@@ -360,6 +387,11 @@ async function main() {
     check(
       "shared buckets logged with no userId (one row per multicast)",
       dispatches.filter((d) => d.audience !== "daily:PASS_EXPIRY").every((d) => d.userId === null),
+    );
+    const creative = dispatches.find((d) => d.audience === "daily:EVERYONE_ELSE");
+    check(
+      "the creative line went out as its own multicast",
+      !!creative && creative.userId === null && creative.title === r1.line?.title,
     );
     const passDispatch = dispatches.find((d) => d.audience === "daily:PASS_EXPIRY");
     check("pass-expiry logged per recipient, with the userId", passDispatch?.userId === uPass.id);
@@ -452,7 +484,7 @@ async function main() {
     );
     check(
       "they fell through to the venue-wide rule, or to nothing if it is quiet",
-      lapsedRule === "FREE_SLOTS" || lapsedRule === null,
+      lapsedRule === "EVERYONE_ELSE" || lapsedRule === null,
       `got ${lapsedRule}`,
     );
     // Restore the template before anything else runs.

@@ -2605,6 +2605,74 @@ model DailyPushSettings {
   updatedByAdminId String?
 }
 
+/// One creative line the daily push can send.
+///
+/// The venue asked for Zomato-style copy: witty, Hinglish, different
+/// every day. This is the library that makes "different every day"
+/// true without anybody writing a line each morning — the module picks
+/// the least recently used eligible row, so nothing repeats until the
+/// whole pool has been through.
+///
+/// Human-written on purpose. Generating marketing at send time and
+/// firing it at the entire customer base is the one version of this
+/// with an unrecallable downside, so every line here has been read by
+/// somebody before it can reach a phone.
+model DailyPushLine {
+  id    String @id @default(cuid())
+  title String
+  body  String
+
+  /// When this line is allowed to run. Empty = any day.
+  ///
+  /// Two kinds live here and the difference matters. Most are OCCASION
+  /// tags — "monday", "monsoon", "holi" — and a line carrying one is
+  /// preferred on a day that matches, which is what makes the copy feel
+  /// topical rather than shuffled. One is a CLAIM tag: `needs-slots`
+  /// marks a line that asserts the evening is free, and those stay
+  /// gated on real availability. A witty line about open courts on a
+  /// fully booked night is the same lie the free-slots rule existed to
+  /// prevent, just funnier.
+  tags String[]
+
+  enabled Boolean @default(true)
+
+  /// Rotation state. Least-recently-used wins, nulls first, so a new
+  /// line goes out before an old one repeats.
+  lastUsedAt DateTime?
+  useCount   Int       @default(0)
+
+  createdByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([enabled, lastUsedAt])
+}
+
+/// A dated window that switches an occasion tag on.
+///
+/// Day-of-week and season are computed — they need no table. Festivals
+/// and the cricket calendar cannot be: Holi and Janmashtami are lunar
+/// and move every year, and there is no fixtures feed in this product.
+/// Hard-coding either would rot silently a year from now and nobody
+/// would notice except that the copy stopped landing.
+///
+/// So the venue owns these dates. A window with no rows for this year
+/// simply never activates, which is a visible nothing rather than a
+/// wrong something.
+model DailyPushOccasion {
+  id       String   @id @default(cuid())
+  /// The tag this window switches on, e.g. "holi", "janmashtami", "ipl".
+  tag      String
+  label    String
+  /// Inclusive, IST calendar dates.
+  startsOn DateTime @db.Date
+  endsOn   DateTime @db.Date
+
+  createdAt DateTime @default(now())
+
+  @@index([startsOn, endsOn])
+}
+
 /// One row per person per day the module sent them something.
 ///
 /// Two jobs, and it is worth being explicit that they are different:

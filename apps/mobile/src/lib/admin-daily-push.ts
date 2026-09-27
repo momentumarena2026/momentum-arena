@@ -34,7 +34,7 @@ export interface DailyPushSettings {
   passExpiry: DailyPushRuleToggle;
   neverBooked: DailyPushRuleToggle;
   lapsed: DailyPushRuleToggle;
-  freeSlots: { enabled: boolean; fromHour: number; minOpen: number };
+  everyoneElse: { enabled: boolean; fromHour: number; minOpen: number };
 }
 
 export interface DailyPushAdminView {
@@ -84,5 +84,56 @@ export const adminDailyPushApi = {
     request<DailyPushRun>("/api/mobile/admin/push/daily", {
       method: "POST",
       body: { dryRun: true },
+    }),
+};
+
+// ── The creative line library ──────────────────────────────────────────
+
+export interface DailyPushLineView {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  enabled: boolean;
+  useCount: number;
+  lastUsedAt: string | null;
+}
+
+export interface DailyPushOccasionView {
+  id: string;
+  tag: string;
+  label: string;
+  startsOn: string;
+  endsOn: string;
+  active: boolean;
+}
+
+export interface DailyPushLibraryView {
+  lines: DailyPushLineView[];
+  occasions: DailyPushOccasionView[];
+  todaysOccasions: string[];
+  /** Tags used by lines but with no dated window — those never fire. */
+  undatedTags: string[];
+  /** Whether the evening counts as having space, which gates the lines
+   *  tagged `needs-slots`. */
+  slotsAreFree: boolean;
+  refusal: string | null;
+}
+
+export const adminDailyPushLinesApi = {
+  get: () =>
+    request<DailyPushLibraryView>("/api/mobile/admin/push/daily/lines", { method: "GET" }),
+
+  /** Create or edit. Returns the refreshed library. */
+  save: (line: { id?: string; title: string; body: string; tags: string[]; enabled: boolean }) =>
+    request<DailyPushLibraryView>("/api/mobile/admin/push/daily/lines", {
+      method: "POST",
+      body: { line },
+    }),
+
+  remove: (id: string) =>
+    request<DailyPushLibraryView>("/api/mobile/admin/push/daily/lines", {
+      method: "POST",
+      body: { deleteId: id },
     }),
 };

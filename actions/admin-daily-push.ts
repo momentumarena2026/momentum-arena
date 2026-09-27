@@ -8,14 +8,22 @@ import {
   loadDailyPushSettings,
   runDailyPush,
   templateEnabledByRule,
+  venueFactsTonight,
   type DailyPushRun,
 } from "@/lib/daily-push";
 import {
   settingsRefusal,
+  istDayKey,
   RULE_LABEL,
   RULE_PRIORITY,
   type DailyPushLimits,
 } from "@/lib/daily-push-rules";
+import {
+  occasionsFor,
+  libraryRefusal,
+  NEEDS_SLOTS,
+  WEEKDAY_TAGS,
+} from "@/lib/daily-push-lines";
 
 const PERMISSION = "MANAGE_PUSH";
 
@@ -69,7 +77,9 @@ export async function getDailyPushAdminView(): Promise<DailyPushAdminView> {
       rule,
       label: RULE_LABEL[rule],
       count: counts.get(rule) ?? 0,
-      copyOff: !copyLive[rule],
+      // EVERYONE_ELSE has no template — its copy is the line library,
+      // whose own failure is reported as `lineRefusal` on a dry run.
+      copyOff: rule === "EVERYONE_ELSE" ? false : !copyLive[rule],
     })),
     lastSentAt: latest?.createdAt.toISOString() ?? null,
   };
@@ -106,9 +116,9 @@ export async function saveDailyPushSettings(
     ruleNeverBookedDays: input.neverBooked.days,
     ruleLapsedEnabled: input.lapsed.enabled,
     ruleLapsedDays: input.lapsed.days,
-    ruleFreeSlotsEnabled: input.freeSlots.enabled,
-    ruleFreeSlotsFromHour: input.freeSlots.fromHour,
-    ruleFreeSlotsMinOpen: input.freeSlots.minOpen,
+    ruleFreeSlotsEnabled: input.everyoneElse.enabled,
+    ruleFreeSlotsFromHour: input.everyoneElse.fromHour,
+    ruleFreeSlotsMinOpen: input.everyoneElse.minOpen,
     updatedByAdminId: admin.id,
   };
 
@@ -153,4 +163,223 @@ export async function resetDailyPushDefaults(): Promise<
   await requireAdmin(PERMISSION);
   const current = await loadDailyPushSettings();
   return saveDailyPushSettings({ ...DEFAULT_DAILY_PUSH, enabled: current.enabled });
+}
+
+// ── The creative line library ──────────────────────────────────────────
+
+export interface DailyPushLineView {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  enabled: boolean;
+  useCount: number;
+  lastUsedAt: string | null;
+}
+
+export interface DailyPushOccasionView {
+  id: string;
+  tag: string;
+  label: string;
+  startsOn: string;
+  endsOn: string;
+  /** True while today falls inside the window. */
+  active: boolean;
+}
+
+export interface DailyPushLibraryView {
+  lines: DailyPushLineView[];
+  occasions: DailyPushOccasionView[];
+  /** Everything true about today, computed + dated. */
+  todaysOccasions: string[];
+  /** Tags used by lines that have no dated window, so they never fire. */
+  undatedTags: string[];
+  /** Whether the evening counts as having space right now. Without it
+   *  the page would count `needs-slots` lines as live on a full night,
+   *  and tell the venue more of the library is in play than is. */
+  slotsAreFree: boolean;
+  /** Why the library cannot speak today, or null. */
+  refusal: string | null;
+}
+
+/** Tags the module works out for itself — these need no window. */
+const COMPUTED_TAGS = new Set([
+  ...WEEKDAY_TAGS,
+  "weekend",
+  "weekday",
+  "monsoon",
+  "winter",
+  "summer",
+  "pleasant",
+  NEEDS_SLOTS,
+]);
+
+export async function getDailyPushLibrary(): Promise<DailyPushLibraryView> {
+  await requireAdmin(PERMISSION);
+
+  const now = new Date();
+  const [lines, occasions, settings] = await Promise.all([
+    db.dailyPushLine.findMany({
+      orderBy: [{ enabled: "desc" }, { lastUsedAt: { sort: "asc", nulls: "first" } }, { title: "asc" }],
+    }),
+    db.dailyPushOccasion.findMany({ orderBy: { startsOn: "asc" } }),
+    loadDailyPushSettings(),
+  ]);
+
+  const dayKey = istDayKey(now);
+  const todaysOccasions = occasionsFor(dayKey, occasions);
+  const venue = await venueFactsTonight(settings, now);
+  const ctx = {
+    occasions: todaysOccasions,
+    slotsAreFree: venue.freeSlotsTonight >= Math.max(1, settings.everyoneElse.minOpen),
+  };
+
+  const dated = new Set(occasions.map((o) => o.tag));
+  const undated = new Set<string>();
+  for (const l of lines) {
+    if (!l.enabled) continue;
+    for (const t of l.tags) {
+      if (!COMPUTED_TAGS.has(t) && !dated.has(t)) undated.add(t);
+    }
+  }
+
+  const today = dayKey.toISOString().slice(0, 10);
+  return {
+    lines: lines.map((l) => ({
+      id: l.id,
+      title: l.title,
+      body: l.body,
+      tags: l.tags,
+      enabled: l.enabled,
+      useCount: l.useCount,
+      lastUsedAt: l.lastUsedAt?.toISOString() ?? null,
+    })),
+    occasions: occasions.map((o) => {
+      const from = o.startsOn.toISOString().slice(0, 10);
+      const to = o.endsOn.toISOString().slice(0, 10);
+      return {
+        id: o.id,
+        tag: o.tag,
+        label: o.label,
+        startsOn: from,
+        endsOn: to,
+        active: today >= from && today <= to,
+      };
+    }),
+    todaysOccasions,
+    undatedTags: [...undated].sort(),
+    slotsAreFree: ctx.slotsAreFree,
+    refusal: libraryRefusal(lines, ctx),
+  };
+}
+
+export interface SaveLineInput {
+  id?: string;
+  title: string;
+  body: string;
+  tags: string[];
+  enabled: boolean;
+}
+
+/**
+ * Create or update one line.
+ *
+ * Length limits mirror what a lock screen actually shows, because a
+ * line truncated mid-joke is worse than a shorter one. Placeholders are
+ * refused outright: this copy is multicast to everybody, so a `{name}`
+ * here would go out literally, to hundreds of people, as `{name}`.
+ */
+export async function saveDailyPushLine(
+  input: SaveLineInput,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const admin = await requireAdmin(PERMISSION);
+
+  const title = input.title.trim();
+  const body = input.body.trim();
+  if (title.length < 3) return { ok: false, error: "The title needs at least 3 characters." };
+  if (title.length > 60) return { ok: false, error: "Keep the title under 60 characters — a lock screen truncates around 40." };
+  if (body.length < 3) return { ok: false, error: "The body needs at least 3 characters." };
+  if (body.length > 200) return { ok: false, error: "Keep the body under 200 characters." };
+  if (/\{[a-zA-Z_]+\}/.test(title + body)) {
+    return {
+      ok: false,
+      error: "No {placeholders} here. This line is sent to everybody at once, so a placeholder would go out literally.",
+    };
+  }
+
+  const tags = [...new Set(input.tags.map((t) => t.trim().toLowerCase()).filter(Boolean))];
+
+  try {
+    if (input.id) {
+      await db.dailyPushLine.update({
+        where: { id: input.id },
+        data: { title, body, tags, enabled: input.enabled },
+      });
+      revalidatePath("/admin/push/daily/lines");
+      return { ok: true, id: input.id };
+    }
+    const created = await db.dailyPushLine.create({
+      data: { title, body, tags, enabled: input.enabled, createdByAdminId: admin.id },
+      select: { id: true },
+    });
+    revalidatePath("/admin/push/daily/lines");
+    return { ok: true, id: created.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not save the line." };
+  }
+}
+
+export async function deleteDailyPushLine(id: string): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin(PERMISSION);
+  try {
+    await db.dailyPushLine.delete({ where: { id } });
+    revalidatePath("/admin/push/daily/lines");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not delete it." };
+  }
+}
+
+export async function saveDailyPushOccasion(input: {
+  id?: string;
+  tag: string;
+  label: string;
+  startsOn: string;
+  endsOn: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAdmin(PERMISSION);
+
+  const tag = input.tag.trim().toLowerCase();
+  if (!/^[a-z0-9-]{2,30}$/.test(tag)) {
+    return { ok: false, error: "A tag is 2–30 characters, lowercase letters, numbers and hyphens." };
+  }
+  if (COMPUTED_TAGS.has(tag)) {
+    return {
+      ok: false,
+      error: `"${tag}" is worked out from the calendar already — it needs no window, and adding one would not change when it fires.`,
+    };
+  }
+  const from = new Date(`${input.startsOn}T00:00:00.000Z`);
+  const to = new Date(`${input.endsOn}T00:00:00.000Z`);
+  if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+    return { ok: false, error: "Both dates must be valid." };
+  }
+  if (to < from) return { ok: false, error: "The end date cannot be before the start date." };
+
+  const data = { tag, label: input.label.trim() || tag, startsOn: from, endsOn: to };
+  try {
+    if (input.id) await db.dailyPushOccasion.update({ where: { id: input.id }, data });
+    else await db.dailyPushOccasion.create({ data });
+    revalidatePath("/admin/push/daily/lines");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not save it." };
+  }
+}
+
+export async function deleteDailyPushOccasion(id: string): Promise<{ ok: boolean }> {
+  await requireAdmin(PERMISSION);
+  await db.dailyPushOccasion.delete({ where: { id } }).catch(() => {});
+  revalidatePath("/admin/push/daily/lines");
+  return { ok: true };
 }

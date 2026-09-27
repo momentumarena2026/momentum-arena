@@ -95,8 +95,8 @@ export type DailyPushRuleKey =
   | "NEVER_BOOKED"
   /** Played once, has gone quiet. */
   | "LAPSED"
-  /** The venue-wide fallback — courts are actually free tonight. */
-  | "FREE_SLOTS";
+  /** Everyone no personal rule matched — the daily creative line. */
+  | "EVERYONE_ELSE";
 
 /**
  * Priority order. First match wins, per person.
@@ -110,7 +110,7 @@ export const RULE_PRIORITY: readonly DailyPushRuleKey[] = [
   "PASS_EXPIRY",
   "NEVER_BOOKED",
   "LAPSED",
-  "FREE_SLOTS",
+  "EVERYONE_ELSE",
 ] as const;
 
 /** Admin-facing label. Used by the dashboard and the dry run. */
@@ -118,12 +118,12 @@ export const RULE_LABEL: Record<DailyPushRuleKey, string> = {
   PASS_EXPIRY: "Pass about to expire",
   NEVER_BOOKED: "Installed but never booked",
   LAPSED: "Booked before, gone quiet",
-  FREE_SLOTS: "Free slots tonight",
+  EVERYONE_ELSE: "Everyone else — the daily line",
 };
 
 export interface RuleToggle {
   enabled: boolean;
-  /** Threshold in days. Unused by FREE_SLOTS. */
+  /** Threshold in days. Unused by EVERYONE_ELSE. */
   days: number;
 }
 
@@ -140,7 +140,20 @@ export interface DailyPushLimits {
   passExpiry: RuleToggle;
   neverBooked: RuleToggle;
   lapsed: RuleToggle;
-  freeSlots: { enabled: boolean; fromHour: number; minOpen: number };
+  /**
+   * The catch-all. `enabled` means "this rule is on AND the library has
+   * a line it can send today" — the engine ANDs those together before
+   * deciding, for the same reason a rule whose template is off must not
+   * match anybody: matching without being able to send claims people
+   * and delivers nothing.
+   *
+   * `fromHour` / `minOpen` no longer gate the RULE. They decide whether
+   * the evening counts as having space, which gates only the lines
+   * tagged `needs-slots` — the ones that claim free courts. Everything
+   * else goes out regardless. (The database columns are still named
+   * ruleFreeSlots* from when this rule was only about availability.)
+   */
+  everyoneElse: { enabled: boolean; fromHour: number; minOpen: number };
 }
 
 /** Everything the engine knows about one person at the moment of a run. */
@@ -166,7 +179,8 @@ export interface CandidateFacts {
 
 /** What the venue itself looks like tonight. Shared by every candidate. */
 export interface VenueFacts {
-  /** Free slots from `freeSlots.fromHour` onward, across all courts. */
+  /** Free slots from `everyoneElse.fromHour` onward, across all courts.
+   *  Used only to decide whether `needs-slots` lines may run. */
   freeSlotsTonight: number;
 }
 
@@ -279,18 +293,15 @@ export function matchRule(
         }
         break;
 
-      case "FREE_SLOTS":
-        // The only rule that can be true for one person and false for the
-        // next purely because of the venue. It is also the only one that
-        // can make the product lie: "3 slots open tonight" on a full
-        // night is worse than silence, so the count is a precondition,
-        // not a decoration on the copy.
-        if (
-          limits.freeSlots.enabled &&
-          venue.freeSlotsTonight >= Math.max(1, limits.freeSlots.minOpen)
-        ) {
-          return "FREE_SLOTS";
-        }
+      case "EVERYONE_ELSE":
+        // The catch-all, and deliberately not gated on availability any
+        // more: this is the daily creative line and most of it has
+        // nothing to do with whether courts are free. Honesty is
+        // enforced one level down instead — a line that CLAIMS free
+        // courts carries `needs-slots` and is filtered out on a full
+        // evening, while the rest read fine either way. See
+        // lib/daily-push-lines.ts.
+        if (limits.everyoneElse.enabled) return "EVERYONE_ELSE";
         break;
     }
   }
@@ -331,7 +342,7 @@ export function settingsRefusal(limits: DailyPushLimits): string | null {
   if (!hour(limits.quietFromHour) || !hour(limits.quietToHour)) {
     return "Quiet hours must be whole hours between 0 and 23.";
   }
-  if (!hour(limits.freeSlots.fromHour)) {
+  if (!hour(limits.everyoneElse.fromHour)) {
     return "The 'tonight starts at' hour must be between 0 and 23.";
   }
   if (inQuietHours(limits.sendHourIST, limits.quietFromHour, limits.quietToHour)) {
@@ -358,8 +369,11 @@ export function settingsRefusal(limits: DailyPushLimits): string | null {
       return `${label}: the day threshold must be zero or a whole number.`;
     }
   }
-  if (limits.freeSlots.enabled && (!whole(limits.freeSlots.minOpen) || limits.freeSlots.minOpen < 1)) {
-    return "Free slots: the minimum open count must be at least 1.";
+  if (
+    limits.everyoneElse.enabled &&
+    (!whole(limits.everyoneElse.minOpen) || limits.everyoneElse.minOpen < 1)
+  ) {
+    return "Everyone else: the minimum open-slot count must be at least 1.";
   }
   // Enabled with every rule off is the other way to build a module that
   // cannot speak. Caught here rather than discovered in a week of empty runs.
@@ -368,7 +382,7 @@ export function settingsRefusal(limits: DailyPushLimits): string | null {
     !limits.passExpiry.enabled &&
     !limits.neverBooked.enabled &&
     !limits.lapsed.enabled &&
-    !limits.freeSlots.enabled
+    !limits.everyoneElse.enabled
   ) {
     return "Every rule is switched off, so the daily push has nothing it could ever say.";
   }

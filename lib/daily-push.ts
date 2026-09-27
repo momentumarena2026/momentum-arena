@@ -1,6 +1,13 @@
 import { db } from "@/lib/db";
 import { getSlotAvailability } from "@/lib/availability";
+import { sendToTokens } from "@/lib/push";
 import { sendTemplatedToTokens, sendTemplatedToUser } from "@/lib/push-templates";
+import {
+  occasionsFor,
+  pickLine,
+  libraryRefusal,
+  type LineCandidate,
+} from "@/lib/daily-push-lines";
 import {
   daysSince,
   daysUntil,
@@ -55,7 +62,7 @@ export const DEFAULT_DAILY_PUSH: DailyPushLimits = {
   passExpiry: { enabled: true, days: 3 },
   neverBooked: { enabled: true, days: 7 },
   lapsed: { enabled: true, days: 30 },
-  freeSlots: { enabled: true, fromHour: 18, minOpen: 2 },
+  everyoneElse: { enabled: true, fromHour: 18, minOpen: 2 },
 };
 
 /** Settings as the rules module wants them, defaults when the row is absent. */
@@ -85,7 +92,7 @@ export async function loadDailyPushSettings(): Promise<DailyPushLimits> {
     passExpiry: { enabled: row.rulePassExpiryEnabled, days: row.rulePassExpiryDays },
     neverBooked: { enabled: row.ruleNeverBookedEnabled, days: row.ruleNeverBookedDays },
     lapsed: { enabled: row.ruleLapsedEnabled, days: row.ruleLapsedDays },
-    freeSlots: {
+    everyoneElse: {
       enabled: row.ruleFreeSlotsEnabled,
       fromHour: row.ruleFreeSlotsFromHour,
       minOpen: row.ruleFreeSlotsMinOpen,
@@ -142,7 +149,7 @@ export async function venueFactsTonight(
   limits: DailyPushLimits,
   now: Date,
 ): Promise<VenueFacts & { sports: string[] }> {
-  if (!limits.freeSlots.enabled) return { freeSlotsTonight: 0, sports: [] };
+  if (!limits.everyoneElse.enabled) return { freeSlotsTonight: 0, sports: [] };
 
   const configs = await db.courtConfig.findMany({
     where: { isActive: true },
@@ -150,7 +157,7 @@ export async function venueFactsTonight(
   });
   if (configs.length === 0) return { freeSlotsTonight: 0, sports: [] };
 
-  const fromHour = Math.max(limits.freeSlots.fromHour, istHourOf(now) + 1);
+  const fromHour = Math.max(limits.everyoneElse.fromHour, istHourOf(now) + 1);
   const today = istDayStart(now);
 
   // One availability read per active court config, once a day. Costly
@@ -215,6 +222,11 @@ export interface DailyPushRun {
   /** Suppression reason → how many people it accounted for. */
   skipped: Record<string, number>;
   venue: { freeSlotsTonight: number; sports: string[] };
+  /** What kind of day the library thought it was. */
+  occasions: string[];
+  /** The creative line chosen for EVERYONE_ELSE, or why there was none. */
+  line: { id: string; title: string; body: string } | null;
+  lineRefusal: string | null;
   ranAt: string;
 }
 
@@ -240,12 +252,16 @@ export interface DailyPushRun {
  * switched off directly.
  * ──────────────────────────────────────────────────────────────────────
  */
-export async function templateEnabledByRule(): Promise<Record<DailyPushRuleKey, boolean>> {
-  const all: Record<DailyPushRuleKey, boolean> = {
+export async function templateEnabledByRule(): Promise<
+  Record<Exclude<DailyPushRuleKey, "EVERYONE_ELSE">, boolean>
+> {
+  // EVERYONE_ELSE is absent on purpose: its copy is the line library,
+  // not a registered template. Its equivalent gate is "does the library
+  // have something eligible today", applied in runDailyPush.
+  const all: Record<Exclude<DailyPushRuleKey, "EVERYONE_ELSE">, boolean> = {
     PASS_EXPIRY: true,
     NEVER_BOOKED: true,
     LAPSED: true,
-    FREE_SLOTS: true,
   };
   try {
     const rows = await db.pushTemplate.findMany({
@@ -253,7 +269,7 @@ export async function templateEnabledByRule(): Promise<Record<DailyPushRuleKey, 
       select: { key: true, enabled: true },
     });
     const byKey = new Map(rows.map((r) => [r.key, r.enabled]));
-    for (const rule of Object.keys(all) as DailyPushRuleKey[]) {
+    for (const rule of Object.keys(all) as (keyof typeof all)[]) {
       // An absent row means defaults, and the default is enabled.
       all[rule] = byKey.get(TEMPLATE_FOR[rule]) ?? true;
     }
@@ -271,23 +287,29 @@ export async function templateEnabledByRule(): Promise<Record<DailyPushRuleKey, 
 /** Fold "is the copy switched on?" into "is the rule switched on?". */
 function withTemplateState(
   limits: DailyPushLimits,
-  live: Record<DailyPushRuleKey, boolean>,
+  live: Record<Exclude<DailyPushRuleKey, "EVERYONE_ELSE">, boolean>,
+  libraryCanSpeak: boolean,
 ): DailyPushLimits {
   return {
     ...limits,
     passExpiry: { ...limits.passExpiry, enabled: limits.passExpiry.enabled && live.PASS_EXPIRY },
     neverBooked: { ...limits.neverBooked, enabled: limits.neverBooked.enabled && live.NEVER_BOOKED },
     lapsed: { ...limits.lapsed, enabled: limits.lapsed.enabled && live.LAPSED },
-    freeSlots: { ...limits.freeSlots, enabled: limits.freeSlots.enabled && live.FREE_SLOTS },
+    // The library is to EVERYONE_ELSE what a template is to the others:
+    // if it cannot produce a line today, the rule must not match, or it
+    // claims people and sends them nothing.
+    everyoneElse: { ...limits.everyoneElse, enabled: limits.everyoneElse.enabled && libraryCanSpeak },
   };
 }
 
 /** Which template carries each rule. PASS_EXPIRY reuses the orphan. */
-const TEMPLATE_FOR: Record<DailyPushRuleKey, "pass_expiring_soon" | "daily_never_booked" | "daily_lapsed" | "daily_free_slots"> = {
+const TEMPLATE_FOR: Record<
+  Exclude<DailyPushRuleKey, "EVERYONE_ELSE">,
+  "pass_expiring_soon" | "daily_never_booked" | "daily_lapsed"
+> = {
   PASS_EXPIRY: "pass_expiring_soon",
   NEVER_BOOKED: "daily_never_booked",
   LAPSED: "daily_lapsed",
-  FREE_SLOTS: "daily_free_slots",
 };
 
 /**
@@ -302,7 +324,7 @@ const LINK_FOR: Record<DailyPushRuleKey, string> = {
   PASS_EXPIRY: "/passes",
   NEVER_BOOKED: "/book",
   LAPSED: "/book",
-  FREE_SLOTS: "/book",
+  EVERYONE_ELSE: "/book",
 };
 
 /**
@@ -318,10 +340,7 @@ export async function runDailyPush(
 ): Promise<DailyPushRun> {
   const now = opts.now ?? new Date();
   const dryRun = opts.dryRun ?? false;
-  // The rule switch and the copy switch are ANDed together before a
-  // single decision is made — see templateEnabledByRule for the bug
-  // that cost.
-  const limits = withTemplateState(await loadDailyPushSettings(), await templateEnabledByRule());
+  const settings = await loadDailyPushSettings();
   const ranAt = now.toISOString();
 
   const empty = (refusal: string | null): DailyPushRun => ({
@@ -332,6 +351,9 @@ export async function runDailyPush(
     buckets: [],
     skipped: {},
     venue: { freeSlotsTonight: 0, sports: [] },
+    occasions: [],
+    line: null,
+    lineRefusal: null,
     ranAt,
   });
 
@@ -339,11 +361,44 @@ export async function runDailyPush(
   // clock but NOT the switch: previewing a module the venue has turned
   // off should say it is off rather than quietly showing a plan.
   if (!dryRun) {
-    const refusal = runRefusal(limits, now);
+    const refusal = runRefusal(settings, now);
     if (refusal) return empty(refusal);
-  } else if (!limits.enabled) {
+  } else if (!settings.enabled) {
     return empty("the daily push is switched off");
   }
+
+  // ── What kind of day is it, and what have we got to say? ───────────
+  //
+  // Before anything else, because the answer decides whether
+  // EVERYONE_ELSE is a live rule at all. Availability is read here too:
+  // it does not gate the rule any more, only the lines that claim free
+  // courts.
+  const dayKeyForLine = istDayKey(now);
+  const [occasionRows, lineRows, venueNow] = await Promise.all([
+    db.dailyPushOccasion
+      .findMany({ select: { tag: true, label: true, startsOn: true, endsOn: true } })
+      .catch(() => []),
+    db.dailyPushLine
+      .findMany({
+        select: { id: true, title: true, body: true, tags: true, enabled: true, lastUsedAt: true },
+      })
+      .catch((): LineCandidate[] => []),
+    venueFactsTonight(settings, now),
+  ]);
+
+  const occasions = occasionsFor(dayKeyForLine, occasionRows);
+  const lineCtx = {
+    occasions,
+    slotsAreFree: venueNow.freeSlotsTonight >= Math.max(1, settings.everyoneElse.minOpen),
+  };
+  const todaysLine = pickLine(lineRows, lineCtx);
+  const lineRefusal = libraryRefusal(lineRows, lineCtx);
+
+  const limits = withTemplateState(
+    settings,
+    await templateEnabledByRule(),
+    todaysLine !== null,
+  );
 
   // ── Gather. Eight queries, none of them per-user. ───────────────────
   //
@@ -371,7 +426,7 @@ export async function runDailyPush(
   }
   const userIds = [...tokensByUser.keys()];
 
-  const [users, recentSends, pushedToday, bookedSoon, lastBookings, passes, venue] =
+  const [users, recentSends, pushedToday, bookedSoon, lastBookings, passes] =
     await Promise.all([
       db.user.findMany({
         where: { id: { in: userIds }, deletedAt: null },
@@ -409,8 +464,8 @@ export async function runDailyPush(
         select: { userId: true, name: true, remainingMinutes: true, expiresAt: true },
         orderBy: { expiresAt: "asc" },
       }),
-      venueFactsTonight(limits, now),
     ]);
+  const venue = venueNow;
 
   const sendsThisWeek = new Map<string, number>();
   const sentToday = new Set<string>();
@@ -465,11 +520,6 @@ export async function runDailyPush(
     else byRule.set(w.rule, [w]);
   }
 
-  const sharedVars = {
-    count: String(venue.freeSlotsTonight),
-    sports: joinSports(venue.sports),
-  };
-
   const buckets: BucketReport[] = [];
   let sent = 0;
 
@@ -488,15 +538,20 @@ export async function runDailyPush(
     if (dryRun) {
       // Render without sending, so the admin reads the actual sentence
       // rather than the template with braces in it.
-      const { renderPushTemplate } = await import("@/lib/push-templates");
-      const rendered = await renderPushTemplate(
-        TEMPLATE_FOR[rule],
-        rule === "PASS_EXPIRY"
-          ? { planName: "their pass", balance: "the balance", expiry: "the expiry date" }
-          : sharedVars,
-      );
-      report.title = rendered?.title ?? "(template is switched off)";
-      report.body = rendered?.body ?? "";
+      if (rule === "EVERYONE_ELSE") {
+        report.title = todaysLine?.title ?? "(no line available today)";
+        report.body = todaysLine?.body ?? "";
+      } else {
+        const { renderPushTemplate } = await import("@/lib/push-templates");
+        const rendered = await renderPushTemplate(
+          TEMPLATE_FOR[rule],
+          rule === "PASS_EXPIRY"
+            ? { planName: "their pass", balance: "the balance", expiry: "the expiry date" }
+            : {},
+        );
+        report.title = rendered?.title ?? "(template is switched off)";
+        report.body = rendered?.body ?? "";
+      }
       buckets.push(report);
       continue;
     }
@@ -549,13 +604,45 @@ export async function runDailyPush(
         report.attempted += res.attempted;
         report.succeeded += res.succeeded;
       }
+    } else if (rule === "EVERYONE_ELSE") {
+      // The creative line. THE ONE SANCTIONED EXCEPTION to THE RULE in
+      // lib/push-templates.ts, and worth stating why: a registered
+      // template is a fixed sentence an admin may edit, and this copy is
+      // deliberately a different sentence every day. The intent behind
+      // THE RULE — that no automated push has copy nobody can see or
+      // switch off — is met by the line library instead, which is
+      // editable, per-line switchable and visible in the same dashboard.
+      // Putting a rotating pool behind a single template row would have
+      // made the template a lie.
+      if (!todaysLine) continue; // guarded above; belt and braces
+      const tokens = recipients.flatMap((r) => tokensByUser.get(r.userId) ?? []);
+      const res = await sendToTokens(
+        tokens,
+        {
+          title: todaysLine.title,
+          body: todaysLine.body,
+          data: { kind: "open_screen", url: LINK_FOR[rule], source: "daily_push", rule },
+        },
+        { scope: "customer", source: "scheduled", audience: `daily:${rule}` },
+      );
+      report.attempted = res.attempted;
+      report.succeeded = res.succeeded;
+      report.title = todaysLine.title;
+      report.body = todaysLine.body;
+
+      // Stamp the rotation only after the send was attempted, so a line
+      // that never went out does not lose its place in the queue.
+      await db.dailyPushLine.update({
+        where: { id: todaysLine.id },
+        data: { lastUsedAt: now, useCount: { increment: 1 } },
+      }).catch(() => {});
     } else {
       // Shared: one render, one multicast.
       const tokens = recipients.flatMap((r) => tokensByUser.get(r.userId) ?? []);
       const res = await sendTemplatedToTokens(
         tokens,
         TEMPLATE_FOR[rule],
-        sharedVars,
+        {},
         { kind: "open_screen", url: LINK_FOR[rule], source: "daily_push", rule },
         { source: "scheduled", audience: `daily:${rule}` },
       );
@@ -576,6 +663,9 @@ export async function runDailyPush(
     buckets,
     skipped,
     venue,
+    occasions,
+    line: todaysLine ? { id: todaysLine.id, title: todaysLine.title, body: todaysLine.body } : null,
+    lineRefusal,
     ranAt,
   };
 }

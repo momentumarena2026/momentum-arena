@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigation } from "@react-navigation/native";
 import { BellOff, CalendarClock, Eye, Users } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
@@ -47,6 +48,7 @@ function showError(e: unknown) {
  */
 export function AdminDailyPushScreen() {
   const qc = useQueryClient();
+  const nav = useNavigation<{ navigate: (s: string) => void }>();
   const view = useQuery({
     queryKey: QUERY_KEY,
     queryFn: () => adminDailyPushApi.get(),
@@ -231,23 +233,33 @@ export function AdminDailyPushScreen() {
           <Rule
             n={4}
             title="Free slots tonight"
-            sent={d.lastWeekByRule.find((r) => r.rule === "FREE_SLOTS")?.count ?? 0}
-            copyOff={d.lastWeekByRule.find((r) => r.rule === "FREE_SLOTS")?.copyOff ?? false}
-            value={s.freeSlots.enabled}
-            onChange={(v) => setS({ ...s, freeSlots: { ...s.freeSlots, enabled: v } })}
+            sent={d.lastWeekByRule.find((r) => r.rule === "EVERYONE_ELSE")?.count ?? 0}
+            copyOff={d.lastWeekByRule.find((r) => r.rule === "EVERYONE_ELSE")?.copyOff ?? false}
+            value={s.everyoneElse.enabled}
+            onChange={(v) => setS({ ...s, everyoneElse: { ...s.everyoneElse, enabled: v } })}
           >
             <HourField
               label="Tonight starts at"
-              value={s.freeSlots.fromHour}
-              onChange={(v) => setS({ ...s, freeSlots: { ...s.freeSlots, fromHour: v } })}
+              value={s.everyoneElse.fromHour}
+              onChange={(v) => setS({ ...s, everyoneElse: { ...s.everyoneElse, fromHour: v } })}
             />
             <NumField
               label="Only if at least this many are free"
-              value={s.freeSlots.minOpen}
-              onChange={(v) => setS({ ...s, freeSlots: { ...s.freeSlots, minOpen: v } })}
+              value={s.everyoneElse.minOpen}
+              onChange={(v) => setS({ ...s, everyoneElse: { ...s.everyoneElse, minOpen: v } })}
             />
           </Rule>
         </Card>
+
+        <Pressable onPress={() => nav.navigate("AdminDailyPushLines")} style={styles.libraryRow}>
+          <View style={{ flex: 1 }}>
+            <Text weight="semibold" style={{ fontSize: 13 }}>The line library</Text>
+            <Text style={styles.note}>
+              What the catch-all says. One creative line a day, rotating.
+            </Text>
+          </View>
+          <Text style={{ fontSize: 16, color: colors.zinc500 }}>›</Text>
+        </Pressable>
 
         <View style={{ gap: spacing["2"] }}>
           <Button
@@ -519,6 +531,16 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 14 },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   note: { fontSize: 11, color: colors.zinc400 },
+  libraryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.zinc900,
+    borderRadius: radius.lg,
+    padding: spacing["4"],
+  },
   copyOff: {
     fontSize: 11,
     color: "#fcd34d",

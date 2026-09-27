@@ -265,35 +265,39 @@ export function DailyPushClient({ view }: { view: DailyPushAdminView }) {
 
         <Rule
           n={4}
-          title="Free slots tonight"
-          sent={view.lastWeekByRule.find((r) => r.rule === "FREE_SLOTS")?.count ?? 0}
-          copyOff={view.lastWeekByRule.find((r) => r.rule === "FREE_SLOTS")?.copyOff ?? false}
-          enabled={s.freeSlots.enabled}
-          onToggle={(v) => setS({ ...s, freeSlots: { ...s.freeSlots, enabled: v } })}
-          note="The fallback for everyone no rule above matched. Only fires when the evening genuinely has slots — a full night says nothing rather than inventing availability."
+          title="Everyone else — the daily line"
+          sent={view.lastWeekByRule.find((r) => r.rule === "EVERYONE_ELSE")?.count ?? 0}
+          copyOff={view.lastWeekByRule.find((r) => r.rule === "EVERYONE_ELSE")?.copyOff ?? false}
+          enabled={s.everyoneElse.enabled}
+          onToggle={(v) => setS({ ...s, everyoneElse: { ...s.everyoneElse, enabled: v } })}
+          note="The catch-all, and where most people land. Sends one creative line a day from the library. The settings below decide only whether the evening counts as having space, which gates the lines that claim free courts."
         >
           <div className="grid sm:grid-cols-2 gap-3">
             <Select
               label="Tonight starts at"
-              value={s.freeSlots.fromHour}
+              value={s.everyoneElse.fromHour}
               options={HOURS}
               format={hourLabel}
-              onChange={(v) => setS({ ...s, freeSlots: { ...s.freeSlots, fromHour: v } })}
+              onChange={(v) => setS({ ...s, everyoneElse: { ...s.everyoneElse, fromHour: v } })}
             />
             <Number
-              label="Only if at least this many are free"
-              value={s.freeSlots.minOpen}
+              label="Slots free before a line may claim it"
+              value={s.everyoneElse.minOpen}
               min={1}
               max={50}
-              onChange={(v) => setS({ ...s, freeSlots: { ...s.freeSlots, minOpen: v } })}
+              onChange={(v) => setS({ ...s, everyoneElse: { ...s.everyoneElse, minOpen: v } })}
             />
           </div>
         </Rule>
 
         <p className="text-[11px] text-zinc-600">
-          The wording of each message lives with the rest of the automated copy on{" "}
+          The first three messages live with the rest of the automated copy on{" "}
           <Link href="/admin/push/templates" className="text-emerald-400 hover:underline">
             Automated messages
+          </Link>
+          . The fourth is a rotating library, one line a day —{" "}
+          <Link href="/admin/push/daily/lines" className="text-emerald-400 hover:underline">
+            edit the lines
           </Link>
           .
         </p>
@@ -376,6 +380,21 @@ function DryRun({ run }: { run: DailyPushRun }) {
         <Banner tone="warn">{run.refusal}</Banner>
       ) : (
         <>
+          {run.occasions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-zinc-500">Today reads as</span>
+              {run.occasions.map((o) => (
+                <span key={o} className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300">
+                  {o}
+                </span>
+              ))}
+            </div>
+          )}
+          {run.lineRefusal && (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-300">
+              {run.lineRefusal}
+            </p>
+          )}
           <p className="text-[11px] text-zinc-500">
             Tonight the arena has{" "}
             <span className="text-zinc-300">{run.venue.freeSlotsTonight}</span> free{" "}
@@ -410,6 +429,12 @@ function DryRun({ run }: { run: DailyPushRun }) {
                       <p className="text-sm font-semibold text-white">{b.title}</p>
                       <p className="mt-0.5 text-xs text-zinc-400">{b.body}</p>
                     </div>
+                  )}
+                  {b.rule === "EVERYONE_ELSE" && (
+                    <p className="mt-1.5 text-[10px] text-zinc-600">
+                      Today&apos;s line from the library. It will not come round
+                      again until every other eligible line has been out.
+                    </p>
                   )}
                   {b.rule === "PASS_EXPIRY" && (
                     <p className="mt-1.5 text-[10px] text-zinc-600">

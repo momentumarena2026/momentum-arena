@@ -43,7 +43,7 @@ const LIMITS: DailyPushLimits = {
   passExpiry: { enabled: true, days: 3 },
   neverBooked: { enabled: true, days: 7 },
   lapsed: { enabled: true, days: 30 },
-  freeSlots: { enabled: true, fromHour: 18, minOpen: 2 },
+  everyoneElse: { enabled: true, fromHour: 18, minOpen: 2 },
 };
 
 /** Eligible, matches nothing personal. The baseline every test deviates from. */
@@ -69,6 +69,20 @@ const who = (over: Partial<CandidateFacts> = {}): CandidateFacts => ({
   ...CLEAN,
   ...over,
 });
+
+/**
+ * Limits with the catch-all switched off.
+ *
+ * Needed to test a PERSONAL rule in isolation. EVERYONE_ELSE now
+ * matches anybody the personal rules missed, regardless of
+ * availability, so "this person matches nothing" can only be asserted
+ * with the catch-all out of the way. Before the creative library
+ * landed, a full venue did that job — which made these tests quietly
+ * dependent on a fact that had nothing to do with what they were
+ * checking.
+ */
+const soloRules = (over: Partial<DailyPushLimits> = {}): DailyPushLimits =>
+  limits({ everyoneElse: { enabled: false, fromHour: 18, minOpen: 2 }, ...over });
 
 /** 19:00 IST on 26 Sep 2026 == 13:30 UTC. */
 const AT_7PM_IST = new Date("2026-09-26T13:30:00.000Z");
@@ -271,44 +285,44 @@ test("pass expiry outranks every other rule", () => {
 });
 
 test("pass expiry fires on the threshold day and not the day before", () => {
-  assert.equal(matchRule(who({ passExpiryInDays: 3 }), LIMITS, FULL), "PASS_EXPIRY");
-  assert.equal(matchRule(who({ passExpiryInDays: 4 }), LIMITS, FULL), null);
+  assert.equal(matchRule(who({ passExpiryInDays: 3 }), soloRules(), FULL), "PASS_EXPIRY");
+  assert.equal(matchRule(who({ passExpiryInDays: 4 }), soloRules(), FULL), null);
   // Expiring today still counts — that is the last chance to say it.
-  assert.equal(matchRule(who({ passExpiryInDays: 0 }), LIMITS, FULL), "PASS_EXPIRY");
+  assert.equal(matchRule(who({ passExpiryInDays: 0 }), soloRules(), FULL), "PASS_EXPIRY");
 });
 
 test("never-booked needs the account to be old enough to have had a chance", () => {
   const fresh = who({ daysSinceLastBooking: null, accountAgeDays: 6 });
-  assert.equal(matchRule(fresh, LIMITS, FULL), null, "installed yesterday is not 'never booked'");
+  assert.equal(matchRule(fresh, soloRules(), FULL), null, "installed yesterday is not 'never booked'");
 
   const settled = who({ daysSinceLastBooking: null, accountAgeDays: 7 });
-  assert.equal(matchRule(settled, LIMITS, FULL), "NEVER_BOOKED");
+  assert.equal(matchRule(settled, soloRules(), FULL), "NEVER_BOOKED");
 });
 
 test("lapsed needs a booking history, never-booked needs the absence of one", () => {
-  assert.equal(matchRule(who({ daysSinceLastBooking: 30 }), LIMITS, FULL), "LAPSED");
-  assert.equal(matchRule(who({ daysSinceLastBooking: 29 }), LIMITS, FULL), null);
+  assert.equal(matchRule(who({ daysSinceLastBooking: 30 }), soloRules(), FULL), "LAPSED");
+  assert.equal(matchRule(who({ daysSinceLastBooking: 29 }), soloRules(), FULL), null);
 
   // The two are mutually exclusive by construction; this pins it.
   const never = who({ daysSinceLastBooking: null, accountAgeDays: 999 });
-  assert.equal(matchRule(never, LIMITS, FULL), "NEVER_BOOKED");
+  assert.equal(matchRule(never, soloRules(), FULL), "NEVER_BOOKED");
 });
 
-test("free slots is a fallback, and only when the slots are real", () => {
+test("everyone else is the catch-all, and no longer gated on availability", () => {
   const ordinary = who(); // booked 2 days ago, no pass — no personal rule
-  assert.equal(matchRule(ordinary, LIMITS, BUSY), "FREE_SLOTS");
+  assert.equal(matchRule(ordinary, LIMITS, BUSY), "EVERYONE_ELSE");
 
-  // The honesty condition: a full night says nothing rather than
-  // inventing availability.
-  assert.equal(matchRule(ordinary, LIMITS, FULL), null);
-  assert.equal(matchRule(ordinary, LIMITS, { freeSlotsTonight: 1 }), null, "below minOpen");
-  assert.equal(matchRule(ordinary, LIMITS, { freeSlotsTonight: 2 }), "FREE_SLOTS", "at minOpen");
+  // A full night no longer silences the rule: most of the creative
+  // library says nothing about availability. Honesty is enforced one
+  // level down instead — see tests/daily-push-lines.test.ts, where a
+  // line tagged `needs-slots` is filtered out on a full evening.
+  assert.equal(matchRule(ordinary, LIMITS, FULL), "EVERYONE_ELSE");
+  assert.equal(matchRule(ordinary, LIMITS, { freeSlotsTonight: 0 }), "EVERYONE_ELSE");
 });
 
-test("a minOpen below 1 cannot be used to claim slots that do not exist", () => {
-  const zeroed = limits({ freeSlots: { enabled: true, fromHour: 18, minOpen: 0 } });
-  assert.equal(matchRule(who(), zeroed, FULL), null, "0 free slots never fires, whatever minOpen says");
-  assert.equal(matchRule(who(), zeroed, { freeSlotsTonight: 1 }), "FREE_SLOTS");
+test("switching the catch-all off leaves ordinary people with nothing", () => {
+  const off = limits({ everyoneElse: { enabled: false, fromHour: 18, minOpen: 2 } });
+  assert.equal(matchRule(who(), off, BUSY), null);
 });
 
 test("each rule can be switched off independently and the next one takes over", () => {
@@ -322,12 +336,12 @@ test("each rule can be switched off independently and the next one takes over", 
     passExpiry: { enabled: false, days: 3 },
     lapsed: { enabled: false, days: 30 },
   });
-  assert.equal(matchRule(expiring, noLapsed, BUSY), "FREE_SLOTS");
+  assert.equal(matchRule(expiring, noLapsed, BUSY), "EVERYONE_ELSE");
 
   const nothing = limits({
     passExpiry: { enabled: false, days: 3 },
     lapsed: { enabled: false, days: 30 },
-    freeSlots: { enabled: false, fromHour: 18, minOpen: 2 },
+    everyoneElse: { enabled: false, fromHour: 18, minOpen: 2 },
   });
   assert.equal(matchRule(expiring, nothing, BUSY), null);
 });
@@ -348,14 +362,14 @@ test("decide sends when a rule matches and nothing suppresses", () => {
 });
 
 test("decide distinguishes 'nothing to say' from 'not allowed to say it'", () => {
-  const quiet = decide(who(), LIMITS, FULL);
+  const quiet = decide(who(), soloRules(), FULL);
   assert.equal(quiet.send, false);
   assert.equal(quiet.send === false && quiet.reason, "nothing to say");
 
   const capped = decide(who({ sendsInLastWeek: 2 }), LIMITS, BUSY);
   assert.equal(capped.send, false);
   assert.match(capped.send === false ? capped.reason : "", /weekly cap/);
-  assert.equal(capped.send === false && capped.wouldHaveMatched, "FREE_SLOTS");
+  assert.equal(capped.send === false && capped.wouldHaveMatched, "EVERYONE_ELSE");
 });
 
 // ── Settings validation ────────────────────────────────────────────────
@@ -380,7 +394,7 @@ test("an enabled module with every rule off is refused", () => {
     passExpiry: { enabled: false, days: 3 },
     neverBooked: { enabled: false, days: 7 },
     lapsed: { enabled: false, days: 30 },
-    freeSlots: { enabled: false, fromHour: 18, minOpen: 2 },
+    everyoneElse: { enabled: false, fromHour: 18, minOpen: 2 },
   });
   assert.match(settingsRefusal(mute) ?? "", /nothing it could ever say/);
 
@@ -410,11 +424,11 @@ test("rule thresholds must be whole non-negative days", () => {
 
 test("free-slots settings are bounded", () => {
   assert.match(
-    settingsRefusal(limits({ freeSlots: { enabled: true, fromHour: 99, minOpen: 2 } })) ?? "",
+    settingsRefusal(limits({ everyoneElse: { enabled: true, fromHour: 99, minOpen: 2 } })) ?? "",
     /between 0 and 23/,
   );
   assert.match(
-    settingsRefusal(limits({ freeSlots: { enabled: true, fromHour: 18, minOpen: 0 } })) ?? "",
+    settingsRefusal(limits({ everyoneElse: { enabled: true, fromHour: 18, minOpen: 0 } })) ?? "",
     /at least 1/,
   );
 });

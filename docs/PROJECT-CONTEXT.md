@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-26 · accurate as of `main` = `4474a3a4` (app 1.0.8). New module: the **daily push** (§7c) — the first scheduled, non-transactional push in the product, driven end-to-end against staging and **shipped disabled**, because its customer opt-out rides an OTA canary still at 20%. Three facts from it that generalise: **gotcha 19** — an IST "day" is two different values and a `@db.Date` column silently takes the wrong one, which killed an idempotency guard while a unique index hid it; Vercel crons are UTC, so an hourly cron on the hour fires at *half past* every IST hour; and `PushDispatch` could not answer "has this person heard from us today?" until `userId` was added, and still cannot for multicasts. Earlier: iOS deep links only ever worked on a cold launch (§6b); challenges leave the board when somebody PAYS and at no other moment (§9).
+**Last substantive update:** 2026-09-27 · accurate as of `main` = `4474a3a4` (app 1.0.8). New module: the **daily push** (§7c) — the first scheduled, non-transactional push in the product, now carrying a rotating Hinglish creative library for its catch-all rule. Driven end-to-end against staging and **shipped disabled on production**, because its customer opt-out rides an OTA canary still at 20%. Settings are live on STAGING (send 15:00 IST, 2 pushes per person per day across all types, all four rules on). Facts from it that generalise: **gotcha 19** — an IST "day" is two different values and a `@db.Date` column silently takes the wrong one, which killed an idempotency guard while a unique index hid it; Vercel crons are UTC, so an hourly cron on the hour fires at *half past* every IST hour; and `PushDispatch` could not answer "has this person heard from us today?" until `userId` was added, and still cannot for multicasts. Earlier: iOS deep links only ever worked on a cold launch (§6b); challenges leave the board when somebody PAYS and at no other moment (§9).
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -1340,8 +1340,7 @@ segment send.
 - **Free slots counts `(sport, hour)` pairs, not court configs.** A full pitch
   and the two halves carved out of it are three rows describing one piece of
   ground; counting configs advertises three openings where one game can be
-  booked. Hours already past are excluded for the same reason. A full night
-  says nothing rather than inventing availability.
+  booked. Hours already past are excluded for the same reason.
 - **`DailyPushSend` is unique on `(userId, sentOn)` and written BEFORE the
   send.** Same discipline as `announceNewChallenges`: the failure mode is a
   missed message, not a duplicated one — the right way round when the audience
@@ -1384,6 +1383,53 @@ tournaments, shop, the other pass ones) — they have dashboard switches that
 control nothing, because those features notify through `notifyUser()` with
 copy hard-coded at the call site instead of through the registry. Not silence,
 but the switch is a decoy. Worth fixing as its own job.
+
+### The creative line (rule 4)
+
+Rule 4 is not a fixed message. It sends **one Hinglish line a day from a
+rotating library** — the Zomato-shaped thing the venue asked for — to everyone
+the three personal rules did not catch, which is most people most days.
+`lib/daily-push-lines.ts` decides (pure, 19 tests), `lib/daily-push-library.ts`
+holds the 82 starting lines, `/admin/push/daily/lines` edits them.
+
+- **Least-recently-used, not random.** Random repeats inside a week on a pool
+  of eighty and the venue would swear the rotation was broken. LRU cycles the
+  whole library before anything comes round again; a test walks the pool
+  forward and pins that property.
+- **Topical beats generic.** If any eligible line carries a live occasion tag,
+  the generic pool is set aside entirely — otherwise a Holi line loses a coin
+  toss to "monday, the turf isn't judging" on the one day of the year it lands.
+- **`needs-slots` is the honesty tag.** Rule 4 no longer gates on availability,
+  because most of the copy says nothing about it. Lines that DO claim free
+  courts carry `needs-slots` and are filtered out on a full evening. Anything
+  claiming space must carry it.
+- **Weekday and season are computed; festivals and cricket are not.** Holi and
+  Janmashtami are lunar and there is no fixtures feed, so those arrive as dated
+  windows in `DailyPushOccasion` that the venue maintains. **A tag with no
+  window never fires**, silently — so both dashboards list the undated tags
+  rather than leaving it to be discovered. Hard-coding lunar dates would have
+  rotted a year out with nobody noticing.
+- **THE ONE SANCTIONED EXCEPTION to THE RULE** in `lib/push-templates.ts`. A
+  registered template is one fixed sentence; this is deliberately a different
+  sentence every day. The intent behind THE RULE — no automated push with copy
+  nobody can see or switch off — is met by the library instead, which is
+  editable, switchable per line and in the same dashboard. `daily_free_slots`
+  was retired from the registry rather than left as a decoy.
+- **The library is gated the same way a template is.** If nothing is eligible
+  today, rule 4 does not match anybody. Matching without being able to send is
+  the bug that ate an audience once already (see below); it is not allowed to
+  happen a second way.
+
+### Two switches that must behave the same
+
+Turning a **rule** off makes people fall through to the next rule. Turning its
+**message** off used to do something else: the engine claims a bucket before it
+sends, so a disabled template marked its audience "sent today", spent their
+weekly cap and delivered nothing — and they did not fall through either,
+because the disabled rule had already matched them. **Switching off a message
+quietly ate its audience.** Template state is now read *before* deciding and
+ANDed into the rule's own flag, and both dashboards warn when a rule is on with
+its copy off. The same discipline is why the library gates rule 4.
 
 **How to re-verify it: `npx tsx scripts/test-daily-push.ts`.** It refuses to
 run against the production Neon endpoint, builds a synthetic cohort with FCM
