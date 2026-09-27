@@ -92,6 +92,20 @@ export function ChallengeDetailScreen() {
   // sits on screen polling.
   const [choosing, setChoosing] = useState<{ windowId?: string } | null>(null);
   const [method, setMethod] = useState<"upi" | "razorpay">("upi");
+  /**
+   * The acceptor's answer to loser-pays, ticked before paying.
+   *
+   * Starts as null, NOT false. "They said no" and "they were never
+   * asked" are different things to show a poster, and the server
+   * treats undefined as the second.
+   *
+   * UP HERE WITH THE OTHER STATE, and that is load-bearing: this file
+   * early-returns at `if (!c)` a hundred lines below, so a hook added
+   * after it runs on some renders and not others — "Rendered more
+   * hooks than during the previous render", which is exactly what this
+   * one did when it was first written next to the code that uses it.
+   */
+  const [lpAgreed, setLpAgreed] = useState<boolean | null>(null);
   const [dqrFor, setDqrFor] = useState<{ windowId?: string; amount: number } | null>(null);
   const { state: authState } = useAuth();
 
@@ -298,15 +312,6 @@ export function ChallengeDetailScreen() {
    * running there is nothing to ask, so it goes straight through rather
    * than showing a chooser with one option.
    */
-  /**
-   * The acceptor's answer to loser-pays, ticked before paying.
-   *
-   * Starts as null, NOT false. "They said no" and "they were never
-   * asked" are different things to show a poster, and the server
-   * treats undefined as the second.
-   */
-  const [lpAgreed, setLpAgreed] = useState<boolean | null>(null);
-
   const startPay = (acceptWindowId?: string) => {
     if (!dqrEnabled) {
       void pay(acceptWindowId);
