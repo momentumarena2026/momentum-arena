@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Trophy, Users, IndianRupee, CalendarDays, Radio, ChevronRight, CalendarClock } from "lucide-react";
 import { getMyTournamentTeam, getPublicTournamentBySlug } from "@/lib/tournaments";
-import { onlinePayable, parsePrizes, STATUS_LABELS } from "@/lib/tournament-config";
+import { onlinePayable, parsePrizes, STATUS_LABELS,
+  poolMatchesArePublic,
+} from "@/lib/tournament-config";
 import { auth } from "@/lib/auth";
 import { looksLikeRichText } from "@/lib/rich-text";
 import { SlotPreferences } from "./slot-preferences";
@@ -39,7 +41,12 @@ export default async function TournamentPublicPage({
   if (!t) notFound();
 
   const confirmed = t.teams.filter((x) => x.status === "CONFIRMED");
-  const spotsLeft = Math.max(0, t.totalTeams - confirmed.length);
+  // WHO HAS ENTERED IS NOT PUBLIC UNTIL THE DRAW — see the long note in
+  // app/api/tournaments/[slug]/public/route.ts. This page reads the
+  // database directly rather than going through that endpoint, so the
+  // gate has to be applied again here or the names leak from the server
+  // component while the API hides them.
+  const rosterPublic = poolMatchesArePublic(t.status);
   const payable = onlinePayable(t.entryFee, t.feeMode, t.advancePct);
   const thirdParty = t.host === "THIRD_PARTY";
   const prizes = parsePrizes(t.prizes);
@@ -93,13 +100,16 @@ export default async function TournamentPublicPage({
               <CalendarDays className="h-4 w-4 text-zinc-500" /> {fmtDate(t.startDate)}
               {t.endDate && <> – {fmtDate(t.endDate)}</>}
             </span>
-            <span className="flex items-center gap-1.5">
-              <Users className="h-4 w-4 text-zinc-500" /> {confirmed.length}
-              {!thirdParty && <>/{t.totalTeams}</>} teams
-              {!thirdParty && t.status === "REG_OPEN" && spotsLeft > 0 && (
-                <span className="text-emerald-400">· {spotsLeft} spots left</span>
-              )}
-            </span>
+            {/* The entrant count, and "spots left" with it. The second is
+                the first inverted — totalTeams minus spots left is the
+                number of teams in — so hiding one and keeping the other
+                would hide nothing. */}
+            {rosterPublic && (
+              <span className="flex items-center gap-1.5">
+                <Users className="h-4 w-4 text-zinc-500" /> {confirmed.length}
+                {!thirdParty && <>/{t.totalTeams}</>} teams
+              </span>
+            )}
             {!thirdParty && t.feeMode !== "FREE" && (
               <span className="flex items-center gap-1.5">
                 <IndianRupee className="h-4 w-4 text-zinc-500" /> ₹{t.entryFee.toLocaleString("en-IN")}/team
@@ -288,7 +298,10 @@ export default async function TournamentPublicPage({
           )}
         </div>
 
-        {/* Teams */}
+        {/* Teams — only once the draw is out. Before that this whole
+            card is absent rather than empty: a "Teams (0)" heading on a
+            tournament with nine entrants is worse than saying nothing. */}
+        {rosterPublic && (
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
           <h2 className="font-semibold text-white">
             Teams <span className="text-sm font-normal text-zinc-500">({confirmed.length})</span>
@@ -316,6 +329,7 @@ export default async function TournamentPublicPage({
             </ul>
           )}
         </div>
+        )}
       </div>
 
       {/* Rules */}

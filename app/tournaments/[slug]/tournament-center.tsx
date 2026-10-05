@@ -398,7 +398,11 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
                 transition={{ repeat: Infinity, duration: 2.4 }}
                 className="mt-10 text-xs uppercase tracking-widest text-zinc-600"
               >
-                {data.teams.length} teams · {t.status === "REG_OPEN" ? "registrations open" : "waiting for the draw"}
+                {/* No entrant count here. The API sends an empty team
+                    list until the draw (see its note), so this would read
+                    "0 teams" — and the count is the half the venue most
+                    wants withheld while registration is open. */}
+                {t.status === "REG_OPEN" ? "registrations open" : "waiting for the draw"}
               </motion.div>
             </div>
           ) : (
