@@ -224,6 +224,91 @@ async function main() {
     console.log("     means no code path sends anything when a challenge is posted.");
   }
 
+  /* ── The daily push: which rule, and is the library rotating? ── */
+  head("DAILY PUSH — why the same message keeps arriving");
+
+  const dp = await db.dailyPushSettings.findUnique({ where: { id: "singleton" } }).catch(() => null);
+  if (!dp) {
+    console.log("   no settings row — the module is on its shipped defaults (disabled).");
+  } else {
+    console.log(
+      `   enabled=${dp.enabled}  sendHour=${dp.sendHourIST}:00 IST  ` +
+        `perWeek=${dp.maxPerUserPerWeek}  perDay=${dp.maxPushesPerDay}`,
+    );
+    console.log(
+      `   rules: passExpiry=${dp.rulePassExpiryEnabled}(${dp.rulePassExpiryDays}d) ` +
+        `neverBooked=${dp.ruleNeverBookedEnabled}(${dp.ruleNeverBookedDays}d) ` +
+        `lapsed=${dp.ruleLapsedEnabled}(${dp.ruleLapsedDays}d) ` +
+        `everyoneElse=${dp.ruleFreeSlotsEnabled}`,
+    );
+  }
+
+  // WHICH RULE is firing matters more than anything else here. Only the
+  // catch-all draws from the rotating library; the other three each have
+  // ONE fixed template, so a person who stays in those buckets correctly
+  // receives identical copy every single day.
+  const byRule = await db.dailyPushSend
+    .groupBy({ by: ["ruleKey"], where: { createdAt: { gte: since } }, _count: { _all: true } })
+    .catch(() => [] as { ruleKey: string; _count: { _all: number } }[]);
+  if (byRule.length === 0) {
+    console.log("   no daily-push sends in this window.");
+  } else {
+    console.log("   sends by rule:");
+    for (const r of byRule) {
+      const fixed = r.ruleKey !== "EVERYONE_ELSE";
+      console.log(
+        `     ${r.ruleKey.padEnd(14)} ${String(r._count._all).padStart(4)}` +
+          (fixed ? "   ← ONE fixed template: identical copy every time, by design" : "   ← rotates from the library"),
+      );
+    }
+  }
+
+  // The people getting the most of them, and which bucket they sit in.
+  const heavy = await db.dailyPushSend
+    .groupBy({
+      by: ["userId", "ruleKey"],
+      where: { createdAt: { gte: since } },
+      _count: { _all: true },
+      orderBy: { _count: { userId: "desc" } },
+      take: 6,
+    })
+    .catch(() => [] as { userId: string; ruleKey: string; _count: { _all: number } }[]);
+  if (heavy.length) {
+    const names = new Map(
+      (await db.user.findMany({ where: { id: { in: heavy.map((h) => h.userId) } }, select: { id: true, name: true } }))
+        .map((u) => [u.id, u.name ?? "(no name)"]),
+    );
+    console.log("   who is getting the most:");
+    for (const h of heavy) {
+      console.log(`     ${(names.get(h.userId) ?? h.userId).padEnd(24)} ${String(h._count._all).padStart(3)} × ${h.ruleKey}`);
+    }
+  }
+
+  // Rotation health. If nothing is stamped, the library is picking the
+  // same first row every single day and the stamp write is failing.
+  const lib = await db.dailyPushLine
+    .findMany({ select: { title: true, tags: true, enabled: true, lastUsedAt: true, useCount: true } })
+    .catch(() => [] as { title: string; tags: string[]; enabled: boolean; lastUsedAt: Date | null; useCount: number }[]);
+  if (lib.length === 0) {
+    console.log("   ⚠ the line library is EMPTY — the catch-all rule cannot speak at all.");
+  } else {
+    const used = lib.filter((l) => l.useCount > 0);
+    const untagged = lib.filter((l) => l.tags.filter((t) => t !== "needs-slots").length === 0);
+    console.log(`   library: ${lib.length} lines, ${used.length} have ever been sent, ${untagged.length} carry no occasion tag`);
+    if (used.length === 0) {
+      console.log("   ⚠ NOTHING is stamped. Either the catch-all has never fired, or the");
+      console.log("     rotation stamp is failing — in which case the same line goes out daily.");
+    } else {
+      for (const l of [...used].sort((a, b) => b.useCount - a.useCount).slice(0, 6)) {
+        console.log(`     ${String(l.useCount).padStart(3)}×  ${ago(l.lastUsedAt)}  ${l.title}`);
+      }
+    }
+    if (untagged.length && used.length && used.every((l) => l.tags.filter((t) => t !== "needs-slots").length > 0)) {
+      console.log(`   ⚠ every line ever sent carries an occasion tag — the ${untagged.length} untagged`);
+      console.log("     everyday lines have never run. 'Topical beats generic' is starving them.");
+    }
+  }
+
   await db.$disconnect();
 }
 
