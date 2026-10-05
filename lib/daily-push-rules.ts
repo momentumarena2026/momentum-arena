@@ -137,6 +137,26 @@ export interface DailyPushLimits {
   /** Total targeted pushes per person per day, counting this one and
    *  counting transactional ones. 0 disables the check. */
   maxPushesPerDay: number;
+  /**
+   * How often one person may be told the SAME thing before the module
+   * moves on, counted over the trailing month.
+   *
+   * ── THE PROBLEM THIS SOLVES ───────────────────────────────────────
+   * Only the catch-all draws from the rotating line library. The three
+   * personal rules have one fixed template each, so somebody who sits
+   * in a bucket — a captain who has never booked, say — was told "Your
+   * first game at Momentum Arena" every single day, word for word,
+   * indefinitely. Correct by the old logic, and indistinguishable from
+   * a broken rotation to the person receiving it.
+   *
+   * Past this count the rule stops matching them and they fall through
+   * to the next one, which ends at the catch-all and its library. It is
+   * also the better product behaviour: a nudge that has not worked
+   * three times is not going to work the tenth.
+   *
+   * 0 disables the check.
+   */
+  maxSameRulePerMonth: number;
   passExpiry: RuleToggle;
   neverBooked: RuleToggle;
   lapsed: RuleToggle;
@@ -173,6 +193,11 @@ export interface CandidateFacts {
   passExpiryInDays: number | null;
   /** Days since the account was created. */
   accountAgeDays: number;
+  /**
+   * How many times each rule has already been sent to this person in
+   * the trailing month. Drives `maxSameRulePerMonth`.
+   */
+  ruleSentThisMonth: Partial<Record<DailyPushRuleKey, number>>;
   /** Days since their most recent booking; null when they never booked. */
   daysSinceLastBooking: number | null;
 }
@@ -261,7 +286,27 @@ export function matchRule(
   limits: DailyPushLimits,
   venue: VenueFacts,
 ): DailyPushRuleKey | null {
+  /**
+   * Has this person heard this particular rule enough times already?
+   *
+   * Applied as part of MATCHING rather than as a suppression, which is
+   * the whole point: an exhausted rule must let the person fall
+   * through to the next one, not silence them. Somebody who has been
+   * told "you have never booked" three times should get the creative
+   * line, not nothing.
+   *
+   * The catch-all is exempt — it is where everyone falls through TO,
+   * and it rotates its copy, so repeating it is not repeating a
+   * message.
+   */
+  const exhausted = (key: DailyPushRuleKey): boolean => {
+    if (key === "EVERYONE_ELSE") return false;
+    if (limits.maxSameRulePerMonth <= 0) return false;
+    return (f.ruleSentThisMonth[key] ?? 0) >= limits.maxSameRulePerMonth;
+  };
+
   for (const key of RULE_PRIORITY) {
+    if (exhausted(key)) continue;
     switch (key) {
       case "PASS_EXPIRY":
         if (
@@ -353,6 +398,9 @@ export function settingsRefusal(limits: DailyPushLimits): string | null {
   }
   if (!whole(limits.maxPushesPerDay) || limits.maxPushesPerDay < 0) {
     return "The daily push ceiling must be zero or a whole number.";
+  }
+  if (!whole(limits.maxSameRulePerMonth) || limits.maxSameRulePerMonth < 0) {
+    return "The same-message cap must be zero or a whole number.";
   }
   if (limits.maxPushesPerDay > 20) {
     return "A daily ceiling above 20 is not a ceiling. Leave it at 0 to switch the check off.";

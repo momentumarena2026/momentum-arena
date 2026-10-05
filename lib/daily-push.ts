@@ -4,6 +4,7 @@ import { sendToTokens } from "@/lib/push";
 import { sendTemplatedToTokens, sendTemplatedToUser } from "@/lib/push-templates";
 import {
   occasionsFor,
+  calendarOccasionsFor,
   pickLine,
   libraryRefusal,
   type LineCandidate,
@@ -59,6 +60,7 @@ export const DEFAULT_DAILY_PUSH: DailyPushLimits = {
   maxPerUserPerWeek: 2,
   skipIfBookedSoon: true,
   maxPushesPerDay: 2,
+  maxSameRulePerMonth: 2,
   passExpiry: { enabled: true, days: 3 },
   neverBooked: { enabled: true, days: 7 },
   lapsed: { enabled: true, days: 30 },
@@ -89,6 +91,7 @@ export async function loadDailyPushSettings(): Promise<DailyPushLimits> {
     maxPerUserPerWeek: row.maxPerUserPerWeek,
     skipIfBookedSoon: row.skipIfBookedSoon,
     maxPushesPerDay: row.maxPushesPerDay,
+    maxSameRulePerMonth: row.maxSameRulePerMonth,
     passExpiry: { enabled: row.rulePassExpiryEnabled, days: row.rulePassExpiryDays },
     neverBooked: { enabled: row.ruleNeverBookedEnabled, days: row.ruleNeverBookedDays },
     lapsed: { enabled: row.ruleLapsedEnabled, days: row.ruleLapsedDays },
@@ -389,6 +392,7 @@ export async function runDailyPush(
   const occasions = occasionsFor(dayKeyForLine, occasionRows);
   const lineCtx = {
     occasions,
+    calendarOccasions: calendarOccasionsFor(dayKeyForLine, occasionRows),
     slotsAreFree: venueNow.freeSlotsTonight >= Math.max(1, settings.everyoneElse.minOpen),
   };
   const todaysLine = pickLine(lineRows, lineCtx);
@@ -411,6 +415,7 @@ export async function runDailyPush(
   const dayStart = istDayStart(now);
   const dayKey = istDayKey(now);
   const weekAgo = new Date(now.getTime() - 7 * 86400_000);
+  const monthAgo = new Date(now.getTime() - 30 * 86400_000);
   const tomorrowEnd = new Date(dayStart.getTime() + 2 * 86400_000);
   // Identifies the rows THIS run claims. See DailyPushSend.runId.
   const runId = `${dayKey.toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -426,7 +431,7 @@ export async function runDailyPush(
   }
   const userIds = [...tokensByUser.keys()];
 
-  const [users, recentSends, pushedToday, bookedSoon, lastBookings, passes] =
+  const [users, recentSends, monthSends, pushedToday, bookedSoon, lastBookings, passes] =
     await Promise.all([
       db.user.findMany({
         where: { id: { in: userIds }, deletedAt: null },
@@ -435,6 +440,13 @@ export async function runDailyPush(
       db.dailyPushSend.findMany({
         where: { userId: { in: userIds }, createdAt: { gte: weekAgo } },
         select: { userId: true, sentOn: true },
+      }),
+      // A month of per-rule history, for maxSameRulePerMonth. Separate
+      // from the week above because they answer different questions:
+      // that one rations nudges, this one stops the SAME nudge.
+      db.dailyPushSend.findMany({
+        where: { userId: { in: userIds }, createdAt: { gte: monthAgo } },
+        select: { userId: true, ruleKey: true },
       }),
       db.pushDispatch.findMany({
         where: { userId: { in: userIds }, createdAt: { gte: dayStart } },
@@ -477,6 +489,14 @@ export async function runDailyPush(
   }
   // A COUNT per person, not a set: the daily ceiling asks "how many",
   // and a boolean could only ever answer "any".
+  const ruleHistory = new Map<string, Partial<Record<DailyPushRuleKey, number>>>();
+  for (const r of monthSends) {
+    const k = r.ruleKey as DailyPushRuleKey;
+    const m = ruleHistory.get(r.userId) ?? {};
+    m[k] = (m[k] ?? 0) + 1;
+    ruleHistory.set(r.userId, m);
+  }
+
   const heardToday = new Map<string, number>();
   for (const p of pushedToday) {
     if (p.userId) heardToday.set(p.userId, (heardToday.get(p.userId) ?? 0) + 1);
@@ -506,6 +526,7 @@ export async function runDailyPush(
       hasBookingSoon: playingSoon.has(u.id),
       passExpiryInDays: pass ? daysUntil(pass.expiresAt, now) : null,
       accountAgeDays: daysSince(u.createdAt, now),
+      ruleSentThisMonth: ruleHistory.get(u.id) ?? {},
       daysSinceLastBooking: last ? daysSince(last, now) : null,
     };
     const d = decide(facts, limits, venue);

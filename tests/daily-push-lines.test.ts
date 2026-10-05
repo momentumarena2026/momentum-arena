@@ -30,6 +30,9 @@ const line = (over: Partial<LineCandidate> & { id: string }): LineCandidate => (
 
 const ctx = (over: Partial<LineContext> = {}): LineContext => ({
   occasions: ["monday", "winter", "weekday"],
+  // Empty by default: weekday and season are AMBIENT, not calendar
+  // occasions, and only calendar ones set the everyday pool aside.
+  calendarOccasions: [],
   slotsAreFree: true,
   ...over,
 });
@@ -137,13 +140,57 @@ test("needs-slots combined with an occasion needs both", () => {
 
 // ── Selection ──────────────────────────────────────────────────────────
 
-test("topical beats generic — a festival line cannot lose a coin toss", () => {
+test("a DATED occasion beats generic — a festival line cannot lose a coin toss", () => {
   const generic = line({ id: "generic", lastUsedAt: null });
   const holi = line({ id: "holi", tags: ["holi"], lastUsedAt: new Date("2026-01-01") });
   // The generic line is LRU-older (never used) and would win on
-  // recency alone. It must not.
-  const picked = pickLine([generic, holi], ctx({ occasions: ["holi", "monday"] }));
+  // recency alone. On Holi it must not.
+  const picked = pickLine(
+    [generic, holi],
+    ctx({ occasions: ["holi", "monday"], calendarOccasions: ["holi"] }),
+  );
   assert.equal(picked?.id, "holi");
+});
+
+test("an AMBIENT tag does not starve the everyday pool", () => {
+  // THE BUG THIS PINS. Weekday and season are tags that are always true
+  // of some line, so treating them as topical meant the topical pool was
+  // never empty and the generic pool was never reached. On the real
+  // library that was 44 of 82 lines unable to run on any day of the
+  // year, and the rotation squeezed into three or four.
+  const everyday = line({ id: "everyday", lastUsedAt: null });
+  const monday = line({ id: "monday", tags: ["monday"], lastUsedAt: new Date("2026-01-01") });
+  const picked = pickLine([monday, everyday], ctx({ occasions: ["monday"], calendarOccasions: [] }));
+  assert.equal(picked?.id, "everyday", "the never-used everyday line must win on recency");
+});
+
+test("a monday line still only runs on a monday", () => {
+  // Demoting ambient tags must not make them meaningless: the line is
+  // still ineligible on the wrong day, it simply no longer monopolises
+  // the right one.
+  const monday = line({ id: "monday", tags: ["monday"] });
+  assert.equal(pickLine([monday], ctx({ occasions: ["monday"] }))?.id, "monday");
+  assert.equal(pickLine([monday], ctx({ occasions: ["tuesday"] })), null);
+});
+
+test("over a fortnight the everyday pool actually cycles", () => {
+  // The property the venue noticed was missing. Ambient-tagged lines and
+  // untagged ones compete together, so a fortnight should produce a
+  // fortnight of different copy rather than the same handful.
+  const pool: LineCandidate[] = [
+    ...Array.from({ length: 10 }, (_, i) => line({ id: `e${i}` })),
+    line({ id: "mon", tags: ["monday"] }),
+  ];
+  const seen: string[] = [];
+  let clock = new Date("2026-01-05T00:00:00.000Z").getTime();
+  for (let d = 0; d < 11; d++) {
+    const picked = pickLine(pool, ctx({ occasions: ["monday"], calendarOccasions: [] }));
+    assert.ok(picked);
+    seen.push(picked!.id);
+    picked!.lastUsedAt = new Date(clock);
+    clock += 86400_000;
+  }
+  assert.equal(new Set(seen).size, 11, "every line should go out once before any repeats");
 });
 
 test("within a pool, least recently used wins, never-used first", () => {

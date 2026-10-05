@@ -20,6 +20,7 @@ import {
 } from "@/lib/daily-push-rules";
 import {
   occasionsFor,
+  calendarOccasionsFor,
   libraryRefusal,
   NEEDS_SLOTS,
   WEEKDAY_TAGS,
@@ -110,6 +111,7 @@ export async function saveDailyPushSettings(
     maxPerUserPerWeek: input.maxPerUserPerWeek,
     skipIfBookedSoon: input.skipIfBookedSoon,
     maxPushesPerDay: input.maxPushesPerDay,
+    maxSameRulePerMonth: input.maxSameRulePerMonth,
     rulePassExpiryEnabled: input.passExpiry.enabled,
     rulePassExpiryDays: input.passExpiry.days,
     ruleNeverBookedEnabled: input.neverBooked.enabled,
@@ -192,6 +194,9 @@ export interface DailyPushLibraryView {
   occasions: DailyPushOccasionView[];
   /** Everything true about today, computed + dated. */
   todaysOccasions: string[];
+  /** The subset that came from a dated window — only these beat the
+   *  everyday pool. */
+  calendarOccasions: string[];
   /** Tags used by lines that have no dated window, so they never fire. */
   undatedTags: string[];
   /** Whether the evening counts as having space right now. Without it
@@ -229,8 +234,10 @@ export async function getDailyPushLibrary(): Promise<DailyPushLibraryView> {
   const dayKey = istDayKey(now);
   const todaysOccasions = occasionsFor(dayKey, occasions);
   const venue = await venueFactsTonight(settings, now);
+  const calendarOccasions = calendarOccasionsFor(dayKey, occasions);
   const ctx = {
     occasions: todaysOccasions,
+    calendarOccasions,
     slotsAreFree: venue.freeSlotsTonight >= Math.max(1, settings.everyoneElse.minOpen),
   };
 
@@ -267,6 +274,7 @@ export async function getDailyPushLibrary(): Promise<DailyPushLibraryView> {
       };
     }),
     todaysOccasions,
+    calendarOccasions,
     undatedTags: [...undated].sort(),
     slotsAreFree: ctx.slotsAreFree,
     refusal: libraryRefusal(lines, ctx),

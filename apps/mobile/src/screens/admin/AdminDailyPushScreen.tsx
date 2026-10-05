@@ -162,6 +162,16 @@ export function AdminDailyPushScreen() {
             onChange={(v) => setS({ ...s, skipIfBookedSoon: v })}
           />
           <NumField
+            label="Most times one person hears the SAME message in a month"
+            value={s.maxSameRulePerMonth}
+            onChange={(v) => setS({ ...s, maxSameRulePerMonth: v })}
+          />
+          <Text style={styles.note}>
+            Only the catch-all rotates its wording. Past this count the rule
+            stops matching that person and they fall through to the library,
+            so they get something new rather than nothing.
+          </Text>
+          <NumField
             label="Most pushes one person can get in a day, all types"
             value={s.maxPushesPerDay}
             onChange={(v) => setS({ ...s, maxPushesPerDay: v })}
