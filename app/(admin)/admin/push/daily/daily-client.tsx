@@ -185,6 +185,14 @@ export function DailyPushClient({ view }: { view: DailyPushAdminView }) {
           onChange={(v) => setS({ ...s, skipIfBookedSoon: v })}
         />
         <Number
+          label="Most times one person hears the SAME message in a month"
+          value={s.maxSameRulePerMonth}
+          min={0}
+          max={30}
+          onChange={(v) => setS({ ...s, maxSameRulePerMonth: v })}
+          hint="Only the catch-all rotates its wording — the other three rules have one fixed message each. Past this count the rule stops matching that person and they fall through to the rotating library instead, so they get something new rather than nothing. Zero switches the check off."
+        />
+        <Number
           label="Most pushes one person can get in a day, all types"
           value={s.maxPushesPerDay}
           min={0}

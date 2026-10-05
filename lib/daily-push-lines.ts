@@ -67,6 +67,24 @@ export interface OccasionWindow {
  * 19 all over again, so the comparison below is done on the date part
  * rather than on getTime().
  */
+export function calendarOccasionsFor(
+  istDate: Date,
+  windows: OccasionWindow[],
+): string[] {
+  const day = istDate.toISOString().slice(0, 10);
+  return [
+    ...new Set(
+      windows
+        .filter((w) => {
+          const from = w.startsOn.toISOString().slice(0, 10);
+          const to = w.endsOn.toISOString().slice(0, 10);
+          return day >= from && day <= to;
+        })
+        .map((w) => w.tag),
+    ),
+  ];
+}
+
 export function occasionsFor(istDate: Date, windows: OccasionWindow[]): string[] {
   const tags = new Set<string>();
   tags.add(WEEKDAY_TAGS[istDate.getUTCDay()]);
@@ -98,6 +116,25 @@ export interface LineCandidate {
 export interface LineContext {
   /** Everything true about today — from `occasionsFor`. */
   occasions: string[];
+  /**
+   * The subset of `occasions` that came from a DATED WINDOW — Holi,
+   * Janmashtami, an IPL run. Rare, genuinely special, and the only ones
+   * allowed to shoulder the everyday pool aside.
+   *
+   * ── WHY THIS SPLIT EXISTS ─────────────────────────────────────────
+   * "Topical beats generic" was originally applied to every tag, and
+   * weekday and season are tags that are ALWAYS true. So the topical
+   * pool was never empty, the generic pool was never reached, and the
+   * forty-four untagged everyday lines could not run on any day of the
+   * year. Measured on the real library: 48 lines eligible, 4 of them
+   * topical, and the other 44 permanently starved.
+   *
+   * A Holi line should win on Holi — that is one day a year and the
+   * line is about that day. A Monday line should not own every Monday
+   * while most of the library sits idle.
+   * ──────────────────────────────────────────────────────────────────
+   */
+  calendarOccasions: string[];
   /** Whether the evening genuinely has space, for `needs-slots` lines. */
   slotsAreFree: boolean;
 }
@@ -151,8 +188,12 @@ export function pickLine(
   const eligible = lines.filter((l) => lineIsEligible(l, ctx));
   if (eligible.length === 0) return null;
 
+  // Only a DATED occasion sets the everyday pool aside. Weekday and
+  // season lines stay eligible and compete on recency like everything
+  // else — see the note on `calendarOccasions` for what treating them
+  // as topical cost.
   const topical = eligible.filter((l) =>
-    l.tags.some((t) => t !== NEEDS_SLOTS && ctx.occasions.includes(t)),
+    l.tags.some((t) => t !== NEEDS_SLOTS && ctx.calendarOccasions.includes(t)),
   );
   const pool = topical.length > 0 ? topical : eligible;
 

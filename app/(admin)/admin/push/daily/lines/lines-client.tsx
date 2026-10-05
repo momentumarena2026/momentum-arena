@@ -52,7 +52,11 @@ export function LinesClient({ view }: { view: DailyPushLibraryView }) {
   // The SAME predicate the engine uses, rather than a second copy of
   // the logic written against the UI. A page that disagrees with the
   // sender about which lines are live is worse than no page.
-  const ctx = { occasions: view.todaysOccasions, slotsAreFree: view.slotsAreFree };
+  const ctx = {
+    occasions: view.todaysOccasions,
+    calendarOccasions: view.calendarOccasions,
+    slotsAreFree: view.slotsAreFree,
+  };
   const canRun = (l: DailyPushLineView) =>
     lineIsEligible({ ...l, lastUsedAt: null }, ctx);
   const eligibleToday = useMemo(

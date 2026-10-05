@@ -31,6 +31,9 @@ export interface DailyPushSettings {
   skipIfBookedSoon: boolean;
   /** Total targeted pushes per person per day, counting this one. */
   maxPushesPerDay: number;
+  /** How often one person hears the SAME message in a month before the
+   *  rule stops matching them and they fall through to the library. */
+  maxSameRulePerMonth: number;
   passExpiry: DailyPushRuleToggle;
   neverBooked: DailyPushRuleToggle;
   lapsed: DailyPushRuleToggle;

@@ -2579,6 +2579,14 @@ model DailyPushSettings {
   /// which means multicasts are invisible to it — see that column.
   maxPushesPerDay Int @default(2)
 
+  /// How often one person may be told the SAME thing in a month before
+  /// the module moves on. Only the catch-all rotates its copy; the three
+  /// personal rules have one fixed template each, so without this a
+  /// captain who never books was told the same sentence every day
+  /// forever. Past this count the rule stops matching them and they fall
+  /// through to the rotating library. 0 disables it.
+  maxSameRulePerMonth Int @default(2)
+
   // ── The rules, in priority order. First match wins, per user. ─────
   /// Balance left on a pass that lapses within N days.
   rulePassExpiryEnabled Boolean @default(true)

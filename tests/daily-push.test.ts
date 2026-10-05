@@ -40,6 +40,7 @@ const LIMITS: DailyPushLimits = {
   maxPerUserPerWeek: 2,
   skipIfBookedSoon: true,
   maxPushesPerDay: 2,
+  maxSameRulePerMonth: 2,
   passExpiry: { enabled: true, days: 3 },
   neverBooked: { enabled: true, days: 7 },
   lapsed: { enabled: true, days: 30 },
@@ -56,6 +57,7 @@ const CLEAN: CandidateFacts = {
   passExpiryInDays: null,
   accountAgeDays: 200,
   daysSinceLastBooking: 2,
+  ruleSentThisMonth: {},
 };
 
 const BUSY: VenueFacts = { freeSlotsTonight: 5 };
@@ -344,6 +346,51 @@ test("each rule can be switched off independently and the next one takes over", 
     everyoneElse: { enabled: false, fromHour: 18, minOpen: 2 },
   });
   assert.equal(matchRule(expiring, nothing, BUSY), null);
+});
+
+test("a personal rule stops repeating and lets the person fall through", () => {
+  // THE OTHER HALF OF "the same push keeps arriving". Only the catch-all
+  // rotates its copy; the three personal rules have one fixed template
+  // each. A captain who has never booked was told the identical sentence
+  // every day, indefinitely — correct by the old logic, and
+  // indistinguishable from a broken rotation to the person reading it.
+  const stranger = who({ daysSinceLastBooking: null, accountAgeDays: 90 });
+  assert.equal(matchRule(stranger, LIMITS, BUSY), "NEVER_BOOKED");
+
+  // Twice is the cap. The third time they fall through to the catch-all,
+  // which rotates — so they get something new rather than nothing.
+  const twiceTold = who({
+    daysSinceLastBooking: null,
+    accountAgeDays: 90,
+    ruleSentThisMonth: { NEVER_BOOKED: 2 },
+  });
+  assert.equal(matchRule(twiceTold, LIMITS, BUSY), "EVERYONE_ELSE");
+});
+
+test("an exhausted rule falls THROUGH, it does not silence the person", () => {
+  // The distinction that made this a match-time rule rather than a
+  // suppression: somebody told "you have never booked" twice should hear
+  // the creative line next, not nothing at all.
+  const f = who({ daysSinceLastBooking: 400, ruleSentThisMonth: { LAPSED: 5 } });
+  const d = decide(f, LIMITS, BUSY);
+  assert.equal(d.send, true);
+  assert.equal(d.send === true && d.rule, "EVERYONE_ELSE");
+});
+
+test("the catch-all is exempt from the same-message cap", () => {
+  // It is where everyone falls through TO, and its copy rotates — so
+  // repeating the rule is not repeating a message.
+  const f = who({ ruleSentThisMonth: { EVERYONE_ELSE: 99 } });
+  assert.equal(matchRule(f, LIMITS, BUSY), "EVERYONE_ELSE");
+});
+
+test("a zero same-message cap switches the check off", () => {
+  const f = who({
+    daysSinceLastBooking: null,
+    accountAgeDays: 90,
+    ruleSentThisMonth: { NEVER_BOOKED: 99 },
+  });
+  assert.equal(matchRule(f, limits({ maxSameRulePerMonth: 0 }), BUSY), "NEVER_BOOKED");
 });
 
 test("every rule in the priority list has a label and appears exactly once", () => {
