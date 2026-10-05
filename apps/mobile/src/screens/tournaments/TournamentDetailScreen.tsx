@@ -730,10 +730,14 @@ export function TournamentDetailScreen() {
         {/* Hero */}
         <View style={styles.hero}>
           <Text style={styles.title}>{t.name}</Text>
+          {/* The entrant count is gone from the hero. The API sends an
+              empty team list until the draw, so this rendered "0/16
+              teams" on a tournament filling up nicely — and the count is
+              exactly what the venue asked to withhold. The format still
+              tells a captain what they are entering. */}
           <Text style={styles.subtitle}>
-            {t.sport} · {t.format === "POOLS_KNOCKOUT" ? "Pools → Knockout" : t.format} ·{" "}
-            {data.teams.length}
-            {isThirdParty ? "" : `/${t.totalTeams}`} teams
+            {t.sport} · {t.format === "POOLS_KNOCKOUT" ? "Pools → Knockout" : t.format}
+            {isThirdParty ? "" : ` · ${t.totalTeams} teams`}
           </Text>
           {t.prizePool ? (
             <View style={styles.prizeRow}>
@@ -928,20 +932,26 @@ export function TournamentDetailScreen() {
                 </Text>
               ) : null}
             </View>
-            <View style={styles.card}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Users size={15} color={colors.emerald400} />
-                <Text style={styles.cardTitle}>Teams ({data.teams.length})</Text>
+            {/* The entrant list, once the draw is out. Before that the
+                API sends nothing, and this card is absent rather than
+                empty — "Teams (0)" on a tournament with nine entrants
+                reads worse than no card at all. */}
+            {data.teams.length > 0 && (
+              <View style={styles.card}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Users size={15} color={colors.emerald400} />
+                  <Text style={styles.cardTitle}>Teams ({data.teams.length})</Text>
+                </View>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                  {data.teams.map((team) => (
+                    <View key={team.id} style={styles.teamChip}>
+                      <Badge team={team} size={20} />
+                      <Text style={{ color: colors.zinc300, fontSize: 12 }}>{team.name}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-                {data.teams.map((team) => (
-                  <View key={team.id} style={styles.teamChip}>
-                    <Badge team={team} size={20} />
-                    <Text style={{ color: colors.zinc300, fontSize: 12 }}>{team.name}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
+            )}
           </View>
         )}
 

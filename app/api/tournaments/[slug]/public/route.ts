@@ -189,13 +189,32 @@ export async function GET(
     })),
     poolsRevealed,
     pools: poolsRevealed ? t.pools : [],
-    teams: t.teams.map((x) => ({
-      id: x.id,
-      name: x.name,
-      color: x.color,
-      logoUrl: x.logoUrl,
-      poolId: poolsRevealed ? x.poolId : null,
-    })),
+    // WHO HAS ENTERED IS NOT PUBLIC UNTIL THE DRAW.
+    //
+    // The venue's decision, and the same gate the pools and the pool
+    // fixtures below already sit behind. A roster of entrants on an open
+    // tournament tells every rival captain exactly who they would be up
+    // against and how full the draw is before they commit — and the
+    // count is the more sensitive half, because "4 of 16" reads as a
+    // tournament nobody wants.
+    //
+    // Enforced HERE rather than by hiding it in the two clients, because
+    // hiding it in a client leaves the names one curl away and leaves
+    // every app install that has not updated still rendering them. That
+    // lesson is written down in §9 of PROJECT-CONTEXT and cost this
+    // codebase a real bug on the challenge board.
+    //
+    // After the reveal the names are public by necessity: the pools, the
+    // fixtures and the points table are all made of them.
+    teams: poolsRevealed
+      ? t.teams.map((x) => ({
+          id: x.id,
+          name: x.name,
+          color: x.color,
+          logoUrl: x.logoUrl,
+          poolId: x.poolId,
+        }))
+      : [],
     standings,
     // Before the reveal, the fixtures ARE the draw: grouping matches by
     // poolId (and reading "Pool A · Match 1" off the label) reconstructs
