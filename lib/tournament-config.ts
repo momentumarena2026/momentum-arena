@@ -197,3 +197,34 @@ export const POOL_MATCHES_PUBLIC_STATUSES = [
 export function poolMatchesArePublic(status: string): boolean {
   return (POOL_MATCHES_PUBLIC_STATUSES as readonly string[]).includes(status);
 }
+
+/**
+ * Statuses at which WHO HAS ENTERED is public.
+ *
+ * A different question from the one above, and conflating the two was a
+ * real bug. The venue's rule is that rival captains must not see the
+ * entrant list while registration is open — it tells them who they
+ * would be up against and how full the draw is before they commit. Once
+ * registration CLOSES that reason is gone: nobody can act on it, and
+ * the fixtures are about to name everyone anyway.
+ *
+ * Gating this on POOL_MATCHES_PUBLIC_STATUSES instead meant a LEAGUE
+ * tournament — which has no pools and never reaches POOLS_REVEALED —
+ * sat at REG_CLOSED with a full fixture list rendering "TBD v TBD",
+ * because the match cards had real team ids and no names to resolve
+ * them against.
+ *
+ * Note what this does NOT unlock. Which team is in which POOL stays
+ * hidden until the reveal (the payload nulls `poolId`), and pool-stage
+ * fixtures stay stripped. The entrant list is not the draw.
+ */
+export const ROSTER_PUBLIC_STATUSES = [
+  "REG_CLOSED",
+  "POOLS_REVEALED",
+  "LIVE",
+  "COMPLETED",
+] as const;
+
+export function rosterIsPublic(status: string): boolean {
+  return (ROSTER_PUBLIC_STATUSES as readonly string[]).includes(status);
+}
