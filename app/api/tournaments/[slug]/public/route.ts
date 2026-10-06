@@ -4,7 +4,7 @@ import { computeStandings, inningsFromLiveState, standingsConfig } from "@/lib/t
 import { getTournamentLeaderboards } from "@/lib/tournament-leaderboards";
 import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
 import { parsePrizes } from "@/lib/tournament-config";
-import { poolMatchesArePublic } from "@/lib/tournament-config";
+import { poolMatchesArePublic, rosterIsPublic } from "@/lib/tournament-config";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +76,9 @@ export async function GET(
   t.status = (await applyScheduledTransitions(t)) as typeof t.status;
 
   const poolsRevealed = poolMatchesArePublic(t.status);
+  // Who has entered becomes public when registration CLOSES; which pool
+  // they landed in waits for the reveal. Two questions, two gates.
+  const rosterPublic = rosterIsPublic(t.status);
   const teamNames = new Map(t.teams.map((x) => [x.id, x.name]));
   const isCricket = t.sport === "CRICKET";
   const cfg = standingsConfig(t);
@@ -206,13 +209,14 @@ export async function GET(
     //
     // After the reveal the names are public by necessity: the pools, the
     // fixtures and the points table are all made of them.
-    teams: poolsRevealed
+    teams: rosterPublic
       ? t.teams.map((x) => ({
           id: x.id,
           name: x.name,
           color: x.color,
           logoUrl: x.logoUrl,
-          poolId: x.poolId,
+          // Still the draw's secret, even once the roster is out.
+          poolId: poolsRevealed ? x.poolId : null,
         }))
       : [],
     standings,

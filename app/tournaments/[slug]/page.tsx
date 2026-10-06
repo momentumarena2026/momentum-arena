@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Trophy, Users, IndianRupee, CalendarDays, Radio, ChevronRight, CalendarClock } from "lucide-react";
 import { getMyTournamentTeam, getPublicTournamentBySlug } from "@/lib/tournaments";
 import { onlinePayable, parsePrizes, STATUS_LABELS,
-  poolMatchesArePublic,
+  rosterIsPublic,
 } from "@/lib/tournament-config";
 import { auth } from "@/lib/auth";
 import { looksLikeRichText } from "@/lib/rich-text";
@@ -46,7 +46,7 @@ export default async function TournamentPublicPage({
   // database directly rather than going through that endpoint, so the
   // gate has to be applied again here or the names leak from the server
   // component while the API hides them.
-  const rosterPublic = poolMatchesArePublic(t.status);
+  const rosterPublic = rosterIsPublic(t.status);
   const payable = onlinePayable(t.entryFee, t.feeMode, t.advancePct);
   const thirdParty = t.host === "THIRD_PARTY";
   const prizes = parsePrizes(t.prizes);
