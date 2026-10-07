@@ -55,6 +55,23 @@ test("the roster is never narrower than the draw", () => {
   }
 });
 
+test("the listing count follows the same gate as the detail page", () => {
+  // THE THIRD SURFACE. The detail page and the public API were gated
+  // first and the two LISTINGS were missed, so a tournament with
+  // registrations open still advertised its entrant count on the
+  // tournaments index — the same leak, one page over.
+  //
+  // Both listings now receive null rather than 0 and omit the line.
+  // Zeroing it would have rendered "0/12" on a tournament that was
+  // filling up, which is worse than the leak it was hiding.
+  const countVisible = (status: string) => rosterIsPublic(status);
+
+  assert.equal(countVisible("REG_OPEN"), false, "the case reported from production");
+  assert.equal(countVisible("PUBLISHED"), false);
+  assert.equal(countVisible("REG_CLOSED"), true);
+  assert.equal(countVisible("COMPLETED"), true);
+});
+
 test("a cancelled tournament is not accidentally public", () => {
   assert.equal(rosterIsPublic("CANCELLED"), false);
   assert.equal(poolMatchesArePublic("CANCELLED"), false);

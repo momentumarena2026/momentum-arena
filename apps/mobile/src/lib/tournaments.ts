@@ -126,7 +126,9 @@ export type TournamentListItem = {
   prizePool: number | null;
   startDate: string | null;
   liveScoringEnabled: boolean;
-  confirmedTeams: number;
+  /** Null while registration is still open — the server withholds it
+   *  rather than sending 0, which would render as "0/12". */
+  confirmedTeams: number | null;
   /** Present only on the paged endpoint; which chip this row belongs to. */
   group?: "UPCOMING" | "ONGOING" | "COMPLETED";
 };
