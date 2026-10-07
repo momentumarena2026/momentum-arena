@@ -141,9 +141,16 @@ export default async function TournamentsPage({
                     </p>
                   )}
                   <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-400">
-                    <span className="flex items-center gap-1">
-                      <Users className="h-3.5 w-3.5" /> {t._count.teams}/{t.totalTeams}
-                    </span>
+                    {/* Omitted entirely while registration is open — not
+                        rendered as "0/12", which is what withholding the
+                        number by zeroing it would produce and is worse
+                        than the leak. `confirmedTeams` is null until
+                        REG_CLOSED. */}
+                    {t.confirmedTeams !== null && (
+                      <span className="flex items-center gap-1">
+                        <Users className="h-3.5 w-3.5" /> {t.confirmedTeams}/{t.totalTeams}
+                      </span>
+                    )}
                     {t.prizePool ? (
                       <span className="flex items-center gap-1 text-amber-400">
                         <Trophy className="h-3.5 w-3.5" /> ₹{t.prizePool.toLocaleString("en-IN")}

@@ -68,7 +68,8 @@ export async function GET(request: NextRequest) {
           prizePool: t.prizePool,
           startDate: t.startDate,
           liveScoringEnabled: t.liveScoringEnabled,
-          confirmedTeams: t._count.teams,
+          // Already gated by listPublicTournaments — null until REG_CLOSED.
+          confirmedTeams: t.confirmedTeams,
         })),
       },
       { headers: CACHE.catalog },

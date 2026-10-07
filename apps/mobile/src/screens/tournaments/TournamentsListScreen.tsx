@@ -150,12 +150,18 @@ export function TournamentsListScreen() {
             </View>
           </View>
           <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <Users size={13} color={colors.zinc500} />
-              <Text style={styles.metaText}>
-                {t.confirmedTeams}/{t.totalTeams} teams
-              </Text>
-            </View>
+            {/* Absent, not zeroed, while registration is open — the
+                server sends null until REG_CLOSED. Rendering "0/12" on a
+                tournament that is filling up is worse than the leak it
+                would be hiding. */}
+            {t.confirmedTeams !== null ? (
+              <View style={styles.metaItem}>
+                <Users size={13} color={colors.zinc500} />
+                <Text style={styles.metaText}>
+                  {t.confirmedTeams}/{t.totalTeams} teams
+                </Text>
+              </View>
+            ) : null}
             {t.prizePool ? (
               <View style={styles.metaItem}>
                 <Trophy size={13} color="#fbbf24" />

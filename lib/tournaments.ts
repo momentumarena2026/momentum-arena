@@ -5,7 +5,9 @@ import { RAZORPAY_KEY_ID } from "@/lib/razorpay";
 import { validateCoupon } from "@/actions/coupon-validation";
 import { redeemForTournament, refundRedemption } from "@/lib/rewards/redeem";
 import { awardTournamentPoints } from "@/lib/rewards/earn";
-import { onlinePayable } from "@/lib/tournament-config";
+import { onlinePayable,
+  rosterIsPublic,
+} from "@/lib/tournament-config";
 import { notifyUser } from "@/lib/user-notifications";
 
 // The key secret isn't exported from lib/razorpay — read it like lib/passes does.
@@ -105,7 +107,21 @@ export async function listPublicTournaments() {
       row.status = (await applyScheduledTransitions(row)) as typeof row.status;
     }
   }
-  return rows;
+  // Gated AFTER the transitions above, not before: a tournament whose
+  // registration window just lapsed becomes REG_CLOSED in this very
+  // loop, and its count should be public on this render rather than the
+  // next one.
+  //
+  // `_count` is STRIPPED from the returned shape, not merely shadowed.
+  // Leaving the raw number on the object is how this leaked a third
+  // time: the detail page and the public API were gated, then the two
+  // listings were missed, and then a second mapper in the mobile route
+  // reached past the gated field straight back to `t._count.teams`.
+  // Removing it makes that a type error instead of a silent leak.
+  return rows.map(({ _count, ...row }) => ({
+    ...row,
+    confirmedTeams: rosterIsPublic(row.status) ? _count.teams : null,
+  }));
 }
 
 /**
@@ -154,7 +170,20 @@ export type PublicTournamentRow = {
   regOpenAt: Date | null;
   regCloseAt: Date | null;
   liveScoringEnabled: boolean;
-  confirmedTeams: number;
+  /**
+   * How many teams are in — or NULL while registration is still open.
+   *
+   * Null rather than 0, deliberately. The listing used to render
+   * `{confirmedTeams}/{totalTeams}`, so withholding the number by
+   * zeroing it produced "0/12" on a tournament filling up nicely, which
+   * is worse than the leak it was meant to fix. Null forces the caller
+   * to decide, and both listings now omit the line entirely.
+   *
+   * Same rule as the detail page: hidden while rival captains are still
+   * choosing whether to enter, public from REG_CLOSED on. See
+   * rosterIsPublic in lib/tournament-config.ts.
+   */
+  confirmedTeams: number | null;
   group: TournamentGroup;
 };
 
@@ -261,7 +290,7 @@ export async function listPublicTournamentsPage(opts: {
     rows.push({
       ...r,
       status,
-      confirmedTeams: Number(r.confirmedTeams),
+      confirmedTeams: rosterIsPublic(r.status) ? Number(r.confirmedTeams) : null,
       group: rankToGroup[r.grp] ?? "UPCOMING",
     });
   }
