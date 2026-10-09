@@ -3,7 +3,9 @@
  *
  * 25% off CRICKET and FOOTBALL for every slot PLAYED during the nine
  * days of Shardiya Navratri 2026 — Sun 11 Oct to Mon 19 Oct, IST,
- * inclusive. Auto-applied, all hours, peak and off-peak alike.
+ * inclusive. Auto-applied, all hours, peak and off-peak alike. The
+ * BOWLING MACHINE is excluded (see `categoryExclude` below — it is a
+ * cricket court, so the sport filter alone would have included it).
  *
  * ── THE PART THAT IS EASY TO GET WRONG ────────────────────────────────
  * Two different date windows do two different jobs, and conflating them
@@ -96,7 +98,13 @@ async function main() {
     minAmount: null,
     sportFilter: ["CRICKET", "FOOTBALL"] as ("CRICKET" | "FOOTBALL")[],
     categoryFilter: [],
-    categoryExclude: [],
+    // The bowling machine is NOT a separate sport — it is a CRICKET court
+    // carrying category BOWLING_MACHINE, so `sportFilter` alone sweeps it
+    // in. It is a ₹250 flat-rate net, priced nothing like a ₹1600–2000
+    // box, and the venue has already taken this position once: FLAT100,
+    // the live cricket+football welcome discount, excludes it too. A
+    // festival discount on the boxes is not a discount on the machine.
+    categoryExclude: ["BOWLING_MACHINE"] as ["BOWLING_MACHINE"],
     userGroupFilter: [],
     validPlatforms: [], // web and app alike
     isStackable: false, // must not compound with welcome or referral codes
@@ -116,6 +124,7 @@ async function main() {
   if (DRY_RUN) {
     console.log(`${existing ? "WOULD UPDATE" : "WOULD CREATE"} ${CODE}`);
     console.log(`  25% off ${shared.sportFilter.join(" + ")}, all hours`);
+    console.log(`  excluding  : ${shared.categoryExclude.join(", ")}`);
     console.log(`  play dates : ${PLAY_FROM} → ${PLAY_TO} (IST, inclusive)`);
     console.log(`  redeemable : now → ${VALID_UNTIL.toISOString()}`);
     console.log(`  autoApply  : ${shared.autoApply}`);
@@ -169,6 +178,7 @@ async function main() {
       sportFilter: true,
       autoApply: true,
       isActive: true,
+      categoryExclude: true,
       validFrom: true,
       validUntil: true,
       conditions: { select: { conditionType: true, conditionValue: true } },
@@ -176,6 +186,7 @@ async function main() {
   });
   console.log(`${existing ? "Updated" : "Created"} ${CODE} (id=${id})`);
   console.log(`  ${check!.value / 100}% off ${check!.sportFilter.join(" + ")}, all hours`);
+  console.log(`  excluding  : ${check!.categoryExclude.join(", ") || "nothing"}`);
   console.log(`  autoApply=${check!.autoApply} active=${check!.isActive}`);
   console.log(`  redeemable : ${check!.validFrom.toISOString()} → ${check!.validUntil.toISOString()}`);
   for (const c of check!.conditions) {
