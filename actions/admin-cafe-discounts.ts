@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 import { CafeItemCategory, DiscountType } from "@prisma/client";
+import { istValidityBound } from "@/lib/ist";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_CAFE_DISCOUNTS");
@@ -75,8 +76,8 @@ export async function createCafeCoupon(data: {
         minOrderAmount: parsed.data.minOrderAmount || null,
         categoryFilter: parsed.data.categoryFilter,
         validPlatforms: parsed.data.validPlatforms,
-        validFrom: new Date(parsed.data.validFrom),
-        validUntil: new Date(parsed.data.validUntil),
+        validFrom: istValidityBound(parsed.data.validFrom, "start"),
+        validUntil: istValidityBound(parsed.data.validUntil, "end"),
         createdBy: adminId,
       },
     });
@@ -117,9 +118,9 @@ export async function updateCafeCoupon(
     if (data.validPlatforms !== undefined)
       updateData.validPlatforms = data.validPlatforms;
     if (data.validFrom !== undefined)
-      updateData.validFrom = new Date(data.validFrom);
+      updateData.validFrom = istValidityBound(data.validFrom, "start");
     if (data.validUntil !== undefined)
-      updateData.validUntil = new Date(data.validUntil);
+      updateData.validUntil = istValidityBound(data.validUntil, "end");
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
     await db.cafeDiscount.update({ where: { id }, data: updateData });

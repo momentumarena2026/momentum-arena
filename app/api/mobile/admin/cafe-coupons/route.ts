@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getMobileAdmin } from "@/lib/mobile-auth";
 import { hasPermission } from "@/lib/permissions";
+import { istValidityBound } from "@/lib/ist";
 
 /**
  * Mobile admin cafe coupons. Mirrors actions/admin-cafe-discounts.ts
@@ -89,8 +90,8 @@ export async function POST(request: NextRequest) {
       minOrderAmount: parsed.data.minOrderAmount ?? null,
       categoryFilter: parsed.data.categoryFilter,
       validPlatforms: parsed.data.validPlatforms,
-      validFrom: new Date(parsed.data.validFrom),
-      validUntil: new Date(parsed.data.validUntil),
+      validFrom: istValidityBound(parsed.data.validFrom, "start"),
+      validUntil: istValidityBound(parsed.data.validUntil, "end"),
       createdBy: auth.admin.id,
     },
   });

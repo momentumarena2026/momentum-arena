@@ -3,6 +3,7 @@ import { Users } from "lucide-react";
 import { getCoupons } from "@/actions/admin-coupons";
 import { listUserGroups } from "@/actions/admin-user-groups";
 import { CouponsManager } from "./coupons-manager";
+import { istDateKey } from "@/lib/ist";
 
 /**
  * /admin/coupons — coupons only.
@@ -89,8 +90,8 @@ export default async function AdminCouponsPage() {
           autoApply: c.autoApply,
           showStrikethrough: c.showStrikethrough,
           validPlatforms: c.validPlatforms as ("web" | "android" | "ios")[],
-          validFrom: c.validFrom.toISOString().split("T")[0],
-          validUntil: c.validUntil.toISOString().split("T")[0],
+          validFrom: istDateKey(c.validFrom),
+          validUntil: istDateKey(c.validUntil),
           isActive: c.isActive,
           usageCount: c._count.usages,
           conditions: c.conditions.map((cond) => ({

@@ -26,14 +26,14 @@ import {
 } from "../../lib/admin-discounts";
 import { formatRupees } from "../../lib/format";
 import { AdminApiError } from "../../lib/admin-api";
+import { istDateKeyOf } from "../../lib/ist-date";
 
 const SPORTS: DiscountSport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
+// Device-local getters would be IST on a phone in Mathura and wrong
+// anywhere else; the helper does not ask the device.
 function isoDate(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return istDateKeyOf(d);
 }
 function discountLabel(c: AdminDiscountCode): string {
   // PERCENTAGE value = basis points (1000 = 10%); FLAT value = rupees.
@@ -93,8 +93,8 @@ export function AdminDiscountsScreen() {
     setPerUser(String(c.maxUsesPerUser));
     setMinBooking(c.minBookingAmount != null ? String(c.minBookingAmount) : "");
     setSports(new Set(c.sportFilter));
-    setFrom(c.validFrom.slice(0, 10));
-    setUntil(c.validUntil.slice(0, 10));
+    setFrom(istDateKeyOf(c.validFrom));
+    setUntil(istDateKeyOf(c.validUntil));
     setErr(null);
     setFormOpen(true);
   }
@@ -214,7 +214,7 @@ export function AdminDiscountsScreen() {
                       {c.minBookingAmount ? `Min ${formatRupees(c.minBookingAmount)} · ` : ""}
                       {c.usages} used
                       {c.maxUses ? ` / ${c.maxUses}` : ""} · till{" "}
-                      {c.validUntil.slice(0, 10)}
+                      {istDateKeyOf(c.validUntil)}
                     </Text>
                     {c.sportFilter.length > 0 ? (
                       <Text variant="tiny" color={colors.zinc600} style={{ marginTop: 1 }}>

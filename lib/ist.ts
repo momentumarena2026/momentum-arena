@@ -53,6 +53,16 @@ export function istWeekday(d: Date): number {
   return toIst(d).getUTCDay();
 }
 
+/** First instant of an IST calendar day, as UTC. "2026-10-11" -> 10th 18:30Z. */
+export function istDayStartUtc(dateKey: string): Date {
+  return new Date(Date.parse(`${dateKey}T00:00:00.000Z`) - IST_OFFSET_MS);
+}
+
+/** Last instant of an IST calendar day, as UTC. "2026-10-19" -> 19th 18:29:59.999Z. */
+export function istDayEndUtc(dateKey: string): Date {
+  return new Date(Date.parse(`${dateKey}T23:59:59.999Z`) - IST_OFFSET_MS);
+}
+
 /**
  * The UTC instants bounding a range of IST calendar days, inclusive.
  * IST midnight is 18:30 UTC on the previous day, hence the subtraction.
@@ -61,10 +71,31 @@ export function istRangeBounds(
   dateFrom: string,
   dateTo: string,
 ): { from: Date; to: Date } {
-  return {
-    from: new Date(Date.parse(`${dateFrom}T00:00:00.000Z`) - IST_OFFSET_MS),
-    to: new Date(Date.parse(`${dateTo}T23:59:59.999Z`) - IST_OFFSET_MS),
-  };
+  return { from: istDayStartUtc(dateFrom), to: istDayEndUtc(dateTo) };
+}
+
+/** A bare "YYYY-MM-DD", which is what every `<input type="date">` submits. */
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Turn a validity-window form field into the instant it means to an
+ * admin standing in Mathura.
+ *
+ * `new Date("2026-10-19")` is midnight **UTC** — 05:30 IST. Used as a
+ * `validUntil` that silently kills a promo at half past five in the
+ * morning of its own last day, and used as a `validFrom` it opens the
+ * promo 5.5 hours late. Nothing in the UI shows it: the box still says
+ * 19/10/2026 either way, and the coupon simply stops working while the
+ * admin is asleep. It cost NAVRATRI25 the evening of its final day
+ * (2026-10-09) after a hand-edit through the Edit Coupon dialog
+ * overwrote a correctly-seeded 23:59:59 IST.
+ *
+ * A full timestamp is passed through untouched, so callers that mean a
+ * precise instant (the seed scripts) keep saying exactly that.
+ */
+export function istValidityBound(value: string, edge: "start" | "end"): Date {
+  if (!BARE_DATE.test(value)) return new Date(value);
+  return edge === "start" ? istDayStartUtc(value) : istDayEndUtc(value);
 }
 
 /** The UTC instants bounding an IST calendar year, inclusive. */

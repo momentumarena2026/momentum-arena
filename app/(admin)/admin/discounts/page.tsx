@@ -1,6 +1,7 @@
 import { getDiscountCodes } from "@/actions/admin-discounts";
 import { formatPrice } from "@/lib/pricing";
 import { DiscountManager } from "./discount-manager";
+import { istDateKey } from "@/lib/ist";
 
 export default async function AdminDiscountsPage() {
   const { codes } = await getDiscountCodes({ showInactive: true });
@@ -25,8 +26,8 @@ export default async function AdminDiscountsPage() {
           maxUsesPerUser: c.maxUsesPerUser,
           minBookingAmount: c.minBookingAmount,
           sportFilter: c.sportFilter,
-          validFrom: c.validFrom.toISOString().split("T")[0],
-          validUntil: c.validUntil.toISOString().split("T")[0],
+          validFrom: istDateKey(c.validFrom),
+          validUntil: istDateKey(c.validUntil),
           isSystemCode: c.isSystemCode,
           isActive: c.isActive,
           usageCount: c._count.usages,

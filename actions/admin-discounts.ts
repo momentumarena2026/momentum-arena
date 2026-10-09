@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { DiscountType, Sport } from "@prisma/client";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
+import { istValidityBound } from "@/lib/ist";
 
 async function requireAdmin() {
   const user = await requireAdminBase("MANAGE_DISCOUNTS");
@@ -67,8 +68,8 @@ export async function createDiscountCode(
       maxUsesPerUser: parsed.data.maxUsesPerUser,
       minBookingAmount: parsed.data.minBookingAmount || null,
       sportFilter: parsed.data.sportFilter,
-      validFrom: new Date(parsed.data.validFrom),
-      validUntil: new Date(parsed.data.validUntil),
+      validFrom: istValidityBound(parsed.data.validFrom, "start"),
+      validUntil: istValidityBound(parsed.data.validUntil, "end"),
       isSystemCode: parsed.data.isSystemCode,
       createdBy: adminId,
     },
@@ -98,8 +99,8 @@ export async function updateDiscountCode(
   if (data.maxUsesPerUser !== undefined) updateData.maxUsesPerUser = data.maxUsesPerUser;
   if (data.minBookingAmount !== undefined) updateData.minBookingAmount = data.minBookingAmount;
   if (data.sportFilter !== undefined) updateData.sportFilter = data.sportFilter;
-  if (data.validFrom !== undefined) updateData.validFrom = new Date(data.validFrom);
-  if (data.validUntil !== undefined) updateData.validUntil = new Date(data.validUntil);
+  if (data.validFrom !== undefined) updateData.validFrom = istValidityBound(data.validFrom, "start");
+  if (data.validUntil !== undefined) updateData.validUntil = istValidityBound(data.validUntil, "end");
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
   await db.discountCode.update({ where: { id }, data: updateData });
