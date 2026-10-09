@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-09-27 · accurate as of `main` = `4474a3a4` (app 1.0.8). New module: the **daily push** (§7c) — the first scheduled, non-transactional push in the product, now carrying a rotating Hinglish creative library for its catch-all rule. Driven end-to-end against staging and **shipped disabled on production**, because its customer opt-out rides an OTA canary still at 20%. Settings are live on STAGING (send 15:00 IST, 2 pushes per person per day across all types, all four rules on). Facts from it that generalise: **gotcha 19** — an IST "day" is two different values and a `@db.Date` column silently takes the wrong one, which killed an idempotency guard while a unique index hid it; Vercel crons are UTC, so an hourly cron on the hour fires at *half past* every IST hour; and `PushDispatch` could not answer "has this person heard from us today?" until `userId` was added, and still cannot for multicasts. Earlier: iOS deep links only ever worked on a cold launch (§6b); challenges leave the board when somebody PAYS and at no other moment (§9).
+**Last substantive update:** 2026-10-09 · accurate as of `main` = `864e7ecd` (app 1.0.8). Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: `NAVRATRI25`** — see **gotcha 20** for the one thing to carry forward, that a festival coupon's dates belong in its `BOOKING_DATE` condition and not in `validFrom`, or every advance booking is silently refused. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -400,6 +400,39 @@ Anything else means main has drifted — stop and investigate, do not push.
     until something reaches the case the index alone does not cover. Here
     that case was a batch mixing already-sent people with newly-eligible
     ones, which would have re-sent to everyone in it.
+
+20. **A festival coupon has TWO date windows and they are not the same
+    window.** `validFrom`/`validUntil` on the `Coupon` row say when a code
+    may be REDEEMED. A `BOOKING_DATE` condition says which day is being
+    PLAYED. For any event promo the venue asks for — a festival, a final, a
+    long weekend — the dates they say out loud are the *play* dates, and the
+    advance bookings are most of the volume. Put the festival in `validFrom`
+    and the coupon reads perfectly, activates on exactly the right morning,
+    and has already refused every booking made in the fortnight beforehand.
+    So: the event goes in the condition, and `validFrom` opens immediately.
+    `validUntil` is the end of the last playable day, since after that the
+    condition can no longer match anything. `NAVRATRI25`
+    (`scripts/seed-navratri-coupon.ts`) and the earlier `WORLDCUP25` are
+    both shaped this way.
+
+    Two consequences of `autoApply: true` that are easy to meet by surprise.
+    (a) Candidates are gathered by `getAutoApplyCouponCodes`
+    (`actions/sport-promo.ts`) ordered `createdAt desc`, and the checkout
+    applies the FIRST one that validates — newest wins, not largest, so
+    before adding one check what else is auto-applying for that sport.
+    (b) On both web and app, a successful auto-apply sets `newUserApplied`,
+    which HIDES the discount-code input entirely. For the nine days a
+    cricket/football customer therefore cannot type any other code at
+    checkout — including `MANAGEMENT`. That is pre-existing behaviour, not
+    new (pickleball has lived with it since `PICKLEBALL-FLAT100`), and staff
+    comps go through the admin booking panel rather than customer checkout,
+    but it is the kind of thing that gets reported as a bug.
+
+    Verifying one of these from a script needs the HTTP endpoint, not the
+    function: `validateCoupon()` calls `auth()`, so outside a Next request
+    scope every answer is "Failed to validate coupon" — including the ones
+    that look like passes. Mint a token with `signMobileToken`, create a
+    real `SlotHold`, and POST `/api/mobile/booking/apply-coupon`.
 
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo
