@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-10-09 · accurate as of `main` = `864e7ecd` (app 1.0.8). Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: `NAVRATRI25`** — see **gotcha 20** for the one thing to carry forward, that a festival coupon's dates belong in its `BOOKING_DATE` condition and not in `validFrom`, or every advance booking is silently refused. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
+**Last substantive update:** 2026-10-09 · accurate as of `main` = `37663b43` (app 1.0.8). Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: `NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -433,6 +433,40 @@ Anything else means main has drifted — stop and investigate, do not push.
     scope every answer is "Failed to validate coupon" — including the ones
     that look like passes. Mint a token with `signMobileToken`, create a
     real `SlotHold`, and POST `/api/mobile/booking/apply-coupon`.
+
+21. **`new Date("2026-10-19")` is 05:30 IST, and an admin date picker hands
+    you exactly that string.** Every discount form in the product — web
+    coupons, web discount codes, web cafe discounts, and the two app admin
+    screens — submits `validFrom`/`validUntil` as a bare `YYYY-MM-DD`, and
+    all fourteen write sites fed it straight to `new Date()`. A window
+    typed as 11–19 Oct therefore opened 5.5 hours late and closed **18.5
+    hours early**, taking the whole last evening with it.
+
+    It is invisible from the UI. The dialog still reads 19/10/2026 after
+    the save; the only symptom anyone gets is customers saying a discount
+    "stopped working". It cost NAVRATRI25 its final evening on 2026-10-09:
+    seeded correctly at 23:59:59 IST, then hand-edited to exclude the
+    bowling machine, and that one save silently moved the end to 05:30.
+
+    All fourteen now go through `istValidityBound` in `lib/ist.ts`, which
+    is where this arithmetic already lived. A full timestamp passes through
+    untouched, so the seed scripts still mean the instant they state.
+
+    **The half that is easy to forget.** Fixing only the write makes things
+    worse. A start bound correctly stored as IST midnight is 18:30 UTC *on
+    the previous day*, so `toISOString().split("T")[0]` (web pages) and
+    `iso.slice(0, 10)` (app screens) then display it a day early — and
+    because those screens feed the displayed string straight back on save,
+    every subsequent edit walks the window one day earlier. Reads go
+    through `istDateKey` (web) and `istDateKeyOf` (app, new in
+    `apps/mobile/src/lib/ist-date.ts`) for that reason. Whenever a stored
+    instant stops being "midnight-ish UTC", audit what renders it.
+
+    Two things generalise beyond coupons. A `<input type="date">` anywhere
+    in this repo means an IST calendar day, never a UTC one. And the app's
+    local `isoDate()` helpers used device-local getters — correct only
+    because the admins' phones happen to be in India, which is not a
+    property of the code.
 
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo
