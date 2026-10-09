@@ -40,6 +40,7 @@ import { formatPrice } from "@/lib/pricing";
 // truth for cohort UI) — coupons just import the picker from there
 // to wire eligible users onto a coupon form.
 import { UserPicker } from "../users/groups/user-groups-manager";
+import { istDateKey } from "@/lib/ist";
 
 interface ConditionRow {
   conditionType: CouponConditionType;
@@ -220,10 +221,8 @@ function emptyForm() {
     autoApply: false,
     showStrikethrough: false,
     platformPreset: "ALL" as PlatformPreset,
-    validFrom: new Date().toISOString().split("T")[0],
-    validUntil: new Date(Date.now() + 30 * 86400000)
-      .toISOString()
-      .split("T")[0],
+    validFrom: istDateKey(new Date()),
+    validUntil: istDateKey(new Date(Date.now() + 30 * 86400000)),
     conditions: [] as ConditionRow[],
     // Customer targeting: full user objects for the chip display +
     // a parallel id-only list of selected groups. Both empty by

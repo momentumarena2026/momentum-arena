@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
+import { istValidityBound } from "@/lib/ist";
 import type {
   CouponScope,
   DiscountType,
@@ -214,8 +215,8 @@ export async function POST(request: NextRequest) {
       isSystemCode: d.isSystemCode,
       autoApply: d.autoApply,
       showStrikethrough: d.showStrikethrough && d.autoApply,
-      validFrom: new Date(d.validFrom),
-      validUntil: new Date(d.validUntil),
+      validFrom: istValidityBound(d.validFrom, "start"),
+      validUntil: istValidityBound(d.validUntil, "end"),
       isActive: true,
       createdBy: gate.admin.id,
       conditions: {

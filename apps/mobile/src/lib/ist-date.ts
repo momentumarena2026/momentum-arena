@@ -15,6 +15,20 @@ export function getTodayIST(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: IST_TZ });
 }
 
+/**
+ * The IST calendar day an instant falls on, as "YYYY-MM-DD".
+ *
+ * Use this instead of `iso.slice(0, 10)` on anything that came from the
+ * server. A validity window stored as IST day boundaries puts its START
+ * at 18:30 UTC on the PREVIOUS day, so slicing the ISO string reports
+ * the wrong date — and because the admin screens feed that string
+ * straight back on save, each edit would walk the window a day earlier.
+ */
+export function istDateKeyOf(value: string | Date): string {
+  const d = typeof value === "string" ? new Date(value) : value;
+  return d.toLocaleDateString("en-CA", { timeZone: IST_TZ });
+}
+
 /** Get the current hour (0-23) in IST. */
 export function getCurrentHourIST(): number {
   return parseInt(

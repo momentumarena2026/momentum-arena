@@ -18,6 +18,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
+import { istDateKey } from "@/lib/ist";
 
 interface CafeCouponRow {
   id: string;
@@ -103,10 +104,8 @@ export function CafeCouponsClient({
     minOrderAmount: "",
     categoryFilter: [] as CafeItemCategory[],
     platformPreset: "ALL" as PlatformPreset,
-    validFrom: new Date().toISOString().split("T")[0],
-    validUntil: new Date(Date.now() + 30 * 86400000)
-      .toISOString()
-      .split("T")[0],
+    validFrom: istDateKey(new Date()),
+    validUntil: istDateKey(new Date(Date.now() + 30 * 86400000)),
   });
 
   const handleCreate = async () => {

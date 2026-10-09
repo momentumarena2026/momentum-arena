@@ -13,6 +13,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
+import { istValidityBound } from "@/lib/ist";
 import {
   listAdminBookingCoupons,
   type AdminCouponOption,
@@ -224,8 +225,8 @@ export async function createCoupon(data: {
         isSystemCode: parsed.data.isSystemCode,
         autoApply: parsed.data.autoApply,
         showStrikethrough: parsed.data.showStrikethrough && parsed.data.autoApply,
-        validFrom: new Date(parsed.data.validFrom),
-        validUntil: new Date(parsed.data.validUntil),
+        validFrom: istValidityBound(parsed.data.validFrom, "start"),
+        validUntil: istValidityBound(parsed.data.validUntil, "end"),
         createdBy: adminId,
         conditions: {
           create: parsed.data.conditions.map((c) => ({
@@ -322,8 +323,8 @@ export async function updateCoupon(
     // Never leave strikethrough advertised on a coupon checkout won't
     // auto-apply.
     if (data.autoApply === false) updateData.showStrikethrough = false;
-    if (data.validFrom !== undefined) updateData.validFrom = new Date(data.validFrom);
-    if (data.validUntil !== undefined) updateData.validUntil = new Date(data.validUntil);
+    if (data.validFrom !== undefined) updateData.validFrom = istValidityBound(data.validFrom, "start");
+    if (data.validUntil !== undefined) updateData.validUntil = istValidityBound(data.validUntil, "end");
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
     // Conditions and the two eligibility lists are all "replace

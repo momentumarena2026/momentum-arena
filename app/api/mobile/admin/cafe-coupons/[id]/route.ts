@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getMobileAdmin } from "@/lib/mobile-auth";
 import { hasPermission } from "@/lib/permissions";
+import { istValidityBound } from "@/lib/ist";
 
 /**
  * Mobile admin cafe coupon edit/disable. Mirrors updateCafeCoupon +
@@ -58,8 +59,8 @@ export async function PATCH(
   if (d.minOrderAmount !== undefined) data.minOrderAmount = d.minOrderAmount;
   if (d.categoryFilter !== undefined) data.categoryFilter = d.categoryFilter;
   if (d.validPlatforms !== undefined) data.validPlatforms = d.validPlatforms;
-  if (d.validFrom !== undefined) data.validFrom = new Date(d.validFrom);
-  if (d.validUntil !== undefined) data.validUntil = new Date(d.validUntil);
+  if (d.validFrom !== undefined) data.validFrom = istValidityBound(d.validFrom, "start");
+  if (d.validUntil !== undefined) data.validUntil = istValidityBound(d.validUntil, "end");
   if (d.isActive !== undefined) data.isActive = d.isActive;
 
   await db.cafeDiscount.update({ where: { id }, data });

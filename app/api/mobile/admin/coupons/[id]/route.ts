@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { Prisma } from "@prisma/client";
+import { istValidityBound } from "@/lib/ist";
 import type {
   CouponScope,
   DiscountType,
@@ -133,8 +134,8 @@ export async function PATCH(
   // auto-apply.
   if (d.autoApply === false) data.showStrikethrough = false;
   if (d.isActive !== undefined) data.isActive = d.isActive;
-  if (d.validFrom !== undefined) data.validFrom = new Date(d.validFrom);
-  if (d.validUntil !== undefined) data.validUntil = new Date(d.validUntil);
+  if (d.validFrom !== undefined) data.validFrom = istValidityBound(d.validFrom, "start");
+  if (d.validUntil !== undefined) data.validUntil = istValidityBound(d.validUntil, "end");
 
   const tx: Prisma.PrismaPromise<unknown>[] = [];
 

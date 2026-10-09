@@ -34,6 +34,7 @@ import {
 } from "../../lib/admin-coupons";
 import { formatRupees } from "../../lib/format";
 import { AdminApiError } from "../../lib/admin-api";
+import { istDateKeyOf } from "../../lib/ist-date";
 
 const SCOPES: CouponScope[] = ["BOTH", "SPORTS", "CAFE"];
 const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
@@ -119,11 +120,10 @@ function platformTag(list: CouponPlatform[]): string | null {
   }
 }
 
-function pad(n: number) {
-  return String(n).padStart(2, "0");
-}
-function isoDate(d: Date) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// Device-local getters would be IST on a phone in Mathura and wrong
+// anywhere else; the helper does not ask the device.
+function isoDate(d: Date): string {
+  return istDateKeyOf(d);
 }
 function discountLabel(c: AdminCoupon): string {
   // PERCENTAGE: value = basis points (÷100 → percent). FLAT: value = whole
@@ -261,8 +261,8 @@ export function AdminCouponsScreen() {
     setMinAmt(c.minAmount != null ? String(c.minAmount) : "");
     setMaxUses(c.maxUses != null ? String(c.maxUses) : "");
     setPerUser(String(c.maxUsesPerUser));
-    setFrom(c.validFrom.slice(0, 10));
-    setUntil(c.validUntil.slice(0, 10));
+    setFrom(istDateKeyOf(c.validFrom));
+    setUntil(istDateKeyOf(c.validUntil));
     setSportFilter([...c.sportFilter]);
     setCategoryFilter([...c.categoryFilter]);
     setCategoryExclude([...c.categoryExclude]);
@@ -473,7 +473,7 @@ export function AdminCouponsScreen() {
                     >
                       {c.minAmount ? `Min ${formatRupees(c.minAmount)} · ` : ""}
                       {c.usedCount} used{c.maxUses ? `/${c.maxUses}` : ""} · till{" "}
-                      {c.validUntil.slice(0, 10)}
+                      {istDateKeyOf(c.validUntil)}
                     </Text>
                     {(c.sportFilter.length > 0 ||
                       c.categoryFilter.length > 0 ||

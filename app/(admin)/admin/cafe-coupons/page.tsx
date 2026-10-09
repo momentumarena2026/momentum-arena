@@ -1,6 +1,7 @@
 import { getCafeCoupons } from "@/actions/admin-cafe-discounts";
 import { formatPrice } from "@/lib/pricing";
 import { CafeCouponsClient } from "./cafe-coupons-client";
+import { istDateKey } from "@/lib/ist";
 
 export default async function AdminCafeCouponsPage() {
   const { coupons } = await getCafeCoupons({ showInactive: true });
@@ -26,8 +27,8 @@ export default async function AdminCafeCouponsPage() {
           minOrderAmount: c.minOrderAmount,
           categoryFilter: c.categoryFilter,
           validPlatforms: c.validPlatforms as ("web" | "android" | "ios")[],
-          validFrom: c.validFrom.toISOString().split("T")[0],
-          validUntil: c.validUntil.toISOString().split("T")[0],
+          validFrom: istDateKey(c.validFrom),
+          validUntil: istDateKey(c.validUntil),
           isActive: c.isActive,
           usageCount: c._count.usages,
         }))}

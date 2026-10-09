@@ -6,6 +6,7 @@ import { createDiscountCode, updateDiscountCode, deleteDiscountCode } from "@/ac
 import { DiscountType, Sport } from "@prisma/client";
 import { Plus, X, Loader2, Ticket, Percent, IndianRupee, Tag } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
+import { istDateKey } from "@/lib/ist";
 
 interface DiscountCodeRow {
   id: string;
@@ -37,8 +38,8 @@ export function DiscountManager({ codes }: { codes: DiscountCodeRow[] }) {
     maxUsesPerUser: "1",
     minBookingAmount: "",
     sportFilter: [] as Sport[],
-    validFrom: new Date().toISOString().split("T")[0],
-    validUntil: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+    validFrom: istDateKey(new Date()),
+    validUntil: istDateKey(new Date(Date.now() + 30 * 86400000)),
   });
 
   const handleCreate = async () => {
