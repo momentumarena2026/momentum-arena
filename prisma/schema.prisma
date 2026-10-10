@@ -314,6 +314,7 @@ model User {
   /// venue expects, and a null column on an existing row means "in".
   offersOptOut   Boolean         @default(false)
   dailyPushSends DailyPushSend[]
+  regDriveSends  TournamentRegDriveSend[]
 
   // First-party analytics — every event the user fires (web + mobile)
   // and every session they've been part of. Anonymous events have
@@ -3594,6 +3595,18 @@ model Tournament {
   regOpenAt  DateTime?
   regCloseAt DateTime?
   revealAt   DateTime? // pool-reveal countdown target
+
+  /// Daily "register your team" drive while registration is open.
+  ///
+  /// On by default because a tournament nobody enters is the failure
+  /// mode this exists to prevent, and an opt-out an admin never finds is
+  /// no safer than one they never needed. It stops on its own: see
+  /// lib/tournament-reg-drive.ts, which refuses once the tournament is
+  /// full, registration closes, or the status moves on.
+  regDriveEnabled  Boolean @default(true)
+  /// IST hour it sends. Defaults to 19:00 — deliberately NOT the daily
+  /// push's 15:00, so the two automated messages cannot land together.
+  regDriveHourIST  Int     @default(19)
   startDate  DateTime?
   endDate    DateTime?
 
@@ -3642,6 +3655,7 @@ model Tournament {
   updatedAt DateTime @updatedAt
 
   pools             TournamentPool[]
+  regDriveSends     TournamentRegDriveSend[]
   teams             TournamentTeam[]
   matches           TournamentMatch[]
   slots             TournamentSlot[]
@@ -3921,6 +3935,39 @@ model TournamentPlayerStat {
 // (registrations-open banner+push, closing-soon, reveal, results, champion…).
 // Admin edits copy / toggles / schedules each; firing reuses the existing
 // PromoBanner + push systems. status: DRAFT | SCHEDULED | SENT | SKIPPED.
+/// One row per person per day the registration drive messaged them.
+///
+/// Exactly the shape of DailyPushSend, and for the same two reasons:
+///
+///   IDEMPOTENCY  @@unique([tournamentId, userId, sentOn]) means two
+///                overlapping cron runs cannot both message the same
+///                captain. The row is written BEFORE the send, so a
+///                crash costs a message rather than duplicating one.
+///   THE CEILING  "has this person already heard from the drive today?"
+///                cannot be answered from PushDispatch, because one
+///                multicast to three hundred people is a single
+///                dispatch row.
+///
+/// `sentOn` is a @db.Date and takes the IST CALENDAR DATE — istDayKey,
+/// never istDayStart. Gotcha 19 killed the daily push's idempotency
+/// guard this exact way, with a unique index hiding the fact that the
+/// application-level check had been dead the whole time.
+model TournamentRegDriveSend {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Which campaign item's copy went out — the answer to "why did I get THAT".
+  itemId       String?
+  sentOn       DateTime   @db.Date
+  createdAt    DateTime   @default(now())
+
+  @@unique([tournamentId, userId, sentOn])
+  @@index([tournamentId, sentOn])
+  @@index([userId])
+}
+
 model TournamentCampaignItem {
   id           String     @id @default(cuid())
   tournamentId String
@@ -3935,6 +3982,22 @@ model TournamentCampaignItem {
   scheduledAt  DateTime?
   sentAt       DateTime?
   bannerId     String? // PromoBanner created when fired
+
+  /// A RECURRING item is never "spent".
+  ///
+  /// Every other campaign item is a one-shot: it fires at its milestone,
+  /// goes to SENT, and is done. The registration drive is the opposite
+  /// shape — it runs every day until the tournament fills — so its items
+  /// stay DRAFT forever and `sentAt` means LAST USED rather than
+  /// "finished". That is what lets the drive rotate its copy: the same
+  /// least-recently-used walk the daily-push line library uses, for the
+  /// same reason (a nudge repeated verbatim reads as a broken system).
+  ///
+  /// fireMilestone() skips these, so a lifecycle transition cannot
+  /// accidentally burn one.
+  recurring    Boolean    @default(false)
+  /// How many times a recurring item has gone out. One-shots leave it 0.
+  useCount     Int        @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

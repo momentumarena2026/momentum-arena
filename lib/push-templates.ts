@@ -438,6 +438,22 @@ export const PUSH_TEMPLATES = [
     defaultBody: "The courts are open this week. Tap to pick your hour.",
     variables: [],
   },
+  {
+    key: "tournament_reg_drive",
+    audience: "customer",
+    label: "Tournament — daily registration drive",
+    trigger:
+      "Daily while a tournament's registration is open and the draw is not yet full. Goes only to people who have NOT entered a team, stops on its own when the tournament fills or registration closes. The sentence itself rotates through the drive lines on the tournament's Campaign tab; this template is the envelope around it.",
+    defaultTitle: "{title}",
+    defaultBody: "{body}",
+    variables: [
+      { name: "title", description: "The drive line's headline, already rendered", example: "4 spots left — Momentum October Cup" },
+      { name: "body", description: "The drive line's body, already rendered", example: "₹6,100 prize pool. Get your squad in before the draw closes." },
+      { name: "tournament", description: "Tournament name", example: "Momentum October Cup" },
+      { name: "spotsLeft", description: "Unfilled places in the draw", example: "4" },
+      { name: "daysLeft", description: "Whole days until registration closes", example: "6" },
+    ],
+  },
   // ── Admin ─────────────────────────────────────────────────────────
   {
     key: "admin_pending_booking",
