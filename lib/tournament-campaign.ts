@@ -74,6 +74,76 @@ export const CAMPAIGN_MILESTONES: MilestoneDef[] = [
   },
 ];
 
+/**
+ * The registration drive's rotating copy.
+ *
+ * Drafted as RECURRING campaign items, which means they live on the
+ * same admin Campaign tab as every other message and can be rewritten,
+ * switched off or added to without a deploy — the same bargain the
+ * daily-push line library strikes. They are not milestones: nothing
+ * fires them, the cron walks them least-recently-used.
+ *
+ * `{spotsLeft}` / `{daysLeft}` / `{prizePool}` / `{entryFee}` /
+ * `{name}` are substituted at send time by renderDriveCopy. Lines that
+ * use `{daysLeft}` only make sense when the tournament has a close
+ * date; on an open-ended one it renders empty, so none of the defaults
+ * below leans on it alone for grammar.
+ *
+ * Eight lines, which at the drive's default one-a-day cadence is longer
+ * than most registration windows — the rotation should run out of
+ * window before it runs out of things to say.
+ */
+export const REG_DRIVE_LINES: MilestoneDef[] = [
+  {
+    milestone: "REG_DRIVE",
+    kind: "PUSH",
+    title: (t) => `${t.name} — {spotsLeft} spots left`,
+    body: (t) => `Get your squad in.${prize(t)} Registration is open now.`,
+  },
+  {
+    milestone: "REG_DRIVE",
+    kind: "PUSH",
+    title: () => `Team ready? {spotsLeft} places open`,
+    body: (t) => `${t.name} needs teams. Entry ${t.entryFee > 0 ? `₹${t.entryFee.toLocaleString("en-IN")}` : "free"} — register in the app.`,
+  },
+  {
+    milestone: "REG_DRIVE",
+    kind: "PUSH",
+    title: (t) => `Still time for ${t.name}`,
+    body: () => `{spotsLeft} spots are unclaimed. Grab one before the draw is made.`,
+  },
+  {
+    milestone: "REG_DRIVE",
+    kind: "PUSH",
+    title: () => `Your WhatsApp group has 11 players`,
+    body: (t) => `${t.name} has {spotsLeft} spots. You can see where this is going.`,
+  },
+  {
+    milestone: "REG_DRIVE",
+    kind: "PUSH",
+    title: (t) => `${t.name} — draw not full yet`,
+    body: () => `{spotsLeft} teams short. Enter yours and we'll sort the fixtures.`,
+  },
+  {
+    milestone: "REG_DRIVE",
+    kind: "PUSH",
+    title: () => `Captain, assemble`,
+    body: (t) => `${t.name}, {spotsLeft} spots open.${prize(t)} Register your team today.`,
+  },
+  {
+    milestone: "REG_DRIVE",
+    kind: "PUSH",
+    title: () => `{spotsLeft} spots. One of them yours?`,
+    body: (t) => `${t.name} is taking entries now — it closes when the draw fills.`,
+  },
+  {
+    milestone: "REG_DRIVE",
+    kind: "PUSH",
+    title: (t) => `Play ${t.name}, not FIFA`,
+    body: () => `{spotsLeft} places left in the draw. Get the team signed up.`,
+  },
+];
+
 /** Draft the full campaign for a new tournament (idempotent). */
 export async function draftCampaign(tournamentId: string): Promise<void> {
   const t = await db.tournament.findUnique({
@@ -91,14 +161,18 @@ export async function draftCampaign(tournamentId: string): Promise<void> {
   });
   if (!t || t.campaignItems.length > 0) return;
   await db.tournamentCampaignItem.createMany({
-    data: CAMPAIGN_MILESTONES.map((m) => ({
+    data: [
+      ...CAMPAIGN_MILESTONES.map((m) => ({ def: m, recurring: false })),
+      ...REG_DRIVE_LINES.map((m) => ({ def: m, recurring: true })),
+    ].map(({ def, recurring }) => ({
       tournamentId: t.id,
-      milestone: m.milestone,
-      kind: m.kind,
-      title: m.title(t),
-      body: m.body(t),
+      milestone: def.milestone,
+      kind: def.kind,
+      title: def.title(t),
+      body: def.body(t),
       enabled: true,
       status: "DRAFT",
+      recurring,
     })),
   });
 }
@@ -123,7 +197,12 @@ export async function fireMilestone(
   });
   if (!t) return { fired: 0, skipped: 0 };
   const items = await db.tournamentCampaignItem.findMany({
-    where: { tournamentId, milestone, status: { in: ["DRAFT", "SCHEDULED"] } },
+    // `recurring: false` is load-bearing. A recurring drive line sits at
+    // status DRAFT for its whole life, so without this filter any
+    // milestone fire — or an admin's "Send now" — would scoop up the
+    // drive's copy, send it once and mark it SENT, silently removing it
+    // from the rotation.
+    where: { tournamentId, milestone, recurring: false, status: { in: ["DRAFT", "SCHEDULED"] } },
   });
 
   let fired = 0;

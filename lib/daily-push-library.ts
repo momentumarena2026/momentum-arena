@@ -118,6 +118,38 @@ export const DEFAULT_DAILY_PUSH_LINES: DailyPushLineSeed[] = [
   { title: "mithai ka hisaab", body: "ek ghanta ground pe. barabar.", tags: ["diwali"] },
   { title: "chhutti hai aaj", body: "ground khula hai. team bulao.", tags: ["holi", "janmashtami", "diwali"] },
 
+  // ── Navratri 2026, 11–19 Oct. One line per day, in order. ──────────
+  //
+  // These nine BREAK the no-prices rule at the top of this file, on
+  // purpose and only here. The rule exists because a line implying an
+  // offer can run on a day the offer is not live, and then the counter
+  // has to honour a screenshot. That cannot happen to these: each
+  // carries a single-day tag, those tags are switched on by windows
+  // built from the SAME constants as NAVRATRI25's BOOKING_DATE
+  // condition (lib/navratri-2026.ts), and the copy therefore cannot
+  // outlive the discount it quotes.
+  //
+  // ORDER IS LOAD-BEARING. The tag suffix is the festival day, and the
+  // last three count down — "teen din aur" on the 17th leaves the 17th,
+  // 18th and 19th; "kal tak hai" on the 18th; "aaj aakhri din" on the
+  // 19th. A single shared `navratri` tag would have left that order to
+  // a cuid tie-break, which put the last-day line on day one the first
+  // time it was tried. Re-sequencing these means re-checking the
+  // arithmetic, not just moving them around.
+  //
+  // Cricket and football only, because that is what the coupon covers.
+  // No pickleball, and nothing about the bowling machine, which the
+  // venue excluded.
+  { title: "navratri shuru, 25% off bhi", body: "nau din, cricket aur football pe 25% off. aaj se.", tags: ["navratri-d1"] },
+  { title: "vrat hai, shaam khaali hai", body: "ek match ho jaye. navratri bhar 25% off chal raha hai.", tags: ["navratri-d2"] },
+  { title: "garba ke baad bhi dum hai?", body: "to ground pe aao. cricket aur football 25% off.", tags: ["navratri-d3"] },
+  { title: "nau raat, nau mauke", body: "har din cricket aur football pe 25% off. khelte raho.", tags: ["navratri-d4"] },
+  { title: "sabudana se energy aa gayi", body: "ab ground pe nikalo. 25% off hai poore navratri.", tags: ["navratri-d5"] },
+  { title: "dandiya ya cover drive", body: "dono chalega. cricket aur football pe 25% off.", tags: ["navratri-d6"] },
+  { title: "teen din aur", body: "navratri ka 25% off 19 tak. cricket aur football.", tags: ["navratri-d7"] },
+  { title: "kal tak hai", body: "25% off ka aakhri mauka. ground khula hai.", tags: ["navratri-d8"] },
+  { title: "aaj aakhri din", body: "navratri ka 25% off aaj raat tak. ground khula hai.", tags: ["navratri-d9"] },
+
   // ── Cricket calendar. Also dated windows. ──────────────────────────
   { title: "match 7:30 pe hai", body: "turf 6 baje. dono ho jayenge.", tags: ["ipl"] },
   { title: "IPL dekh ke khujli hui?", body: "wahi shot yahan try karo.", tags: ["ipl"] },

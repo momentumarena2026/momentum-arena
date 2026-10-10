@@ -60,9 +60,19 @@ export async function sendCampaignItemNow(
   await gate();
   const item = await db.tournamentCampaignItem.findUnique({
     where: { id: itemId },
-    select: { id: true, tournamentId: true, milestone: true, kind: true, status: true, enabled: true },
+    select: { id: true, tournamentId: true, milestone: true, kind: true, status: true, enabled: true, recurring: true },
   });
   if (!item) return { success: false, error: "Item not found" };
+  // A recurring drive line is not a thing you fire. fireMilestone
+  // filters them out, so without this the button would park its
+  // siblings, send nothing and report "check the item (banner needs an
+  // image)" — a confusing answer to a reasonable click.
+  if (item.recurring) {
+    return {
+      success: false,
+      error: "This line belongs to the daily registration drive — the cron sends it. Switch it off here to take it out of the rotation.",
+    };
+  }
   if (item.status === "SENT") return { success: false, error: "Already sent" };
   if (!item.enabled) return { success: false, error: "Enable the item first" };
 

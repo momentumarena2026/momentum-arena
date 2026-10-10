@@ -21,6 +21,7 @@ type Item = {
 };
 
 const MILESTONE_LABEL: Record<string, string> = {
+  REG_DRIVE: "Daily registration drive — rotates until the draw fills",
   REG_OPEN: "Registrations Open (auto-fires on Reg Open)",
   REG_CLOSING: "Closing Soon (manual)",
   REVEAL_TONIGHT: "Reveal Tonight (manual)",

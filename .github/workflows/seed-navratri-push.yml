@@ -1,0 +1,112 @@
+name: Seed Navratri push + registration drive
+
+# Two pieces of DATA that make the automation run. Neither changes any
+# engine; both are idempotent and safe to re-run.
+#
+#   NAVRATRI    nine one-day DailyPushOccasion windows (11–19 Oct) plus
+#               the nine festival lines that may only run inside them.
+#               The script then REPLAYS all nine days through the real
+#               selection logic and fails if they do not produce nine
+#               different lines in the right order.
+#
+#   REG DRIVE   the eight rotating registration-drive lines, for
+#               tournaments that already existed when the drive shipped.
+#               draftCampaign only runs at creation, so without this the
+#               cron finds no copy and correctly refuses to send.
+#
+# Defaults to STAGING. Production is a deliberate choice in the dropdown.
+#
+#   gh workflow run seed-navratri-push.yml -f environment=production
+#   gh workflow run seed-navratri-push.yml -f environment=staging -f dry_run=true
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which DB to write to"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      dry_run:
+        description: "Print what would change and write nothing"
+        required: false
+        default: false
+        type: boolean
+      what:
+        description: "Which part to seed"
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - navratri-only
+          - reg-drive-only
+
+jobs:
+  seed:
+    name: Seed push automation data
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ inputs.environment == 'production' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty for environment=${{ inputs.environment }}"
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars) for ${{ inputs.environment }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      # The occasion windows and lines are plain rows on an existing
+      # schema, so no db push is needed here. The reg-drive columns DO
+      # need one, and Vercel runs it inside the production build — so
+      # this workflow must run AFTER the deploy that carries them, not
+      # before. The step below fails loudly rather than seeding half of
+      # it if the column is not there yet.
+      - name: Check the reg-drive schema has landed
+        if: ${{ inputs.what != 'navratri-only' }}
+        run: |
+          npx tsx -e '
+            import { PrismaClient } from "@prisma/client";
+            const db = new PrismaClient();
+            db.$queryRawUnsafe(
+              `SELECT 1 FROM information_schema.columns WHERE table_name = $$Tournament$$ AND column_name = $$regDriveEnabled$$`
+            ).then((r) => {
+              if (!Array.isArray(r) || r.length === 0) {
+                console.error("::error::Tournament.regDriveEnabled is missing — deploy the schema first (Vercel runs prisma db push in the build), then re-run this.");
+                process.exit(1);
+              }
+              console.log("reg-drive columns are present");
+              process.exit(0);
+            });
+          '
+
+      - name: Seed the Navratri windows and lines
+        if: ${{ inputs.what != 'reg-drive-only' }}
+        run: npx tsx scripts/seed-navratri-push.ts ${{ inputs.dry_run && '--dry-run' || '--allow-production' }}
+
+      - name: Backfill registration-drive lines
+        if: ${{ inputs.what != 'navratri-only' }}
+        run: npx tsx scripts/backfill-reg-drive-lines.ts ${{ inputs.dry_run && '--dry-run' || '--allow-production' }}
+
+      - name: Show the daily-push library
+        run: npx tsx scripts/seed-daily-push-lines.ts --list
