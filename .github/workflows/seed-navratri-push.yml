@@ -35,6 +35,11 @@ on:
         required: false
         default: false
         type: boolean
+      replace_drive_lines:
+        description: "DESTRUCTIVE — delete and re-create the tournament drive copy (loses admin edits + rotation state). Needed after a copy change."
+        required: false
+        default: false
+        type: boolean
       what:
         description: "Which part to seed"
         required: true
@@ -106,7 +111,7 @@ jobs:
 
       - name: Backfill registration-drive lines
         if: ${{ inputs.what != 'navratri-only' }}
-        run: npx tsx scripts/backfill-reg-drive-lines.ts ${{ inputs.dry_run && '--dry-run' || '--allow-production' }}
+        run: npx tsx scripts/backfill-reg-drive-lines.ts ${{ inputs.dry_run && '--dry-run' || '--allow-production' }} ${{ inputs.replace_drive_lines && '--replace-drive-lines' || '' }}
 
       - name: Show the daily-push library
         run: npx tsx scripts/seed-daily-push-lines.ts --list

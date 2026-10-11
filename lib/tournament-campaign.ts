@@ -83,8 +83,15 @@ export const CAMPAIGN_MILESTONES: MilestoneDef[] = [
  * daily-push line library strikes. They are not milestones: nothing
  * fires them, the cron walks them least-recently-used.
  *
- * `{spotsLeft}` / `{daysLeft}` / `{prizePool}` / `{entryFee}` /
- * `{name}` are substituted at send time by renderDriveCopy. Lines that
+ * `{slotsPhrase}` / `{daysLeft}` / `{prizePool}` / `{entryFee}` /
+ * `{name}` are substituted at send time by renderDriveCopy.
+ *
+ * NOTE there is no `{spotsLeft}`. The count was deliberately removed
+ * after the first send: a public figure on a 12-team draw is a running
+ * scoreboard of how badly the tournament is selling, and "11 spots
+ * left" is an argument against entering. See DriveVars.slotsPhrase.
+ *
+ * Lines that
  * use `{daysLeft}` only make sense when the tournament has a close
  * date; on an open-ended one it renders empty, so none of the defaults
  * below leans on it alone for grammar.
@@ -97,52 +104,57 @@ export const REG_DRIVE_LINES: MilestoneDef[] = [
   {
     milestone: "REG_DRIVE",
     kind: "PUSH",
-    title: (t) => `${t.name} — {spotsLeft} spots left`,
+    title: (t) => `${t.name} — {slotsPhrase}`,
     body: (t) => `Get your squad in.${prize(t)} Registration is open now.`,
   },
   {
     milestone: "REG_DRIVE",
     kind: "PUSH",
-    title: () => `Team ready? {spotsLeft} places open`,
-    body: (t) => `${t.name} needs teams. Entry ${t.entryFee > 0 ? `₹${t.entryFee.toLocaleString("en-IN")}` : "free"} — register in the app.`,
+    title: () => `Team ready?`,
+    body: (t) =>
+      `${t.name} is taking entries — {slotsPhrase}. Entry ${t.entryFee > 0 ? `₹${t.entryFee.toLocaleString("en-IN")}` : "free"}.`,
   },
   {
     milestone: "REG_DRIVE",
     kind: "PUSH",
     title: (t) => `Still time for ${t.name}`,
-    body: () => `{spotsLeft} spots are unclaimed. Grab one before the draw is made.`,
+    body: () => `Grab a place before the draw is made — {slotsPhrase}.`,
   },
   {
     milestone: "REG_DRIVE",
     kind: "PUSH",
     title: () => `Your WhatsApp group has 11 players`,
-    body: (t) => `${t.name} has {spotsLeft} spots. You can see where this is going.`,
+    body: (t) => `${t.name} is open for entries. You can see where this is going.`,
   },
   {
     milestone: "REG_DRIVE",
     kind: "PUSH",
     title: (t) => `${t.name} — draw not full yet`,
-    body: () => `{spotsLeft} teams short. Enter yours and we'll sort the fixtures.`,
+    // The phrase is lowercase by design (it reads as a clause, not a
+    // sentence), so it must never follow a full stop — an em dash or a
+    // comma, always.
+    body: () => `Enter your team and we'll sort the fixtures — {slotsPhrase}.`,
   },
   {
     milestone: "REG_DRIVE",
     kind: "PUSH",
     title: () => `Captain, assemble`,
-    body: (t) => `${t.name}, {spotsLeft} spots open.${prize(t)} Register your team today.`,
+    body: (t) => `${t.name}, {slotsPhrase}.${prize(t)} Register your team today.`,
   },
   {
     milestone: "REG_DRIVE",
     kind: "PUSH",
-    title: () => `{spotsLeft} spots. One of them yours?`,
+    title: () => `One of those places could be yours`,
     body: (t) => `${t.name} is taking entries now — it closes when the draw fills.`,
   },
   {
     milestone: "REG_DRIVE",
     kind: "PUSH",
     title: (t) => `Play ${t.name}, not FIFA`,
-    body: () => `{spotsLeft} places left in the draw. Get the team signed up.`,
+    body: () => `Get the team signed up — {slotsPhrase}.`,
   },
 ];
+
 
 /** Draft the full campaign for a new tournament (idempotent). */
 export async function draftCampaign(tournamentId: string): Promise<void> {

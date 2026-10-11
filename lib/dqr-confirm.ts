@@ -10,6 +10,7 @@ import { awardBookingPoints } from "@/lib/rewards/earn";
 import { materializeOrderFromIntent } from "@/lib/cafe-intent";
 import { DQR_CONFIRMED_BY } from "@/lib/phonepe-dqr";
 import { recordOrphanPayment } from "@/lib/payment-orphan";
+import { settledPaymentStatus, isAlreadySettled } from "@/lib/dqr-settlement";
 
 /**
  * Shared "DQR payment settled → materialise the order" commit step,
@@ -37,9 +38,21 @@ export async function confirmDqrBooking(
   // exists this transaction is done.
   const existing = await db.payment.findFirst({
     where: { phonePeMerchantTxnId: transactionId },
-    select: { id: true, bookingId: true, status: true },
+    select: {
+      id: true,
+      bookingId: true,
+      status: true,
+      // Needed to settle at the RIGHT status — see settledPaymentStatus.
+      isPartialPayment: true,
+      remainingAmount: true,
+      confirmedAt: true,
+    },
   });
-  if (existing && existing.status === "COMPLETED") {
+  // `confirmedAt`, not `status`. See isAlreadySettled: once a settled
+  // payment can come to rest at PARTIAL, testing for COMPLETED stops
+  // recognising finished work, and the second of the poll/callback pair
+  // re-sends the customer's confirmation.
+  if (existing && isAlreadySettled(existing)) {
     return { bookingId: existing.bookingId, alreadyDone: true };
   }
   if (existing) {
@@ -52,7 +65,10 @@ export async function confirmDqrBooking(
       db.payment.update({
         where: { id: existing.id },
         data: {
-          status: "COMPLETED",
+          // NOT an unconditional COMPLETED. The claim this is settling
+          // may have been a 50% advance, in which case the gateway
+          // reporting the ₹350 does not mean the ₹700 arrived.
+          status: settledPaymentStatus(existing),
           confirmedAt: new Date(),
           confirmedBy: "PHONEPE_DQR",
           ...(providerReferenceId
