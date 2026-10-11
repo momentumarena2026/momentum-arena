@@ -284,7 +284,7 @@ async function runOne(
       title,
       body,
       tournament: t.name,
-      spotsLeft: vars.spotsLeft,
+      slotsPhrase: vars.slotsPhrase,
       daysLeft: vars.daysLeft,
     },
     // open_screen + url routes through the app's existing deep-link

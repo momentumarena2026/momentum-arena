@@ -447,10 +447,10 @@ export const PUSH_TEMPLATES = [
     defaultTitle: "{title}",
     defaultBody: "{body}",
     variables: [
-      { name: "title", description: "The drive line's headline, already rendered", example: "4 spots left — Momentum October Cup" },
+      { name: "title", description: "The drive line's headline, already rendered", example: "Momentum October Cup — only a few spots left" },
       { name: "body", description: "The drive line's body, already rendered", example: "₹6,100 prize pool. Get your squad in before the draw closes." },
       { name: "tournament", description: "Tournament name", example: "Momentum October Cup" },
-      { name: "spotsLeft", description: "Unfilled places in the draw", example: "4" },
+      { name: "slotsPhrase", description: "Scarcity WITHOUT the number — the exact count is deliberately not available, see DriveVars.slotsPhrase", example: "only a few spots left" },
       { name: "daysLeft", description: "Whole days until registration closes", example: "6" },
     ],
   },

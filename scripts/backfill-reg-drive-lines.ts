@@ -19,6 +19,7 @@
  *
  *   npx tsx scripts/backfill-reg-drive-lines.ts
  *   npx tsx scripts/backfill-reg-drive-lines.ts --dry-run
+ *   npx tsx scripts/backfill-reg-drive-lines.ts --replace-drive-lines
  *   npx tsx scripts/backfill-reg-drive-lines.ts --allow-production   # CI only
  */
 import { PrismaClient } from "@prisma/client";
@@ -27,6 +28,22 @@ import { REG_DRIVE_LINES } from "../lib/tournament-campaign";
 const db = new PrismaClient();
 const PRODUCTION_ENDPOINT = "ep-dark-hat-ampi5dah";
 const DRY_RUN = process.argv.includes("--dry-run");
+
+/**
+ * Throw away the existing drive lines and re-create them from the
+ * current defaults.
+ *
+ * DESTRUCTIVE, and opt-in for that reason: any rewrite the venue has
+ * made on the Campaign tab goes with them, as does the rotation state.
+ *
+ * It exists because the first version of this copy carried the exact
+ * number of unfilled spots — "{spotsLeft} spots left" — and went out
+ * once before the venue saw it. Additive back-filling cannot fix copy
+ * that is already in the database under a different title; the rows
+ * have to be replaced. Resetting the rotation is the correct side
+ * effect here rather than a cost: the new copy has not been seen.
+ */
+const REPLACE = process.argv.includes("--replace-drive-lines");
 
 /** Statuses where a registration drive could still be wanted. */
 const LIVE_ENOUGH = ["DRAFT", "PUBLISHED", "REG_OPEN"] as const;
@@ -69,6 +86,13 @@ async function main() {
   }
 
   for (const t of tournaments) {
+    if (REPLACE && !DRY_RUN) {
+      const gone = await db.tournamentCampaignItem.deleteMany({
+        where: { tournamentId: t.id, recurring: true },
+      });
+      if (gone.count > 0) console.log(`  (replaced: removed ${gone.count} old drive lines)`);
+    }
+
     const present = new Set(
       (
         await db.tournamentCampaignItem.findMany({

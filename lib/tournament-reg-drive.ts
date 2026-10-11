@@ -182,8 +182,25 @@ export function driveSettingsRefusal(
 export interface DriveVars {
   /** e.g. "Momentum October Cup" */
   name: string;
-  /** Spots still open, never below zero. */
-  spotsLeft: string;
+  /**
+   * Scarcity WITHOUT the number — "a few spots left", never "4 spots
+   * left".
+   *
+   * ── WHY THE COUNT IS GONE ─────────────────────────────────────────
+   * The venue asked for this after the first send went out carrying the
+   * real figure, and they are right. A public count is a running
+   * scoreboard of how badly a tournament is selling: "11 spots left" on
+   * a 12-team draw tells everybody that one team has entered, which is
+   * an argument against entering. The vaguer line carries the urgency
+   * and none of the evidence.
+   *
+   * There is deliberately NO `spotsLeft` variable any more, rather than
+   * one that simply goes unused by the default copy. Leaving it
+   * available would mean the next person writing a drive line could
+   * reintroduce the number without knowing it had been removed on
+   * purpose.
+   */
+  slotsPhrase: string;
   /** Whole days until registration closes; "" when open-ended. */
   daysLeft: string;
   /** "₹6,100" or "" when there is no pool to boast about. */
@@ -204,9 +221,19 @@ export function driveVars(
   now: Date,
 ): DriveVars {
   const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+  const open = Math.max(0, t.totalTeams - t.confirmedTeams);
   return {
     name: t.name,
-    spotsLeft: String(Math.max(0, t.totalTeams - t.confirmedTeams)),
+    // Three bands, and the wording holds whichever is true. The drive
+    // has already stopped by the time `open` is 0 (driveRefusal calls
+    // a full draw), so that case exists only so the string is never
+    // empty if something upstream changes.
+    slotsPhrase:
+      open === 0
+        ? "the draw is full"
+        : open <= 3
+          ? "only a few spots left"
+          : "spots are filling up",
     // Ceilinged, matching daysUntil in the daily push: a deadline
     // eleven hours away is "1 day", not "0 days". A zero here would
     // render as "0 days left" on a drive that still has tonight.

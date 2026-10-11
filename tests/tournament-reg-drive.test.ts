@@ -180,16 +180,43 @@ const tourney = {
   entryFee: 3000,
 };
 
-test("the numbers in the copy are the real ones", () => {
+test("the money in the copy is real", () => {
   const v = driveVars(tourney, AT_SEND_HOUR);
-  assert.equal(v.spotsLeft, "8");
   assert.equal(v.prizePool, "₹6,100");
   assert.equal(v.entryFee, "₹3,000");
 });
 
-test("spots left never goes negative", () => {
-  // An over-subscribed draw would otherwise advertise "-1 spots left".
-  assert.equal(driveVars({ ...tourney, confirmedTeams: 14 }, AT_SEND_HOUR).spotsLeft, "0");
+test("the EXACT team count is never rendered anywhere", () => {
+  // The venue's instruction after the first send, and they are right:
+  // a public count on a 12-team draw is a running scoreboard of how
+  // badly the tournament is selling. "11 spots left" is an argument
+  // against entering.
+  //
+  // Asserted structurally rather than by eyeballing the copy — every
+  // value the renderer can reach must be free of the figure.
+  for (const confirmed of [0, 1, 4, 8, 11]) {
+    const v = driveVars({ ...tourney, confirmedTeams: confirmed }, AT_SEND_HOUR);
+    const open = String(12 - confirmed);
+    for (const [key, value] of Object.entries(v)) {
+      assert.doesNotMatch(
+        String(value),
+        new RegExp(`\\b${open}\\b`),
+        `${key} leaked the open-spot count (${open}) with ${confirmed} confirmed`,
+      );
+    }
+  }
+});
+
+test("scarcity is said in words, and sharpens as the draw fills", () => {
+  const phrase = (confirmed: number) =>
+    driveVars({ ...tourney, confirmedTeams: confirmed }, AT_SEND_HOUR).slotsPhrase;
+  assert.equal(phrase(0), "spots are filling up");
+  assert.equal(phrase(8), "spots are filling up");
+  assert.equal(phrase(9), "only a few spots left");
+  assert.equal(phrase(11), "only a few spots left");
+  // The drive has stopped by here (driveRefusal calls a full draw), so
+  // this exists only so the string is never empty.
+  assert.equal(phrase(12), "the draw is full");
 });
 
 test("days left is ceilinged, so a deadline tonight is not '0 days'", () => {
@@ -212,10 +239,17 @@ test("no prize pool renders empty, so the copy can omit it cleanly", () => {
 
 test("placeholders are filled, and an unknown one is left visible", () => {
   const v = driveVars(tourney, AT_SEND_HOUR);
-  assert.equal(renderDriveCopy("{spotsLeft} spots in {name}", v), "8 spots in Momentum October Cup");
+  assert.equal(
+    renderDriveCopy("{name} — {slotsPhrase}", v),
+    "Momentum October Cup — spots are filling up",
+  );
+  // The retired variable renders literally rather than silently
+  // resolving, so a line that tries to reintroduce the count is
+  // visible instead of working.
+  assert.equal(renderDriveCopy("{spotsLeft} left", v), "{spotsLeft} left");
   // Left in place rather than blanked: a typo in admin-authored copy
   // should be obvious, not silently produce "Only  spots left".
-  assert.equal(renderDriveCopy("{spotsleft} left", v), "{spotsleft} left");
+  assert.equal(renderDriveCopy("{slotsphrase} left", v), "{slotsphrase} left");
 });
 
 // ── Rotation ───────────────────────────────────────────────────────────
