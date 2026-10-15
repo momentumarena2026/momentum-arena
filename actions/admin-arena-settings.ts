@@ -223,6 +223,11 @@ export async function setRainBanner(data: {
     revalidatePath("/");
     revalidatePath("/book");
     revalidatePath("/admin/pricing");
+    // Same gap as the info bar: the app reads the ISR-cached route, so
+    // without this a rain call reaches the website at once and the app
+    // up to five minutes later. This one decides whether people set off
+    // for the venue, so the lag is worse than cosmetic.
+    revalidatePath("/api/rain-banner");
   } catch {
     /* write already landed */
   }
@@ -293,6 +298,13 @@ export async function setInfoBar(data: {
   try {
     revalidatePath("/");
     revalidatePath("/admin/config/info-bar");
+    // The APP reads /api/info-bar, which is ISR-cached for 5 minutes.
+    // Purging only "/" updated the website instantly and left the app
+    // showing the previous bar — reported as "the information bar is
+    // not rendering in the app". It was rendering; it was the old one,
+    // and it would have corrected itself in five minutes, which is not
+    // what an admin pressing Save and opening their phone believes.
+    revalidatePath("/api/info-bar");
   } catch {
     /* write already landed */
   }

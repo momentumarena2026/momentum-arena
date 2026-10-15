@@ -506,8 +506,14 @@ export default async function Home() {
               </span>
             </h1>
 
+            {/* Derived from `sports`, not typed out. The app's hero was
+                updated for Table Tennis and this one was not, so the
+                website spent a day advertising three sports while
+                selling four — on the page the new sport most needed to
+                appear. A list that can disagree with itself eventually
+                will. */}
             <p className="text-lg sm:text-xl md:text-2xl text-zinc-400 mb-3">
-              Cricket &bull; Football &bull; Pickleball
+              {sports.map((s) => s.name).join(" \u2022 ")}
             </p>
 
             <p className="text-sm md:text-base text-zinc-500 mb-4">
