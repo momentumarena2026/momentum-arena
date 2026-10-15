@@ -99,7 +99,7 @@ export default function PoliciesPage() {
                   Booking &amp; Payments
                 </dt>
                 <dd className="mt-1 leading-relaxed">
-                  All bookings for Cricket, Football, or Pickleball must be
+                  All bookings for Cricket, Football, Pickleball, or Table Tennis must be
                   made via our website or authorized channels. Payments must be
                   made in full at the time of booking to secure the slot.
                 </dd>

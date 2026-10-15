@@ -333,7 +333,7 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
   }),
 
   booking_how: () => ({
-    content: "Booking a court is super easy! Here's how:\n\n1️⃣ Pick your sport (Cricket, Football, Pickleball)\n2️⃣ Choose court size\n3️⃣ Select date & time slots\n4️⃣ Complete payment\n\n✅ Booking is confirmed instantly! The whole process takes under 2 minutes.",
+    content: "Booking a court is super easy! Here's how:\n\n1️⃣ Pick your sport (Cricket, Football, Pickleball, Table Tennis)\n2️⃣ Choose court size\n3️⃣ Select date & time slots\n4️⃣ Complete payment\n\n✅ Booking is confirmed instantly! The whole process takes under 2 minutes.",
     suggestions: ["What sports?", "Pricing info", "Payment methods"],
     quickActions: [{ label: "Book Now →", href: "/book" }],
   }),
@@ -358,9 +358,11 @@ const RESPONSES: Record<Intent, (ctx: ConversationContext) => { content: string;
       cricket: "🏏 **Cricket at Momentum Arena**\n\nOur 80×90ft main turf can be configured as:\n• Small (30×90ft) — Single box lane, great for practice\n• Medium (40×90ft) — Box + leather pitch\n• Large (60×90ft) — Two box lanes\n• XL (70×90ft) — Two lanes + leather pitch\n• Full Field (80×90ft) — Complete field\n\nSliding partition nets at 10ft, 40ft, and 70ft positions.",
       football: "⚽ **Football at Momentum Arena**\n\nIndoor football on premium turf:\n• Half Ground — Great for small-sided games (5v5/6v6)\n• Full Ground (80×90ft) — Full matches\n\nProfessional-grade artificial turf with proper markings.",
       pickleball: "🏓 **Pickleball at Momentum Arena**\n\nProfessional court with:\n• Standard competition markings\n• Quality nets and playing surface\n\nPerfect for beginners and pros alike!",
+      "table tennis": "🏓 **Table Tennis at Momentum Arena**\n\nIndoor tables on our shared court:\n• Played on the same court as pickleball\n• Floodlit, so evening games are fine\n• Booked by the hour, same rates as pickleball\n\nBats and balls available at the counter.",
+      "table-tennis": "🏓 **Table Tennis at Momentum Arena**\n\nIndoor tables on our shared court:\n• Played on the same court as pickleball\n• Floodlit, so evening games are fine\n• Booked by the hour, same rates as pickleball\n\nBats and balls available at the counter.",
     };
     return {
-      content: info[sport || ""] || "We offer Cricket, Football, and Pickleball. Which sport would you like to know more about?",
+      content: info[sport || ""] || "We offer Cricket, Football, Pickleball and Table Tennis. Which sport would you like to know more about?",
       suggestions: ["Book this sport", "Pricing info", "Other sports"],
       quickActions: sport ? [{ label: `Book ${sport.charAt(0).toUpperCase() + sport.slice(1)} →`, href: `/book/${sport}` }] : undefined,
     };
