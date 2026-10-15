@@ -81,7 +81,12 @@ export const OUTCOME_OPTIONS = ["success", "error"] as const;
 
 // ---------- Server-log label maps (ported from server-log-shared.ts) ----------
 
-const SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL", "BOWLING"];
+// Gates which sport survives into the admin analytics breakdown — a
+// sport missing here has its facet DROPPED from every log row, so the
+// bookings exist and the per-sport chart simply never mentions them.
+// "BOWLING" is a log facet (the bowling machine), not a Sport enum
+// member, which is why this cannot just be Object.values(Sport).
+const SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL", "TABLE_TENNIS", "BOWLING"];
 
 /** Human-readable labels for admin server logs (keyed by `action`). */
 const SERVER_ACTION_LABELS: Record<string, string> = {

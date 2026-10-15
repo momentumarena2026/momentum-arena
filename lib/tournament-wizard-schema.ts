@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Sport } from "@prisma/client";
 
 /**
  * The create/update contract for a tournament, and the single source of
@@ -48,7 +49,7 @@ export const prizeSchema = z.object({
 
 export const wizardSchema = z.object({
   name: z.string().trim().min(3, "Name is required").max(80),
-  sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]),
+  sport: z.nativeEnum(Sport),
   format: z.enum(["LEAGUE", "KNOCKOUT", "POOLS_KNOCKOUT"]),
   description: z.string().trim().max(2000).optional(),
   // Raised from 20k with the move to rich text: the same rules carry

@@ -25,6 +25,7 @@ import {
   type PromoBannerInput,
 } from "../../lib/admin-promo-banners";
 import { AdminApiError } from "../../lib/admin-api";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
 /**
  * Web & App Config → Promotion Banners (mobile mirror of the web
@@ -339,7 +340,7 @@ export function AdminPromoBannersScreen() {
                       Slot selection — which sports (none = all)
                     </Text>
                     <View style={styles.chipsWrap}>
-                      {(["CRICKET", "FOOTBALL", "PICKLEBALL"] as const).map(
+                      {(ALL_SPORTS).map(
                         (sp) => {
                           const on = form.slotSports.includes(sp);
                           return (

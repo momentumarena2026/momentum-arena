@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { istValidityBound } from "@/lib/ist";
+import { ALL_SPORTS } from "@/lib/court-config";
 import type {
   CouponScope,
   DiscountType,
@@ -25,7 +26,7 @@ import type {
  * inputs before sending — do NOT re-scale here.
  */
 
-const SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"] as const;
+const SPORTS = ALL_SPORTS;
 const CAFE_CATEGORIES = [
   "SNACKS",
   "BEVERAGES",

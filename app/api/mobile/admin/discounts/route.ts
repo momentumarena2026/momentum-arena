@@ -6,7 +6,7 @@ import {
   getDiscountCodes,
   createDiscountCode,
 } from "@/actions/admin-discounts";
-import type { DiscountType, Sport } from "@prisma/client";
+import { DiscountType, Sport } from "@prisma/client";
 
 /**
  * Mobile admin legacy discount codes. Mirrors web /admin/discounts
@@ -73,7 +73,7 @@ const createSchema = z.object({
   maxUses: z.number().int().min(1).nullish(),
   maxUsesPerUser: z.number().int().min(1).default(1),
   minBookingAmount: z.number().int().min(0).nullish(),
-  sportFilter: z.array(z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"])).default([]),
+  sportFilter: z.array(z.nativeEnum(Sport)).default([]),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
 });

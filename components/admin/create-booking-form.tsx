@@ -18,6 +18,7 @@ import {
   formatHourRangeCompact,
   formatHoursAsRanges,
   formatHourMinuteCompact,
+  ALL_SPORTS,
 } from "@/lib/court-config";
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
@@ -72,11 +73,11 @@ interface CustomerInfo {
 
 type PaymentMethod = "CASH" | "UPI_QR" | "RAZORPAY" | "FREE";
 
-const ALL_SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 const SPORT_EMOJIS: Record<Sport, string> = {
   CRICKET: "\u{1F3CF}",
   FOOTBALL: "\u26BD",
   PICKLEBALL: "\u{1F3D3}",
+  TABLE_TENNIS: "\u{1F3D3}",
 };
 
 const PAYMENT_OPTIONS: { value: PaymentMethod; label: string }[] = [

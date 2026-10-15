@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Swords } from "lucide-react";
+import { ALL_SPORTS } from "@/lib/court-config";
+import type { PublicMatchSport } from "@/lib/public-match";
 
 /**
  * Start a scratch match. Deliberately three fields and a button — this
@@ -10,7 +12,7 @@ import { Loader2, Swords } from "lucide-react";
  */
 export function MatchStartClient() {
   const router = useRouter();
-  const [sport, setSport] = useState<"CRICKET" | "FOOTBALL" | "PICKLEBALL">("CRICKET");
+  const [sport, setSport] = useState<PublicMatchSport>("CRICKET");
   const [a, setA] = useState("");
   const [b, setB] = useState("");
   const [overs, setOvers] = useState("6");
@@ -68,7 +70,7 @@ export function MatchStartClient() {
           </p>
         )}
         <div className="flex gap-1.5">
-          {(["CRICKET", "FOOTBALL", "PICKLEBALL"] as const).map((s) => (
+          {(ALL_SPORTS).map((s) => (
             <button
               key={s}
               onClick={() => setSport(s)}

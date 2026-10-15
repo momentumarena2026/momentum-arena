@@ -118,6 +118,33 @@ export const DEFAULT_DAILY_PUSH_LINES: DailyPushLineSeed[] = [
   { title: "mithai ka hisaab", body: "ek ghanta ground pe. barabar.", tags: ["diwali"] },
   { title: "chhutti hai aaj", body: "ground khula hai. team bulao.", tags: ["holi", "janmashtami", "diwali"] },
 
+  // ── Table tennis launch. ───────────────────────────────────────────
+  //
+  // Tagged `table-tennis-launch`, which is a DATED window created by
+  // scripts/seed-table-tennis.ts at the moment the sport goes live —
+  // the venue runs the seed, and the window starts that day. A dated
+  // occasion sets the everyday pool aside, so for the launch fortnight
+  // these are what goes out; afterwards the window closes and the
+  // rotation returns to normal on its own.
+  //
+  // Order does not matter here (unlike the Navratri nine, which count
+  // down), so one shared tag and LRU is the right shape: five lines,
+  // each used once before any repeats.
+  //
+  // No prices: table tennis launches at the pickleball rate and carries
+  // no offer, so the library's no-discounts rule applies in full.
+  { title: "table tennis aa gaya", body: "wahi court, naya khel. ab book kar sakte ho.", tags: ["table-tennis-launch"] },
+  { title: "ping pong khelte ho?", body: "ab momentum arena pe bhi. slot book karo.", tags: ["table-tennis-launch"] },
+  { title: "bat chhoti, maza bada", body: "table tennis ab available hai. aake dekho.", tags: ["table-tennis-launch"] },
+  { title: "doubles ya singles?", body: "table tennis ke liye court ready hai.", tags: ["table-tennis-launch"] },
+  { title: "baarish ho ya dhoop", body: "table tennis indoor hai. khel chalta rahega.", tags: ["table-tennis-launch"] },
+
+  // Two untagged lines so table tennis stays in the everyday rotation
+  // once the launch window closes — otherwise the sport would be
+  // promoted for a fortnight and then never mentioned again.
+  { title: "table tennis ka mann hai?", body: "court khula hai. slot chuno." },
+  { title: "ab chaar khel", body: "cricket, football, pickleball aur table tennis." },
+
   // ── Navratri 2026, 11–19 Oct. One line per day, in order. ──────────
   //
   // These nine BREAK the no-prices rule at the top of this file, on

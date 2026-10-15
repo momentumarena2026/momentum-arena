@@ -7,7 +7,13 @@
  * like. Keep this in sync with apps/mobile/src/lib/sport-theme.ts.
  */
 
-export type SportKey = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+/**
+ * Mirrors the Sport enum. Written out rather than imported from Prisma
+ * because this module is used by client components, where pulling in
+ * the generated client is dead weight. tests/sport-parity.test.ts pins
+ * it against the real enum so it cannot drift.
+ */
+export type SportKey = "CRICKET" | "FOOTBALL" | "PICKLEBALL" | "TABLE_TENNIS";
 
 export interface SportTheme {
   label: string;
@@ -56,6 +62,20 @@ const THEMES: Record<SportKey, SportTheme> = {
     gradient: "from-yellow-950/95 via-yellow-950/70 to-zinc-950/40",
     ring: "hover:border-yellow-400/60 hover:shadow-yellow-500/20",
     hex: "#facc15",
+  },
+  TABLE_TENNIS: {
+    label: "Table Tennis",
+    emoji: "🏓",
+    // Deliberately the pickleball photo: table tennis is played on the
+    // SAME physical court, so the picture is accurate rather than a
+    // placeholder. Swap it the moment the venue has a photo of a table
+    // set up — nothing else needs to change.
+    image: "/pickleball.png",
+    text: "text-rose-300",
+    chip: "border-rose-500/30 bg-rose-500/10 text-rose-300",
+    gradient: "from-rose-950/95 via-rose-950/70 to-zinc-950/40",
+    ring: "hover:border-rose-400/60 hover:shadow-rose-500/20",
+    hex: "#fb7185",
   },
 };
 

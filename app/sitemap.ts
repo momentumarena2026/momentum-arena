@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/site";
+import { ALL_SPORTS, sportSlug } from "@/lib/court-config";
 
 /**
  * XML sitemap for crawlers (Google / Bing / Yandex).
@@ -20,11 +21,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const base = SITE_URL;
   const now = new Date();
 
-  // Sport list — matches the Sport enum in prisma/schema.prisma. If
-  // you add a sport, add it here too. Hard-coded (vs db.sport.findMany)
-  // because the enum values are stable + listing them at build time
-  // keeps the sitemap response synchronous.
-  const sports = ["cricket", "football", "pickleball"] as const;
+  // Derived from the Sport enum, not typed out. The previous comment
+  // here said "if you add a sport, add it here too" — which is exactly
+  // the instruction that gets missed, and the symptom is the silent
+  // one: the new sport's landing page simply never gets crawled.
+  // ALL_SPORTS is Object.values(Sport) and sportSlug gives the
+  // hyphenated, indexable form.
+  const sports = ALL_SPORTS.map(sportSlug);
 
   return [
     // ── Top-level discovery surfaces ─────────────────────────────

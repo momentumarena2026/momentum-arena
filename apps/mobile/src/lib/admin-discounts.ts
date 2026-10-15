@@ -1,4 +1,5 @@
 import { request } from "./admin-api";
+import type { KnownSport } from "./sport-theme";
 
 /**
  * Legacy discount codes. Mirrors web /admin/discounts.
@@ -10,7 +11,13 @@ import { request } from "./admin-api";
  * The screen converts ₹/% inputs before sending.
  */
 export type DiscountType = "PERCENTAGE" | "FLAT";
-export type DiscountSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+/**
+ * Derived from the app's one canonical sport union rather than typed
+ * out again. Five modules each had this literal, so adding a sport
+ * meant finding all five — and a miss is invisible: the sport just
+ * never appears in that screen.
+ */
+export type DiscountSport = KnownSport;
 
 export interface AdminDiscountCode {
   id: string;

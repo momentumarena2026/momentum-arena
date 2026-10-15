@@ -24,10 +24,11 @@ import {
   type MatchSport,
 } from "../../lib/public-match";
 import type { AccountStackParamList } from "../../navigation/types";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
 type Nav = NativeStackNavigationProp<AccountStackParamList>;
 
-const SPORTS: MatchSport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+const SPORTS: MatchSport[] = ALL_SPORTS;
 
 /**
  * Start or rejoin a scratch match. Mirrors /match on the web — three

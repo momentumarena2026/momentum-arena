@@ -41,6 +41,7 @@ import { formatPrice } from "@/lib/pricing";
 // to wire eligible users onto a coupon form.
 import { UserPicker } from "../users/groups/user-groups-manager";
 import { istDateKey } from "@/lib/ist";
+import { ALL_SPORTS } from "@/lib/court-config";
 
 interface ConditionRow {
   conditionType: CouponConditionType;
@@ -118,7 +119,7 @@ interface UsageRow {
   createdAt: string;
 }
 
-const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+const SPORTS: Sport[] = ALL_SPORTS;
 const CATEGORIES: CafeItemCategory[] = [
   "SNACKS",
   "BEVERAGES",

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { revalidatePath } from "next/cache";
 import type { BannerPlacement, Sport } from "@prisma/client";
+import { ALL_SPORTS } from "@/lib/court-config";
 
 /**
  * Promotion banners — admin CRUD (web "Web & App Config" section + the
@@ -98,7 +99,7 @@ function normalise(input: PromoBannerInput): Normalised {
       linkUrl: input.linkUrl?.trim() || null,
       placement: screens,
       slotSports: (input.slotSports ?? []).filter((s): s is Sport =>
-        ["CRICKET", "FOOTBALL", "PICKLEBALL"].includes(s),
+        (ALL_SPORTS as string[]).includes(s),
       ),
       couponId: input.couponId || null,
       startsAt,

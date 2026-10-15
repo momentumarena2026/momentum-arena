@@ -34,8 +34,16 @@ export function windowStart(date: string, startHour: number): Date {
   return new Date(new Date(`${date}T00:00:00.000Z`).getTime() + (startHour - 5.5) * 3600000);
 }
 
-/** Mirrors the Sport enum. Kept here so the pure rules stay database-free. */
-export const KNOWN_SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+/**
+ * Mirrors the Sport enum. Written out rather than imported, so the pure
+ * rules stay database-free — `ALL_SPORTS` in lib/court-config.ts is
+ * `Object.values(Sport)`, which needs the generated Prisma runtime and
+ * would drag it into a module that deliberately has no database.
+ *
+ * The cost of that choice is that this list CAN drift, so a test pins
+ * it against the real enum: see tests/challenge-rules.test.ts.
+ */
+export const KNOWN_SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL", "TABLE_TENNIS"];
 
 export type ChallengeStatus =
   | "OPEN"

@@ -25,14 +25,19 @@ export const metadata: Metadata = {
   // Without this Next can't absolutise relative OG/Twitter image paths, and
   // several crawlers drop a preview whose image URL isn't absolute.
   metadataBase: new URL(SITE_URL),
-  title: "Momentum Arena Mathura | Cricket, Football & Pickleball Turf Booking",
+  title: "Momentum Arena Mathura | Cricket, Football, Pickleball & Table Tennis",
   description:
-    "Book premium sports courts at Momentum Arena, Mathura's best multi-sport facility. Cricket turf, football ground & pickleball courts. Open 6 AM-11 PM daily. Call +91-6396177261 for booking.",
+    "Book premium sports courts at Momentum Arena, Mathura's best multi-sport facility. Cricket turf, football ground, pickleball and table tennis courts. Open 6 AM-11 PM daily. Call +91-6396177261 for booking.",
   keywords: [
     "Momentum Arena Mathura",
     "cricket turf booking Mathura",
     "football turf Mathura",
     "pickleball court Mathura",
+    "table tennis Mathura",
+    "table tennis court Mathura",
+    "table tennis near me",
+    "ping pong Mathura",
+    "indoor table tennis Mathura",
     "sports facility Mathura",
     "turf booking Mathura",
     "sports complex Mathura",
@@ -57,7 +62,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Momentum Arena | Premier Sports Facility in Mathura, UP",
     description:
-      "Mathura's best sports destination with Cricket, Football & Pickleball courts. Spectator seating, cafeteria & parking. Book now!",
+      "Mathura's best sports destination with Cricket, Football, Pickleball & Table Tennis courts. Spectator seating, cafeteria & parking. Book now!",
     url: SITE_URL,
     siteName: "Momentum Arena",
     locale: "en_IN",
@@ -79,7 +84,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Momentum Arena | Sports Facility in Mathura",
     description:
-      "Book Cricket, Football & Pickleball courts in Mathura. Premium facility with cafeteria & parking.",
+      "Book Cricket, Football, Pickleball & Table Tennis courts in Mathura. Premium facility with cafeteria & parking.",
     images: ["/og-cover.jpg"],
     creator: "@momentumarena_",
   },

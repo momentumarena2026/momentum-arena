@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO , sportFromSlug} from "@/lib/court-config";
 import { CourtZone, Sport } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { Maximize2, Info } from "lucide-react";
@@ -29,7 +29,7 @@ export default async function HalfCourtSlotSelectionPage({
   params: Promise<{ sport: string }>;
 }) {
   const { sport } = await params;
-  const sportKey = sport.toUpperCase() as Sport;
+  const sportKey = sportFromSlug(sport) as Sport;
   const session = await auth();
 
   if (!SPORT_INFO[sportKey]) notFound();

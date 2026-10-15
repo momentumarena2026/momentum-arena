@@ -1,5 +1,10 @@
 import { db } from "@/lib/db";
-import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
+import {
+  SPORT_INFO,
+  SIZE_INFO,
+  sportFromSlug,
+  sportSlug,
+} from "@/lib/court-config";
 import { CourtSelectLink } from "@/components/booking/court-select-link";
 import { CourtDiagram, SharedCourtDiagram } from "@/components/booking/court-diagram";
 import { BowlingMachineDiagram } from "@/components/booking/bowling-machine-diagram";
@@ -9,6 +14,57 @@ import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
 import { BackButton } from "@/components/back-button";
 import { getActiveSportPromo } from "@/actions/sport-promo";
+import type { Metadata } from "next";
+import { SITE_URL } from "@/lib/site";
+
+/**
+ * Per-sport metadata.
+ *
+ * Until now these pages inherited the root title verbatim, so
+ * /book/cricket, /book/football and /book/pickleball all presented to
+ * Google as the same page — which is exactly the duplicate-title
+ * situation that stops any of them ranking for their own term. Giving
+ * each one its own title, description and canonical is the SEO work the
+ * venue asked for when adding table tennis, and the other three get it
+ * for free.
+ *
+ * Built from SPORT_INFO rather than a second hardcoded table, so a
+ * future sport is indexable the moment its display entry exists.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ sport: string }>;
+}): Promise<Metadata> {
+  const { sport } = await params;
+  const key = sportFromSlug(sport);
+  if (!key || !SPORT_INFO[key]) return {};
+  const info = SPORT_INFO[key];
+  const name = info.name;
+  const slug = sportSlug(key);
+
+  return {
+    title: `${name} Court Booking in Mathura | Momentum Arena`,
+    description:
+      `Book a ${name.toLowerCase()} court at Momentum Arena, Mathura. ${info.description}. ` +
+      `Hourly slots, live availability and instant confirmation — open daily.`,
+    keywords: [
+      `${name.toLowerCase()} Mathura`,
+      `${name.toLowerCase()} court Mathura`,
+      `${name.toLowerCase()} booking Mathura`,
+      `play ${name.toLowerCase()} near me`,
+      `${name.toLowerCase()} court near Vrindavan`,
+      "Momentum Arena Mathura",
+    ],
+    alternates: { canonical: `/book/${slug}` },
+    openGraph: {
+      title: `${name} in Mathura — Momentum Arena`,
+      description: `${info.description}. Book by the hour at Momentum Arena, Mathura.`,
+      url: `${SITE_URL}/book/${slug}`,
+      type: "website",
+    },
+  };
+}
 
 export default async function SportConfigPage({
   params,
@@ -16,9 +72,12 @@ export default async function SportConfigPage({
   params: Promise<{ sport: string }>;
 }) {
   const { sport } = await params;
-  const sportKey = sport.toUpperCase() as Sport;
+  // sportFromSlug, not toUpperCase(): "table-tennis" must resolve to
+  // TABLE_TENNIS. It also still accepts the underscored form, so links
+  // minted before the hyphenated slug existed keep working.
+  const sportKey = sportFromSlug(sport);
 
-  if (!SPORT_INFO[sportKey]) {
+  if (!sportKey || !SPORT_INFO[sportKey]) {
     notFound();
   }
 
@@ -66,13 +125,13 @@ export default async function SportConfigPage({
   // the bowling-machine choice must remain visible.
   if (sportKey !== "CRICKET") {
     if (rawConfigs.length === 1) {
-      redirect(`/book/${sport}/${rawConfigs[0].id}`);
+      redirect(`/book/${sportSlug(sportKey)}/${rawConfigs[0].id}`);
     }
     if (tiles.length === 1 && tiles[0].kind === "medium") {
-      redirect(`/book/${sport}/medium`);
+      redirect(`/book/${sportSlug(sportKey)}/medium`);
     }
     if (tiles.length === 1 && tiles[0].kind === "config") {
-      redirect(`/book/${sport}/${tiles[0].config.id}`);
+      redirect(`/book/${sportSlug(sportKey)}/${tiles[0].config.id}`);
     }
   }
 
@@ -87,7 +146,10 @@ export default async function SportConfigPage({
     );
   }
 
-  const isSharedCourt = (sportKey as string) === "PICKLEBALL";
+  // Both shared-court sports, not just pickleball — table tennis is
+  // played on the same floor and wants the same single-tile layout.
+  const isSharedCourt =
+    sportKey === "PICKLEBALL" || sportKey === "TABLE_TENNIS";
   const isCricket = sportKey === "CRICKET";
 
   // Live promo lookup for the launch banner below. Only run for
@@ -153,7 +215,7 @@ export default async function SportConfigPage({
             return (
               <CourtSelectLink
                 key="medium"
-                href={`/book/${sport}/medium`}
+                href={`/book/${sportSlug(sportKey)}/medium`}
                 sport={sportKey}
                 mode="medium"
                 label={sizeInfo.name}
@@ -192,7 +254,7 @@ export default async function SportConfigPage({
           return (
             <CourtSelectLink
               key={config.id}
-              href={`/book/${sport}/${config.id}`}
+              href={`/book/${sportSlug(sportKey)}/${config.id}`}
               sport={sportKey}
               courtConfigId={config.id}
               label={config.label}
@@ -251,7 +313,7 @@ export default async function SportConfigPage({
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <CourtSelectLink
-              href={`/book/${sport}/${bowlingConfig.id}`}
+              href={`/book/${sportSlug(sportKey)}/${bowlingConfig.id}`}
               sport={sportKey}
               courtConfigId={bowlingConfig.id}
               mode="bowling"

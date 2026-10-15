@@ -43,6 +43,7 @@ import {
   windowAwaitsPoster,
   suggestRefusal,
   suggestAnswerRefusal,
+  KNOWN_SPORTS,
 } from "../lib/challenge-rules";
 
 const NOW = new Date("2026-09-17T06:00:00+05:30");
@@ -1177,4 +1178,20 @@ test("nobody is chased for an hour they can no longer take", () => {
 test("the venue can switch chasing off outright", () => {
   assert.match(askReminder({ limits: { ...remindLimits, enabled: false } }) ?? "", /switched off/i);
   assert.match(askReminder({ limits: { ...remindLimits, maxPerPerson: 0 } }) ?? "", /no reminders/i);
+});
+
+test("KNOWN_SPORTS has not drifted from the Sport enum", () => {
+  // challenge-rules.ts is deliberately database-free, so it writes the
+  // sports out instead of importing Object.values(Sport). That buys
+  // purity and costs a list that can go stale — a sport missing here
+  // silently cannot be challenged at, and nothing reports it. This is
+  // the thing that notices.
+  //
+  // Importing @prisma/client in a TEST is fine; it is the pure module
+  // that must not.
+  const { Sport } = require("@prisma/client");
+  assert.deepEqual(
+    [...KNOWN_SPORTS].sort(),
+    (Object.values(Sport) as string[]).sort(),
+  );
 });

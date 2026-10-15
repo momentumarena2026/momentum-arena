@@ -23,6 +23,7 @@ import {
 } from "@/actions/admin-promo-banners";
 import { ReorderableList } from "@/components/admin/reorderable-list";
 import { PROMO_SCREENS } from "@/lib/promo-banner-screens";
+import { ALL_SPORTS } from "@/lib/court-config";
 
 interface BannerRow {
   id: string;
@@ -436,7 +437,7 @@ export function PromoBannersManager({
                       {s.value === "SLOT_SELECTION" &&
                         form.screens.includes("SLOT_SELECTION") && (
                           <div className="ml-6 mt-1.5 flex flex-wrap gap-2">
-                            {(["CRICKET", "FOOTBALL", "PICKLEBALL"] as const).map(
+                            {(ALL_SPORTS).map(
                               (sp) => (
                                 <label
                                   key={sp}

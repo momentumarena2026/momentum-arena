@@ -35,9 +35,10 @@ import {
 import { formatRupees } from "../../lib/format";
 import { AdminApiError } from "../../lib/admin-api";
 import { istDateKeyOf } from "../../lib/ist-date";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
 const SCOPES: CouponScope[] = ["BOTH", "SPORTS", "CAFE"];
-const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+const SPORTS: Sport[] = ALL_SPORTS;
 const CAFE_CATEGORIES: CafeItemCategory[] = [
   "SNACKS",
   "BEVERAGES",

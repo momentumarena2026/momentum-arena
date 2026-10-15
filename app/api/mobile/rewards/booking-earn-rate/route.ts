@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Sport } from "@prisma/client";
 import { getMobileUser } from "@/lib/mobile-auth";
 import { getRewardConfig } from "@/lib/rewards/config";
+import { ALL_SPORTS } from "@/lib/court-config";
 
 /**
  * GET /api/mobile/rewards/booking-earn-rate?sport=CRICKET
@@ -19,7 +20,7 @@ import { getRewardConfig } from "@/lib/rewards/config";
  * Returns `{ bps: 0 }` when rewards are off or this sport doesn't
  * earn, which the client uses as a signal to hide the line entirely.
  */
-const ALLOWED_SPORTS = new Set<Sport>(["CRICKET", "FOOTBALL", "PICKLEBALL"]);
+const ALLOWED_SPORTS = new Set<Sport>(ALL_SPORTS);
 
 export async function GET(request: NextRequest) {
   const user = await getMobileUser(request);

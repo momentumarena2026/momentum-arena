@@ -20,7 +20,7 @@ async function requireAdmin() {
 
 const blockSlotSchema = z.object({
   courtConfigId: z.string().optional(),
-  sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]).optional(),
+  sport: z.nativeEnum(Sport).optional(),
   date: z.string().min(1),
   startHour: z.number().int().min(5).max(24).optional(),
   reason: z.string().optional(),

@@ -43,6 +43,7 @@ import {
 } from "../../lib/format";
 import { getTodayIST } from "../../lib/ist-date";
 import type { AdminBookingsStackParamList } from "../../navigation/types";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
 type Nav = NativeStackNavigationProp<
   AdminBookingsStackParamList,
@@ -667,7 +668,7 @@ export function AdminCreateBookingScreen() {
         {/* ---------- 2. Sport ---------- */}
         <Section title="SPORT">
           <View style={styles.chipRow}>
-            {(["CRICKET", "FOOTBALL", "PICKLEBALL"] as Sport[]).map((s) => {
+            {(ALL_SPORTS as Sport[]).map((s) => {
               const active = sport === s;
               return (
                 <Pressable

@@ -18,7 +18,7 @@ const discountSchema = z.object({
   maxUses: z.number().int().min(1).optional(),
   maxUsesPerUser: z.number().int().min(1).default(1),
   minBookingAmount: z.number().int().min(0).optional(),
-  sportFilter: z.array(z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"])).default([]),
+  sportFilter: z.array(z.nativeEnum(Sport)).default([]),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
   isSystemCode: z.boolean().default(false),

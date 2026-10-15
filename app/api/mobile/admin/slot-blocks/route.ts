@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireMobileAdmin } from "@/lib/mobile-admin-guard";
 import { blockSlot, getSlotBlocks } from "@/actions/admin-slots";
+import { Sport } from "@prisma/client";
 
 /**
  * GET /api/mobile/admin/slot-blocks?date=YYYY-MM-DD
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
 const Body = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   courtConfigId: z.string().optional(),
-  sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]).optional(),
+  sport: z.nativeEnum(Sport).optional(),
   startHour: z.number().int().min(5).max(24).optional(),
   reason: z.string().max(500).optional(),
 });

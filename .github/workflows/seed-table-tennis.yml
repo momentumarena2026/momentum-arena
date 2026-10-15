@@ -1,0 +1,91 @@
+name: Seed Table Tennis
+
+# Stands up the table-tennis court and its launch push run.
+#
+# Three things, all idempotent:
+#   · the CourtConfig row, cloned from the live PICKLEBALL court so it
+#     lands on the SAME zone — which is what stops the one floor being
+#     sold twice over at the same hour
+#   · its PricingRule rows, copied from pickleball's live prices rather
+#     than typed in, so "same as pickleball" stays true after a reprice
+#   · a 14-day `table-tennis-launch` occasion window plus the library
+#     lines it switches on, dated from the DAY THIS RUNS
+#
+# The schema (the TABLE_TENNIS enum value) is synced by `prisma db push`
+# inside the Vercel build, so this must run AFTER the deploy that
+# carries it. The first step fails loudly if it has not landed.
+#
+#   gh workflow run seed-table-tennis.yml -f environment=production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which DB to write to"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      dry_run:
+        description: "Print what would change and write nothing"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  seed:
+    name: Seed table tennis
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ inputs.environment == 'production' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty for environment=${{ inputs.environment }}"
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars) for ${{ inputs.environment }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Check the TABLE_TENNIS enum value has landed
+        run: |
+          npx tsx -e '
+            import { PrismaClient } from "@prisma/client";
+            const db = new PrismaClient();
+            db.$queryRawUnsafe(
+              `SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+               WHERE t.typname = $$Sport$$ AND e.enumlabel = $$TABLE_TENNIS$$`
+            ).then((r) => {
+              if (!Array.isArray(r) || r.length === 0) {
+                console.error("::error::The Sport enum has no TABLE_TENNIS value yet — deploy first (Vercel runs prisma db push in the build), then re-run this.");
+                process.exit(1);
+              }
+              console.log("TABLE_TENNIS is present on the Sport enum");
+              process.exit(0);
+            });
+          '
+
+      - name: Seed the court, its prices and the launch push run
+        run: npx tsx scripts/seed-table-tennis.ts ${{ inputs.dry_run && '--dry-run' || '--allow-production' }}
+
+      - name: Show the daily-push library
+        if: ${{ !inputs.dry_run }}
+        run: npx tsx scripts/seed-daily-push-lines.ts --list

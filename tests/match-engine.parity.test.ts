@@ -99,7 +99,7 @@ test("football and pickleball replay identically", () => {
 });
 
 test("an empty log and a squad-only log replay identically", () => {
-  for (const sport of ["CRICKET", "FOOTBALL", "PICKLEBALL"] as PublicMatchSport[]) {
+  for (const sport of ["CRICKET", "FOOTBALL", "PICKLEBALL", "TABLE_TENNIS"] as PublicMatchSport[]) {
     assertSameState([], sport, `empty/${sport}`);
     assertSameState(
       [{ t: "SQUAD", side: "A", players: ["  Asha  ", "", "Bilal"] }],
@@ -124,7 +124,7 @@ test("2000 pseudo-random logs replay identically", () => {
   const pick = () => names[rnd(names.length)];
 
   for (let i = 0; i < 2000; i++) {
-    const sport = (["CRICKET", "FOOTBALL", "PICKLEBALL"] as PublicMatchSport[])[rnd(3)];
+    const sport = (["CRICKET", "FOOTBALL", "PICKLEBALL", "TABLE_TENNIS"] as PublicMatchSport[])[rnd(4)];
     const events: ScoreEvent[] = [
       { t: "SQUAD", side: "A", players: names.slice(0, 3) },
       { t: "SQUAD", side: "B", players: names.slice(3) },

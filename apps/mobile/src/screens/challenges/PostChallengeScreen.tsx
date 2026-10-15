@@ -24,6 +24,7 @@ import {
   type ProposedWindow,
   challengeErrorMessage,
 } from "../../lib/challenges";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
 /**
  * Posting a challenge.
@@ -39,7 +40,7 @@ export function PostChallengeScreen() {
 
   const sports = board.data?.limits.sports?.length
     ? board.data.limits.sports
-    : ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+    : ALL_SPORTS;
   const maxWindows = board.data?.limits.maxWindows ?? 3;
 
   const [sport, setSport] = useState<string>(sports[0] ?? "CRICKET");

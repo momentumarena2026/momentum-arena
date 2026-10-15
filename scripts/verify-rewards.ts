@@ -62,6 +62,7 @@ import {
 } from "../lib/rewards/redeem";
 import { revokeBookingRewards } from "../lib/rewards/revoke";
 import { runExpirySweep } from "../lib/rewards/expire";
+import { ALL_SPORTS } from "../lib/court-config";
 import {
   getRewardConfig,
   invalidateRewardConfigCache,
@@ -84,7 +85,6 @@ const TAG = "VERIFY-REWARDS";
 // Far future so the rows can never collide with anything real on the
 // availability grid a human might be staring at on staging.
 const DATE = new Date("2030-01-15T00:00:00Z");
-const ALL_SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
 const EARN_TYPES: RewardTxnType[] = [
   "EARNED_BOOKING",
   "EARNED_BOOKING_REMAINDER",

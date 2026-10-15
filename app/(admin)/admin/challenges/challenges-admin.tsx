@@ -27,6 +27,7 @@ import {
   type ChallengeSettingsInput,
 } from "@/actions/admin-challenges";
 import { ChallengesGuide } from "./challenges-guide";
+import { ALL_SPORTS } from "@/lib/court-config";
 
 /**
  * The venue's control room for the challenge board.
@@ -169,7 +170,7 @@ const LIFECYCLE_KEYS = [
   "refundOwedPush",
 ] as const;
 
-const SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+const SPORTS = ALL_SPORTS;
 
 const STATUS_TONE: Record<string, string> = {
   OPEN: "border-sky-500/40 bg-sky-500/10 text-sky-300",

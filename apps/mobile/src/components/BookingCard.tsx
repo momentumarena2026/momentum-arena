@@ -66,6 +66,13 @@ const SPORT_THEME: Record<
     chipText: "#fcd34d",
     edgeTint: "rgba(245, 158, 11, 0.10)",
   },
+  TABLE_TENNIS: {
+    // Web: bg-rose-500/10 — shares the pickleball court, own accent.
+    chipBg: "rgba(251, 113, 133, 0.10)",
+    chipBorder: "rgba(251, 113, 133, 0.30)",
+    chipText: "#fda4af",
+    edgeTint: "rgba(251, 113, 133, 0.10)",
+  },
 };
 
 // Mirror of STATUS_TOKEN on web — used for the small status pill on the card.
