@@ -52,6 +52,13 @@ const SPORT_THEME: Record<
     ring: "hover:shadow-amber-500/10",
     emoji: "🎾",
   },
+  TABLE_TENNIS: {
+    bg: "bg-rose-500/10",
+    border: "border-rose-500/30",
+    text: "text-rose-300",
+    ring: "hover:shadow-rose-500/10",
+    emoji: "🏓",
+  },
 };
 
 // Status token palette used for the small status pill on each card.

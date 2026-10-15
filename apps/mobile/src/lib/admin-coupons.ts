@@ -1,11 +1,18 @@
 import { request } from "./admin-api";
+import type { KnownSport } from "./sport-theme";
 
 export type CouponScope = "BOTH" | "SPORTS" | "CAFE";
 export type CouponType = "PERCENTAGE" | "FLAT";
 /** Booking.platform values. Empty validPlatforms = all platforms. */
 export type CouponPlatform = "web" | "android" | "ios";
 
-export type Sport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+/**
+ * Derived from the app's one canonical sport union rather than typed
+ * out again. Five modules each had this literal, so adding a sport
+ * meant finding all five — and a miss is invisible: the sport just
+ * never appears in that screen.
+ */
+export type Sport = KnownSport;
 export type CafeItemCategory =
   | "SNACKS"
   | "BEVERAGES"

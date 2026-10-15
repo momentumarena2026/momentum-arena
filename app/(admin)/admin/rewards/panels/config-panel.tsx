@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Save } from "lucide-react";
+import { ALL_SPORTS } from "@/lib/court-config";
 import {
   updateAdminRewardConfig,
   type AdminRewardConfigFull,
@@ -13,7 +14,8 @@ interface Props {
   config: AdminRewardConfigFull;
 }
 
-const ALL_SPORTS = ["CRICKET", "FOOTBALL", "PICKLEBALL"] as const;
+// Sport comes from Prisma now rather than being inferred from a local
+// literal — the inferred union silently excluded any sport added later.
 type Sport = (typeof ALL_SPORTS)[number];
 
 /**

@@ -6,7 +6,7 @@ import {
   updateDiscountCode,
   deleteDiscountCode,
 } from "@/actions/admin-discounts";
-import type { Sport } from "@prisma/client";
+import { Sport } from "@prisma/client";
 
 /**
  * Mobile admin legacy discount-code edit / soft-delete. Mirrors
@@ -36,7 +36,7 @@ const patchSchema = z.object({
   maxUsesPerUser: z.number().int().min(1).optional(),
   minBookingAmount: z.number().int().min(0).optional(),
   sportFilter: z
-    .array(z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]))
+    .array(z.nativeEnum(Sport))
     .optional(),
   validFrom: z.string().min(1).optional(),
   validUntil: z.string().min(1).optional(),

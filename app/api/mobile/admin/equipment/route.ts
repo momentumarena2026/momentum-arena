@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getMobileAdmin } from "@/lib/mobile-auth";
 import { hasPermission } from "@/lib/permissions";
-import type { Sport, BookingCategory } from "@prisma/client";
+import { Sport, BookingCategory } from "@prisma/client";
 
 /**
  * Mobile admin equipment. Mirrors actions/admin-equipment.ts
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 
 const createSchema = z.object({
   name: z.string().min(1),
-  sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]).nullish(),
+  sport: z.nativeEnum(Sport).nullish(),
   category: z.string().nullish(),
   pricePerHour: z.number().positive(),
   totalUnits: z.number().int().positive(),

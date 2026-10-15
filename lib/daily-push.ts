@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { getSlotAvailability } from "@/lib/availability";
 import { sendToTokens } from "@/lib/push";
 import { sendTemplatedToTokens, sendTemplatedToUser } from "@/lib/push-templates";
+import type { Sport } from "@prisma/client";
 import {
   occasionsFor,
   calendarOccasionsFor,
@@ -103,10 +104,14 @@ export async function loadDailyPushSettings(): Promise<DailyPushLimits> {
   };
 }
 
-const SPORT_WORD: Record<string, string> = {
+// Record<Sport, …>, not Record<string, …>. Typed loosely it silently
+// tolerated a missing sport and rendered an empty word mid-sentence;
+// typed on the enum the compiler demands an entry for each one.
+const SPORT_WORD: Record<Sport, string> = {
   CRICKET: "Cricket",
   FOOTBALL: "Football",
   PICKLEBALL: "Pickleball",
+  TABLE_TENNIS: "Table Tennis",
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -128,9 +133,11 @@ function balanceLabel(minutes: number): string {
 
 /** "Cricket and football", "Cricket, football and pickleball". */
 function joinSports(sports: string[]): string {
-  const words = sports.map((s, i) =>
-    i === 0 ? (SPORT_WORD[s] ?? s) : (SPORT_WORD[s] ?? s).toLowerCase(),
-  );
+  // The callers pass strings off database rows, so the lookup widens
+  // here rather than the map loosening — the map stays Record<Sport, …>
+  // so a new sport still has to be given a word.
+  const word = (s: string) => SPORT_WORD[s as Sport] ?? s;
+  const words = sports.map((s, i) => (i === 0 ? word(s) : word(s).toLowerCase()));
   if (words.length <= 1) return words[0] ?? "Courts";
   return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
 }

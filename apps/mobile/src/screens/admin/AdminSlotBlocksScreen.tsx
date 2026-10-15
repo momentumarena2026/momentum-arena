@@ -34,6 +34,7 @@ import {
 } from "../../lib/format";
 import { getTodayIST } from "../../lib/ist-date";
 import type { AdminCalendarSport } from "../../lib/admin-calendar";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
 const SPORT_EMOJI: Record<string, string> = {
   CRICKET: "🏏",
@@ -362,7 +363,7 @@ function CreateBlockCard({
             Sport
           </Text>
           <View style={styles.chipRow}>
-            {(["CRICKET", "FOOTBALL", "PICKLEBALL"] as const).map((s) => {
+            {(ALL_SPORTS).map((s) => {
               const active = sport === s;
               return (
                 <Pressable

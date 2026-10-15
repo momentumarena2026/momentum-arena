@@ -13,6 +13,7 @@ import { sportLabel } from "../../lib/format";
 import { trackSportSelected } from "../../lib/analytics";
 import type { BookStackParamList } from "../../navigation/types";
 import { PromoBannerSlot } from "../../components/promo/PromoBannerSlot";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
 type Nav = NativeStackNavigationProp<BookStackParamList, "BookSport">;
 
@@ -57,6 +58,12 @@ const SPORT_THEME: Record<Sport, SportTheme> = {
     border: "rgba(234, 179, 8, 0.30)", // yellow-500/30
     icon: "#facc15", // yellow-400
   },
+  TABLE_TENNIS: {
+    from: "rgba(251, 113, 133, 0.20)", // rose-400/20
+    to: "rgba(225, 29, 72, 0.05)", // rose-600/5
+    border: "rgba(251, 113, 133, 0.30)",
+    icon: "#fb7185", // rose-400
+  },
 };
 
 // Sport → launch-promo pill in the top-right of the tile. Empty when
@@ -64,7 +71,7 @@ const SPORT_THEME: Record<Sport, SportTheme> = {
 // web's SportCard dropped its promoLabel overlay at the same time).
 const SPORT_PROMO_LABEL: Partial<Record<Sport, string>> = {};
 
-const SPORTS: Sport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+const SPORTS: Sport[] = ALL_SPORTS;
 const CARD_RADIUS = 16; // Tailwind rounded-2xl
 
 export function BookSportScreen() {

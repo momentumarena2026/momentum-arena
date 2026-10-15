@@ -1,6 +1,6 @@
 import { DateFilterInput } from "@/components/admin/date-filter-input";
 import { getAdminBookings, getAdminStats } from "@/actions/admin-booking";
-import { SPORT_INFO } from "@/lib/court-config";
+import { SPORT_INFO , ALL_SPORTS} from "@/lib/court-config";
 import type { Sport } from "@prisma/client";
 import { formatPrice } from "@/lib/pricing";
 import { getTodayIST } from "@/lib/ist-date";
@@ -82,7 +82,7 @@ export default async function AdminBookingsPage({
     getAdminStats(),
   ]);
 
-  const sports = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+  const sports = ALL_SPORTS;
 
   const sportInfoMap: Record<string, { name: string; icon: string }> = {};
   for (const key of sports) {
@@ -460,7 +460,8 @@ export default async function AdminBookingsPage({
             All
           </Link>
           {sports.map((sport) => {
-            const emoji = { CRICKET: "🏏", FOOTBALL: "⚽", PICKLEBALL: "🏓" }[sport] || "";
+            const emoji =
+              ({ CRICKET: "🏏", FOOTBALL: "⚽", PICKLEBALL: "🏓", TABLE_TENNIS: "🏓" } as Record<string, string>)[sport] || "";
             const isActive = sportList.includes(sport);
             return (
               <Link

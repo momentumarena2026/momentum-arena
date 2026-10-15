@@ -20,7 +20,7 @@ import {
   type ListRewardTransactionsInput,
   type RewardTxnTypeFilter,
 } from "@/lib/rewards/admin-ledger";
-import type { Sport } from "@prisma/client";
+import { Sport } from "@prisma/client";
 
 /**
  * Admin-side rewards server actions. All require the
@@ -148,7 +148,10 @@ export async function getAdminRewardConfigFull() {
     birthdayBonusPoints: cfg.birthdayBonusPoints,
     highVelocityEarnDailyThreshold: cfg.highVelocityEarnDailyThreshold,
     bulkRedemptionPaiseThreshold: cfg.bulkRedemptionPaiseThreshold,
-    enabledSports: cfg.enabledSports as ("CRICKET" | "FOOTBALL" | "PICKLEBALL")[],
+    // Cast to Sport[], not to a typed-out union. The literal version
+    // silently dropped any sport added later, so rewards could not be
+    // enabled for it and nothing reported why.
+    enabledSports: cfg.enabledSports as Sport[],
   };
 }
 
@@ -181,7 +184,7 @@ const configSchema = z.object({
   birthdayBonusPoints: z.number().int().min(0).max(1_000_000),
   highVelocityEarnDailyThreshold: z.number().int().min(0).max(10_000_000),
   bulkRedemptionPaiseThreshold: z.number().int().min(0).max(100_000_000),
-  enabledSports: z.array(z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"])),
+  enabledSports: z.array(z.nativeEnum(Sport)),
 });
 
 export type AdminRewardConfigInput = z.infer<typeof configSchema>;

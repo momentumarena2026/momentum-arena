@@ -63,6 +63,12 @@ const SPORT_STYLE: Record<
     border: "rgba(168, 85, 247, 0.40)",
     fg: "#c084fc",
   },
+  TABLE_TENNIS: {
+    emoji: "🏓",
+    bg: "rgba(251, 113, 133, 0.14)",
+    border: "rgba(251, 113, 133, 0.40)",
+    fg: "#fda4af",
+  },
 };
 
 // Calendar lives inside its own (calendar-only) stack inside the bottom

@@ -16,6 +16,11 @@ enum Sport {
   CRICKET
   FOOTBALL
   PICKLEBALL
+  /// Played on the pickleball court — same physical table/space, same
+  /// pricing. It shares the SHARED_COURT zone with PICKLEBALL, which is
+  /// what makes booking one block the other, exactly as FOOTBALL and
+  /// CRICKET share the four turf zones. See lib/court-config.ts.
+  TABLE_TENNIS
 }
 
 enum ConfigSize {

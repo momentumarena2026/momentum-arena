@@ -87,6 +87,27 @@ export const COURT_CONFIGS: CourtConfigDef[] = [
     lengthFt: 44,
     zones: ["SHARED_COURT"],
   },
+  // Table tennis — the SAME physical space as pickleball.
+  //
+  // The shared SHARED_COURT zone is the whole mechanism: zonesOverlap()
+  // is what stops two sports being sold the same hour, and it is why
+  // booking the football Full Field already blocks the cricket one —
+  // both list the same four turf zones. Giving table tennis its own
+  // zone would have made the court sellable twice over at the same
+  // moment, which is the single most expensive mistake available here.
+  //
+  // It is a separate CourtConfig rather than a second label on the
+  // pickleball one because pricing, passes, coupons, analytics and the
+  // customer's sport picker all key on CourtConfig.sport.
+  {
+    sport: "TABLE_TENNIS",
+    size: "SHARED",
+    label: "Table Tennis Court",
+    position: "SHARED",
+    widthFt: 20,
+    lengthFt: 44,
+    zones: ["SHARED_COURT"],
+  },
 ];
 
 // Operating hours: 5 AM to 1 AM (hour 5 through 24, where 24 = midnight-1AM).
@@ -332,6 +353,25 @@ export function isWeekend(date: Date): boolean {
   return day === 0 || day === 6;
 }
 
+/**
+ * Every sport, derived from the Prisma enum rather than written out.
+ *
+ * ── WHY THIS EXISTS ───────────────────────────────────────────────────
+ * Adding TABLE_TENNIS in 2026-10 turned up thirty-nine places that had
+ * the three sports typed out as a literal — zod schemas, filter chips,
+ * admin pickers, challenge rules. Five of them were `Record<Sport, …>`
+ * and the compiler caught those immediately. The other thirty-four were
+ * runtime arrays, and nothing would have reported them: a sport simply
+ * would not have appeared in that picker, that filter, that validator.
+ * A coupon scoped to the new sport would have been rejected as invalid
+ * by a schema that had never heard of it.
+ *
+ * `Object.values(Sport)` cannot drift. Prefer it, and prefer
+ * `z.nativeEnum(Sport)` over `z.enum([...])`, so the next sport is one
+ * line in schema.prisma plus the display entries the compiler demands.
+ */
+export const ALL_SPORTS: Sport[] = Object.values(Sport);
+
 // Get sport display info
 export const SPORT_INFO: Record<
   Sport,
@@ -355,6 +395,12 @@ export const SPORT_INFO: Record<
     color: "yellow",
     description: "Shared court with professional markings",
   },
+  TABLE_TENNIS: {
+    name: "Table Tennis",
+    icon: "table-tennis",
+    color: "rose",
+    description: "Indoor table tennis on the shared court",
+  },
 };
 
 const SPORT_COLOR_BADGE_CLASS: Record<string, string> = {
@@ -362,7 +408,42 @@ const SPORT_COLOR_BADGE_CLASS: Record<string, string> = {
     "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
   blue: "border-blue-500/25 bg-blue-500/10 text-blue-300",
   yellow: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+  rose: "border-rose-500/25 bg-rose-500/10 text-rose-300",
 };
+
+/**
+ * URL slug for a sport — hyphenated, never underscored.
+ *
+ * ── WHY THIS IS NOT JUST toLowerCase() ────────────────────────────────
+ * It was, until TABLE_TENNIS arrived. `"TABLE_TENNIS".toLowerCase()`
+ * gives `table_tennis`, and the page's `toUpperCase()` round-trips it
+ * fine — so nothing would have broken, and the URL would have shipped.
+ *
+ * It is an SEO decision rather than a correctness one. Google treats a
+ * hyphen as a word separator and an underscore as a joiner, so
+ * `/book/table_tennis` is read as the single token "tabletennis" and
+ * matches nothing anyone searches for. `/book/table-tennis` is two
+ * words, which is the entire point of having the page.
+ *
+ * Single-word sports are unaffected, so every existing URL is byte-for
+ * -byte what it was — no redirects, no lost rankings.
+ */
+export function sportSlug(sport: Sport | string): string {
+  return String(sport).toLowerCase().replace(/_/g, "-");
+}
+
+/**
+ * The sport a URL slug names, or null.
+ *
+ * Accepts the hyphenated form and the underscored one, because the
+ * second is what `toLowerCase()` produced everywhere before this
+ * existed — any link already in the wild, or in somebody's bookmarks,
+ * keeps working.
+ */
+export function sportFromSlug(slug: string): Sport | null {
+  const key = String(slug).toUpperCase().replace(/-/g, "_");
+  return isSport(key) ? (key as Sport) : null;
+}
 
 /** True when `value` is a Prisma {@link Sport} enum member. */
 export function isSport(value: string): value is Sport {

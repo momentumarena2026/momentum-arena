@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { SPORT_INFO, SIZE_INFO } from "@/lib/court-config";
+import { SPORT_INFO, SIZE_INFO , sportFromSlug} from "@/lib/court-config";
 import { CourtZone } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { Maximize2 } from "lucide-react";
@@ -27,7 +27,10 @@ export default async function SlotSelectionPage({
     where: { id: configId },
   });
 
-  if (!config || config.sport !== sport.toUpperCase()) {
+  // sportFromSlug, not toUpperCase(): "table-tennis".toUpperCase() is
+  // "TABLE-TENNIS", which matches no enum member, so every table-tennis
+  // court 404'd on the page the sport page redirects straight to.
+  if (!config || config.sport !== sportFromSlug(sport)) {
     notFound();
   }
 

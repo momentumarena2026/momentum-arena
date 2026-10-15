@@ -18,6 +18,7 @@ import {
   trackChallenge,
   type Challenge,
 } from "../../lib/challenges";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
 /**
  * The board.
@@ -43,7 +44,7 @@ export function ChallengeBoardScreen() {
 
   const sports = q.data?.limits.sports?.length
     ? q.data.limits.sports
-    : ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+    : ALL_SPORTS;
 
   const mineLive = useMemo(
     () =>

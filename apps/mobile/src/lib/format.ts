@@ -153,8 +153,19 @@ export function sportLabel(sport: string): string {
       return "Football";
     case "PICKLEBALL":
       return "Pickleball";
+    case "TABLE_TENNIS":
+      return "Table Tennis";
     default:
-      return sport;
+      // Title-case the enum rather than returning it raw. The old
+      // `return sport` did not crash, it just printed TABLE_TENNIS at
+      // customers — underscore and all — on the slot picker, which is
+      // how a missing case here reaches production unnoticed. Any
+      // future sport now reads correctly before anyone adds its case.
+      return sport
+        .toLowerCase()
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
   }
 }
 
@@ -166,6 +177,8 @@ export function sportEmoji(sport: string): string {
       return "⚽";
     case "PICKLEBALL":
       return "🥒";
+    case "TABLE_TENNIS":
+      return "🏓";
     default:
       return "🏟️";
   }

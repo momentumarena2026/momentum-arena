@@ -75,6 +75,10 @@ const SPORT_THEME: Record<
     tileBg: "rgba(245, 158, 11, 0.10)",
     tileBorder: "rgba(245, 158, 11, 0.30)",
   },
+  TABLE_TENNIS: {
+    tileBg: "rgba(251, 113, 133, 0.10)",
+    tileBorder: "rgba(251, 113, 133, 0.30)",
+  },
 };
 
 /**

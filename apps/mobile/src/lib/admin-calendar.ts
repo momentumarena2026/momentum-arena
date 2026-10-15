@@ -1,4 +1,5 @@
 import { request } from "./admin-api";
+import type { KnownSport } from "./sport-theme";
 
 /**
  * API client for the admin booking calendar. Mirrors the shape the
@@ -10,7 +11,13 @@ import { request } from "./admin-api";
  * "available" and rendered as a price-only chip on the client.
  */
 
-export type AdminCalendarSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+/**
+ * Derived from the app's one canonical sport union rather than typed
+ * out again. Five modules each had this literal, so adding a sport
+ * meant finding all five — and a miss is invisible: the sport just
+ * never appears in that screen.
+ */
+export type AdminCalendarSport = KnownSport;
 // Mirror Prisma `ConfigSize` so the UI can chip on size if needed
 // without re-parsing strings. Kept as a string union (instead of
 // importing from @prisma/client) because the mobile app doesn't

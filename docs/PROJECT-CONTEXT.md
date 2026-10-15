@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-10-09 · accurate as of `main` = `37663b43` (app 1.0.8). Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: `NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
+**Last substantive update:** 2026-10-15 · accurate as of `main` = `a298d7eb` (app 1.0.8). Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** — see gotchas **22–24** (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -433,6 +433,63 @@ Anything else means main has drifted — stop and investigate, do not push.
     scope every answer is "Failed to validate coupon" — including the ones
     that look like passes. Mint a token with `signMobileToken`, create a
     real `SlotHold`, and POST `/api/mobile/booking/apply-coupon`.
+
+22. **Adding a sport: the compiler finds five of the forty places.** Sport
+    is a Prisma enum, so `Record<Sport, …>` maps fail to compile the
+    moment a value is added — five did, and they took minutes. The other
+    thirty-four were runtime arrays and hand-written unions, and nothing
+    reports those: the sport simply does not appear in that picker, that
+    filter, that zod schema. A coupon scoped to it is rejected as invalid
+    by a validator that has never heard of it, and the only symptom is a
+    customer saying "it says my code isn't valid".
+
+    Most now derive from one source — `ALL_SPORTS` (`Object.values(Sport)`)
+    on the web, `z.nativeEnum(Sport)` in schemas. Four genuinely cannot:
+    `lib/challenge-rules.ts` is pure by design, `lib/sport-theme.ts` is
+    used by client components, and the app has no Prisma client at all.
+    Those keep literals and are pinned by **`tests/sport-parity.test.ts`**,
+    which is what fails when somebody adds a sport to schema.prisma and
+    stops there.
+
+    The one that nothing would have caught: `apps/mobile/src/lib/admin-events.ts`
+    gates which sport survives into the admin analytics breakdown. A sport
+    missing there has its facet dropped from every log row — the bookings
+    exist and the per-sport chart just never mentions them.
+
+23. **Two sports on one floor share a ZONE; that is the whole mechanism.**
+    `CourtConfig.zones` is what `zonesOverlap()` reads, and it is why
+    booking the football Full Field already blocks the cricket one — both
+    list the same four turf zones. Table tennis is the pickleball court,
+    so it carries `SHARED_COURT` too.
+
+    Give a co-located sport its own zone and the floor becomes sellable
+    twice over at the same hour, to two different customers, with nothing
+    reporting it until both turn up. It is the most expensive mistake
+    available in this area and it is one line. `tests/sport-parity.test.ts`
+    asserts the overlap as a property of the pair, and the seed script
+    refuses to report success without it. Verified end-to-end against
+    staging rather than reasoned about: booking table tennis at 19:00
+    flipped pickleball's 19:00 to `booked` and left 21:00 alone.
+
+    Related, and separate: `courtGroupKey` (`sport|size|category`) is NOT
+    this. That governs pass interchangeability, and table tennis is
+    deliberately its own group — sharing a floor does not mean a
+    pickleball pass pays for a table-tennis hour.
+
+24. **A sport's URL slug is hyphenated, and that is an SEO decision.**
+    `"TABLE_TENNIS".toLowerCase()` gives `table_tennis`, which round-trips
+    through `toUpperCase()` perfectly — so nothing breaks and the URL
+    ships. But Google reads a hyphen as a word separator and an
+    underscore as a joiner, so `/book/table_tennis` is the single token
+    "tabletennis" and matches nothing anybody searches for. `sportSlug` /
+    `sportFromSlug` in `lib/court-config.ts` own this; `sportFromSlug`
+    still accepts the underscored form so older links keep working.
+
+    Three routes parse that param (`[sport]`, `[sport]/[configId]`,
+    `[sport]/medium`) and all three must use the helper. Missing one is
+    invisible to `curl`, which does not follow the redirect: the landing
+    page returned 200 while the page it redirects to 404'd. A screenshot
+    found it.
 
 21. **`new Date("2026-10-19")` is 05:30 IST, and an admin date picker hands
     you exactly that string.** Every discount form in the product — web

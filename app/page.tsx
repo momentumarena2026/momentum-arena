@@ -66,6 +66,17 @@ const sports = [
     // isActive=false in /admin/coupons hides the pill + banner here on
     // the next request — no separate hardcoded toggle to remember.
   },
+  {
+    name: "Table Tennis",
+    slug: "table-tennis",
+    image: "/table-tennis.jpg",
+    tagline: "Indoor Tables on the Shared Court",
+    icon: MdSportsTennis,
+    color: "rose",
+    gradient: "from-rose-500/80 to-rose-900/90",
+    border: "hover:border-rose-400 hover:shadow-rose-500/20",
+    glow: "group-hover:shadow-[0_0_30px_rgba(244,63,94,0.3)]",
+  },
 ];
 
 // Per-sport accent for the "Your upcoming bookings" cards. Mirrors
@@ -100,6 +111,7 @@ const UPCOMING_SPORT_ICONS: Record<string, React.ReactNode> = {
   CRICKET: <MdSportsCricket className="h-5 w-5" />,
   FOOTBALL: <MdSportsSoccer className="h-5 w-5" />,
   PICKLEBALL: <MdSportsTennis className="h-5 w-5" />,
+  TABLE_TENNIS: <MdSportsTennis className="h-5 w-5" />,
 };
 
 const facilities = [
@@ -276,6 +288,7 @@ export default async function Home() {
       { "@type": "LocationFeatureSpecification", name: "Cricket Turf", value: true },
       { "@type": "LocationFeatureSpecification", name: "Football Turf", value: true },
       { "@type": "LocationFeatureSpecification", name: "Pickleball Courts", value: true },
+      { "@type": "LocationFeatureSpecification", name: "Table Tennis", value: true },
       { "@type": "LocationFeatureSpecification", name: "Spectator Seating", value: true },
       { "@type": "LocationFeatureSpecification", name: "Cafeteria", value: true },
       { "@type": "LocationFeatureSpecification", name: "Parking", value: true },
@@ -296,6 +309,8 @@ export default async function Home() {
       "Cricket",
       "Football",
       "Pickleball",
+      "Table Tennis",
+      "Ping Pong",
       "Sports Facility Management",
       "Sports Court Rental",
       "Tournament Hosting",

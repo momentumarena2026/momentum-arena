@@ -43,7 +43,7 @@ import {
   type DqrEndpoints,
 } from "../../components/payment/DqrCheckout";
 import { colors, radius, spacing } from "../../theme";
-import { formatRupees } from "../../lib/format";
+import { formatRupees , sportLabel} from "../../lib/format";
 import { ApiError } from "../../lib/api";
 import { bookingApi } from "../../lib/booking";
 import { passesApi, type PassPlanCard } from "../../lib/passes";
@@ -68,6 +68,10 @@ const SPORT_ACCENT: Record<string, string> = {
   CRICKET: "#34d399",
   FOOTBALL: "#60a5fa",
   PICKLEBALL: "#facc15",
+  // Without this the card fell through to the cricket green, so a table
+  // tennis pass sat next to a pickleball one wearing the wrong sport's
+  // colour.
+  TABLE_TENNIS: "#fb7185",
 };
 
 const fmtH = (h: number) => `${h.toFixed(1).replace(/\.0$/, "")}`;
@@ -103,9 +107,11 @@ function PlanCard({
   onBuy: () => void;
 }) {
   const accent = SPORT_ACCENT[plan.sport] ?? "#34d399";
+  // sportLabel, not charAt(0) + slice(1).toLowerCase() — that produced
+  // "Table_tennis", underscore and all, because it only ever had to
+  // handle single-word sports.
   const sportTitle =
-    plan.sport.charAt(0) + plan.sport.slice(1).toLowerCase() +
-    (plan.isBowling ? " · Bowling Machine" : "");
+    sportLabel(plan.sport) + (plan.isBowling ? " · Bowling Machine" : "");
   const restricted = !!plan.bandsSummary && plan.bandsSummary !== "All hours";
   return (
     <View style={[styles.planCard, { borderColor: `${accent}33` }]}>
@@ -558,7 +564,7 @@ export function PassesStoreScreen() {
                           on && { color: chipAccent },
                         ]}
                       >
-                        {sp === "ALL" ? "All sports" : sp.charAt(0) + sp.slice(1).toLowerCase()}
+                        {sp === "ALL" ? "All sports" : sportLabel(sp)}
                       </Text>
                     </Pressable>
                   );

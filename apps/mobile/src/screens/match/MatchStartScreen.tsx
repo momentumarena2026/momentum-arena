@@ -24,10 +24,12 @@ import {
   type MatchSport,
 } from "../../lib/public-match";
 import type { AccountStackParamList } from "../../navigation/types";
+import { ALL_SPORTS } from "../../lib/sport-theme";
+import { sportLabel } from "../../lib/format";
 
 type Nav = NativeStackNavigationProp<AccountStackParamList>;
 
-const SPORTS: MatchSport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+const SPORTS: MatchSport[] = ALL_SPORTS;
 
 /**
  * Start or rejoin a scratch match. Mirrors /match on the web — three
@@ -132,7 +134,7 @@ export function MatchStartScreen() {
                     weight={on ? "700" : "500"}
                     color={on ? colors.emerald400 : colors.zinc400}
                   >
-                    {s.charAt(0) + s.slice(1).toLowerCase()}
+                    {sportLabel(s)}
                   </Text>
                 </Pressable>
               );

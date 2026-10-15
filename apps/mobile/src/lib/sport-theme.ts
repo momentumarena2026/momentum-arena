@@ -47,7 +47,33 @@ const THEMES: Record<string, SportTheme> = {
     chipBg: "rgba(250,204,21,0.12)",
     chipBorder: "rgba(250,204,21,0.35)",
   },
+  TABLE_TENNIS: {
+    label: "Table Tennis",
+    emoji: "🏓",
+    imagePath: "/opt/table-tennis.webp",
+    hex: "#fb7185",
+    chipBg: "rgba(251,113,133,0.12)",
+    chipBorder: "rgba(251,113,133,0.35)",
+  },
 };
+
+/**
+ * Every sport the app knows about, in display order.
+ *
+ * The app has no Prisma client, so it cannot do `Object.values(Sport)`
+ * the way lib/court-config.ts does on the web. This list is therefore
+ * the app's canonical one and CAN drift from the enum — which is
+ * exactly what happened before it existed: nine screens each had the
+ * three sports typed out, and adding a fourth meant finding all nine.
+ * One list is still one place to forget, but it is one instead of nine.
+ */
+export type KnownSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL" | "TABLE_TENNIS";
+export const ALL_SPORTS: KnownSport[] = [
+  "CRICKET",
+  "FOOTBALL",
+  "PICKLEBALL",
+  "TABLE_TENNIS",
+];
 
 /** Never throws — an unknown sport falls back to cricket rather than
  *  rendering an unstyled card. */

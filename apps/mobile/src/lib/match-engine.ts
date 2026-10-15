@@ -28,7 +28,14 @@ import {
 } from "./cricket-rules";
 
 
-export type PublicMatchSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+export type PublicMatchSport =
+  | "CRICKET"
+  | "FOOTBALL"
+  | "PICKLEBALL"
+  // Table tennis needed no scoring logic of its own: every branch in
+  // this engine is CRICKET vs not-CRICKET, and the not-CRICKET path is
+  // a plain points counter that football and pickleball already share.
+  | "TABLE_TENNIS";
 
 export type { WicketKind, Delivery, CreaseEnd };
 

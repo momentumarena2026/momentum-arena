@@ -12,6 +12,7 @@ import {
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { registerForCamp, campSeatsTaken } from "@/lib/camps";
+import { Sport } from "@prisma/client";
 
 /**
  * Admin side of the camps module: configure a camp, work its roster, and
@@ -55,7 +56,7 @@ const campSchema = z.object({
   name: z.string().min(1).max(80),
   // Optional: a camp is not always one of the three sports the venue
   // sells. Taekwondo runs on the turf and is not a Sport.
-  sport: z.enum(["CRICKET", "FOOTBALL", "PICKLEBALL"]).nullish(),
+  sport: z.nativeEnum(Sport).nullish(),
   /// The court the camp occupies, and the one its sessions block.
   courtConfigId: z.string().nullish(),
   description: z.string().optional(),

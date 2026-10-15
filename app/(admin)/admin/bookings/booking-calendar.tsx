@@ -55,6 +55,15 @@ const SPORT_STYLE: Record<
     text: "text-purple-300",
     dot: "bg-purple-500",
   },
+  // Shares the pickleball emoji because 🏓 IS table tennis; the colour
+  // is what separates them in the grid, which matters because the two
+  // sports share one court and land in the same column.
+  TABLE_TENNIS: {
+    emoji: "🏓",
+    chip: "border-rose-500/40 bg-rose-500/15",
+    text: "text-rose-300",
+    dot: "bg-rose-500",
+  },
 };
 
 // Status chip styling for the booking detail modal. Closed-out
@@ -91,6 +100,7 @@ const SPORT_LABELS: Record<Sport, string> = {
   CRICKET: "Cricket",
   FOOTBALL: "Football",
   PICKLEBALL: "Pickleball",
+  TABLE_TENNIS: "Table Tennis",
 };
 
 const SPORT_FILTERS: { value: string; label: string }[] = [

@@ -27,8 +27,9 @@ import {
 import { formatRupees } from "../../lib/format";
 import { AdminApiError } from "../../lib/admin-api";
 import { istDateKeyOf } from "../../lib/ist-date";
+import { ALL_SPORTS } from "../../lib/sport-theme";
 
-const SPORTS: DiscountSport[] = ["CRICKET", "FOOTBALL", "PICKLEBALL"];
+const SPORTS: DiscountSport[] = ALL_SPORTS;
 
 // Device-local getters would be IST on a phone in Mathura and wrong
 // anywhere else; the helper does not ask the device.

@@ -1,9 +1,16 @@
+import type { KnownSport } from "./sport-theme";
 /**
  * Shared API response types for the mobile app. Mirrors Prisma shapes with
  * dates serialized as ISO strings (what `NextResponse.json` emits).
  */
 
-export type Sport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+/**
+ * Derived from the app's one canonical sport union rather than typed
+ * out again. Five modules each had this literal, so adding a sport
+ * meant finding all five — and a miss is invisible: the sport just
+ * never appears in that screen.
+ */
+export type Sport = KnownSport;
 
 export type ConfigSize =
   | "XS"

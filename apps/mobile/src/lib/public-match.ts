@@ -20,7 +20,8 @@ export type { ScoreEvent, WicketKind };
  * can reach it.
  */
 
-export type MatchSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL";
+/** Mirrors PublicMatchSport in the web engine — see match-engine.ts. */
+export type MatchSport = "CRICKET" | "FOOTBALL" | "PICKLEBALL" | "TABLE_TENNIS";
 
 export interface PublicMatch {
   code: string;

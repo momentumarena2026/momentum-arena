@@ -387,6 +387,12 @@ const SPORT_ACCENT: Record<
     tileBg: "rgba(245, 158, 11, 0.15)",
     text: "#fcd34d", // amber-300
   },
+  TABLE_TENNIS: {
+    border: "rgba(251, 113, 133, 0.30)",
+    bg: "rgba(251, 113, 133, 0.08)",
+    tileBg: "rgba(251, 113, 133, 0.15)",
+    text: "#fda4af", // rose-300
+  },
 };
 
 const MONTHS_SHORT = [
