@@ -25,6 +25,9 @@ export const promoBannersApi = {
     if (sportSlug) q.set("sport", sportSlug);
     return api.get<{ banners: PromoBannerItem[] }>(
       `/api/mobile/promo-banners?${q.toString()}`,
+      // Public, like the route itself. Stated because this renders on
+      // the signed-out home screen — see tests/app-authed-queries.test.ts.
+      { auth: false },
     );
   },
 };
