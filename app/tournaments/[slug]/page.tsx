@@ -17,6 +17,7 @@ const SPORT_LABEL: Record<string, string> = {
   CRICKET: "🏏 Cricket",
   FOOTBALL: "⚽ Football",
   PICKLEBALL: "🎾 Pickleball",
+  TABLE_TENNIS: "🏓 Table Tennis",
 };
 
 function fmtDate(d: Date | null): string {

@@ -14,6 +14,7 @@ const SPORT_EMOJI: Record<string, string> = {
   CRICKET: "🏏",
   FOOTBALL: "⚽",
   PICKLEBALL: "🎾",
+  TABLE_TENNIS: "🏓",
 };
 
 // Category buckets, in display priority order:
