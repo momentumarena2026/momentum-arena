@@ -184,8 +184,21 @@ export function HomeScreen() {
   // fails open because hiding it removes a working booking route; there is
   // no equivalent loss here.
   const { data: challengeCfg } = useQuery({
-    queryKey: ["challenge-home-card"],
+    // ── The user belongs in the key, and `enabled` is not optional ────
+    // This endpoint needs a token. Keyed without the viewer and run
+    // unconditionally, it fired while signed out, took a 401, and
+    // cached that failure under a key that signing in does not change
+    // — so the card stayed hidden for the rest of the session and only
+    // came back on a cold start. Every other authed query on this
+    // screen already gates on `signedIn`; this one did not, and it is
+    // the only one whose failure is invisible (the others render a
+    // skeleton or a zero, this one renders nothing at all).
+    //
+    // Reproduced on a simulator 2026-10-15: sign in, card absent; kill
+    // and relaunch, card present.
+    queryKey: ["challenge-home-card", signedIn],
     queryFn: () => fetchChallengeBoard(undefined, true),
+    enabled: signedIn,
     staleTime: 5 * 60 * 1000,
   });
   const showChallengeCard =
