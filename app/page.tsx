@@ -28,6 +28,18 @@ import { areCampsEnabled } from "@/lib/camps";
 import { RainBanner } from "@/components/rain-banner";
 import { PromoBannerSlot } from "@/components/promo-banner-slot";
 
+/**
+ * The sports, in prose, derived from the list below rather than typed
+ * out. Three places said this independently — the hero, the JSON-LD
+ * description Google reads, and the app — and adding Table Tennis
+ * updated one of them. The hero advertised three sports while the site
+ * sold four, and the structured data told Google the same.
+ */
+function sportsSentence(names: string[]): string {
+  if (names.length < 2) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 const sports = [
   {
     name: "Cricket",
@@ -249,8 +261,9 @@ export default async function Home() {
       width: 512,
       height: 512,
     },
-    description:
-      "Momentum Arena is Mathura's premier multi-sport facility offering professional Cricket, Football and Pickleball courts with spectator seating and cafeteria",
+    description: `Momentum Arena is Mathura's premier multi-sport facility offering professional ${sportsSentence(
+      sports.map((sp) => sp.name),
+    )} courts with spectator seating and cafeteria`,
     url: SITE_URL,
     telephone: "+91-6396177261",
     priceRange: "₹₹",
