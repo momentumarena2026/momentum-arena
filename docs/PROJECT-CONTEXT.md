@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-10-15 · accurate as of `main` = `a298d7eb` (app 1.0.8). Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** — see gotchas **22–24** (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
+**Last substantive update:** 2026-10-16 · accurate as of `main` = `d7a803e2` (app 1.0.8). Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -490,6 +490,56 @@ Anything else means main has drifted — stop and investigate, do not push.
     invisible to `curl`, which does not follow the redirect: the landing
     page returned 200 while the page it redirects to 404'd. A screenshot
     found it.
+
+25. **A 401 in the app is forever, not for a moment.** Two settings in
+    `apps/mobile/src/lib/queryClient.ts` compound:
+
+        retry: … if (status >= 400 && status < 500) return false
+        refetchOnWindowFocus: false
+
+    Neither is wrong. A 4xx *is* deterministic. But together — plus a
+    home screen that never unmounts inside the tab navigator — one 401
+    removes a feature for the whole session, and the only symptom is
+    absence: no error card, no skeleton, no log line. It looks exactly
+    like somebody deleted the feature, and it was reported that way.
+
+    The Challenges home card was ungated and keyed without the viewer,
+    so opening the app signed out killed it until a cold start. Nine
+    days. **`tests/app-authed-queries.test.ts`** now guards the handful
+    of surfaces where this can line up — reachable signed out AND still
+    mounted through sign-in. It also asserts both queryClient settings
+    still hold, so if either changes somebody re-reads the premise
+    rather than inheriting a rule whose reason has evaporated.
+
+    Everywhere else is already covered, and it is worth knowing why:
+    screens behind the Account wall or the admin shell never render
+    signed out, and a session that merely EXPIRES hits AuthProvider's
+    401 handler, which signs out and routes through Phone/OTP — so the
+    screen remounts and refetches on the way back.
+
+26. **An admin setting reaches the web and the app by two different
+    roads, and only one gets purged.** `setInfoBar` revalidated `/` and
+    the admin page. The APP reads `/api/info-bar`, a separate route
+    carrying `export const revalidate = 300`, which nothing purged — so
+    the website changed the instant Save was pressed and the phone did
+    not. Reported as "the information bar is not rendering in the app";
+    it was rendering, just the previous one. `setRainBanner` had the
+    identical gap, and that one decides whether people set off for the
+    venue.
+
+    **Then the same staleness again, one layer up.** Even with the
+    server fixed, the app kept the old bar: nothing bridged app
+    foreground to react-query's `focusManager` — "focus" is a browser
+    concept and never fires in React Native unless wired — so a resume
+    refetched nothing. Cold start corrected it via the disk-cache
+    refetch; resuming never did. The bridge now exists, the global
+    `refetchOnWindowFocus` stays `false`, and only the two announcement
+    queries opt in.
+
+    The general shape: **when an admin toggle feeds both surfaces, ask
+    which route each one takes and purge both.** The web is a server
+    component reading live; the app is an ISR route plus a persisted
+    client cache. Two caches, two fixes.
 
 21. **`new Date("2026-10-19")` is 05:30 IST, and an admin date picker hands
     you exactly that string.** Every discount form in the product — web
