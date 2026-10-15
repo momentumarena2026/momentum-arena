@@ -23,6 +23,7 @@ import {
   MdSportsSoccer,
   MdSportsTennis,
 } from "react-icons/md";
+import { FaTableTennisPaddleBall } from "react-icons/fa6";
 import { GiCricketBat } from "react-icons/gi";
 import type { IconType } from "react-icons";
 import { DqrCheckout } from "@/components/payment/dqr-checkout";
@@ -39,11 +40,13 @@ const SPORT_ICON: Record<string, IconType> = {
   CRICKET: MdSportsCricket,
   FOOTBALL: MdSportsSoccer,
   PICKLEBALL: MdSportsTennis,
+  TABLE_TENNIS: FaTableTennisPaddleBall,
 };
 const SPORT_ACCENT: Record<string, string> = {
   CRICKET: "#34d399", // emerald
   FOOTBALL: "#60a5fa", // blue
   PICKLEBALL: "#facc15", // yellow
+  TABLE_TENNIS: "#fb7185", // rose
 };
 
 interface Plan {

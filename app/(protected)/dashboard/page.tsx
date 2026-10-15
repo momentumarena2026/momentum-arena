@@ -31,6 +31,7 @@ import {
   MdSportsSoccer,
   MdSportsTennis,
 } from "react-icons/md";
+import { FaTableTennisPaddleBall } from "react-icons/fa6";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -57,6 +58,7 @@ const SPORT_ICON_MAP: Record<string, React.ReactNode> = {
   CRICKET: <MdSportsCricket className="h-5 w-5" />,
   FOOTBALL: <MdSportsSoccer className="h-5 w-5" />,
   PICKLEBALL: <MdSportsTennis className="h-5 w-5" />,
+  TABLE_TENNIS: <FaTableTennisPaddleBall className="h-5 w-5" />,
 };
 
 const SPORT_COLORS: Record<string, { bg: string; border: string; text: string; glow: string }> = {
@@ -77,6 +79,12 @@ const SPORT_COLORS: Record<string, { bg: string; border: string; text: string; g
     border: "border-yellow-500/30 hover:border-yellow-400/50",
     text: "text-yellow-400",
     glow: "shadow-yellow-500/10",
+  },
+  TABLE_TENNIS: {
+    bg: "from-rose-500/20 to-rose-600/5",
+    border: "border-rose-500/30 hover:border-rose-400/50",
+    text: "text-rose-400",
+    glow: "shadow-rose-500/10",
   },
 };
 

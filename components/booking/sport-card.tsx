@@ -6,24 +6,37 @@ import {
   MdSportsSoccer,
   MdSportsTennis,
 } from "react-icons/md";
+import { FaTableTennisPaddleBall } from "react-icons/fa6";
+import type { Sport } from "@prisma/client";
+import { sportSlug } from "@/lib/court-config";
 import { trackSportSelected } from "@/lib/analytics";
 
-const sportIcons: Record<string, React.ElementType> = {
+// Record<Sport, …>, NOT Record<string, …>.
+//
+// All three of these were keyed on `string` with a `|| CRICKET`
+// fallback, so adding a sport compiled cleanly and the new card simply
+// came out green, wearing a cricket bat, on /book. Nothing reported it
+// — it looked like a styling choice. Keyed on the enum, the compiler
+// refuses to build until the next sport has an icon and a colour.
+const sportIcons: Record<Sport, React.ElementType> = {
   CRICKET: MdSportsCricket,
   FOOTBALL: MdSportsSoccer,
   PICKLEBALL: MdSportsTennis,
+  TABLE_TENNIS: FaTableTennisPaddleBall,
 };
 
-const sportColors: Record<string, string> = {
+const sportColors: Record<Sport, string> = {
   CRICKET: "from-emerald-500/20 to-emerald-600/5 border-emerald-500/30 hover:border-emerald-400",
   FOOTBALL: "from-blue-500/20 to-blue-600/5 border-blue-500/30 hover:border-blue-400",
   PICKLEBALL: "from-yellow-500/20 to-yellow-600/5 border-yellow-500/30 hover:border-yellow-400",
+  TABLE_TENNIS: "from-rose-500/20 to-rose-600/5 border-rose-500/30 hover:border-rose-400",
 };
 
-const sportIconColors: Record<string, string> = {
+const sportIconColors: Record<Sport, string> = {
   CRICKET: "text-emerald-400",
   FOOTBALL: "text-blue-400",
   PICKLEBALL: "text-yellow-400",
+  TABLE_TENNIS: "text-rose-400",
 };
 
 interface SportCardProps {
@@ -34,9 +47,10 @@ interface SportCardProps {
 }
 
 export function SportCard({ sport, name, description, isActive }: SportCardProps) {
-  const Icon = sportIcons[sport] || MdSportsCricket;
-  const colorClass = sportColors[sport] || sportColors.CRICKET;
-  const iconColor = sportIconColors[sport] || "text-emerald-400";
+  const key = sport as Sport;
+  const Icon = sportIcons[key] ?? MdSportsCricket;
+  const colorClass = sportColors[key] ?? sportColors.CRICKET;
+  const iconColor = sportIconColors[key] ?? "text-emerald-400";
 
   if (!isActive) {
     return (
@@ -53,8 +67,12 @@ export function SportCard({ sport, name, description, isActive }: SportCardProps
     );
   }
 
+  // sportSlug, not toLowerCase(): that produced /book/table_tennis,
+  // which resolves but is NOT the canonical URL in the sitemap. An
+  // internal link to the non-canonical form is exactly what splits a
+  // page's ranking between two URLs.
   return (
-    <Link href={`/book/${sport.toLowerCase()}`} onClick={() => trackSportSelected(sport)}>
+    <Link href={`/book/${sportSlug(sport)}`} onClick={() => trackSportSelected(sport)}>
       <div
         className={`group relative overflow-hidden rounded-2xl border bg-gradient-to-br ${colorClass} p-6 h-[100px] flex items-center transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-black/20`}
       >

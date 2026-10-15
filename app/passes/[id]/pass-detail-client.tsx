@@ -21,6 +21,7 @@ import {
   MdSportsSoccer,
   MdSportsTennis,
 } from "react-icons/md";
+import { FaTableTennisPaddleBall } from "react-icons/fa6";
 import type { IconType } from "react-icons";
 import { PassClock } from "@/components/passes/pass-clock";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -33,11 +34,13 @@ const SPORT_ICON: Record<string, IconType> = {
   CRICKET: MdSportsCricket,
   FOOTBALL: MdSportsSoccer,
   PICKLEBALL: MdSportsTennis,
+  TABLE_TENNIS: FaTableTennisPaddleBall,
 };
 const SPORT_ACCENT: Record<string, string> = {
   CRICKET: "#34d399",
   FOOTBALL: "#60a5fa",
   PICKLEBALL: "#facc15",
+  TABLE_TENNIS: "#fb7185", // rose
 };
 const STATUS_LABEL: Record<string, string> = {
   ACTIVE: "Active",
