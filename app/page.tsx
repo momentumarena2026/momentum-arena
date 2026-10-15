@@ -695,7 +695,13 @@ export default async function Home() {
                 future promo) retires with its coupon automatically. */}
             <PromoBannerSlot screen="HOME_PROMO" className="mb-8 md:mb-10" />
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+            {/* Two columns from `sm` up, not three.
+                With a fourth sport the 3-across layout left Table Tennis
+                alone on its own row, which reads as an afterthought
+                rather than a peer of the other three. 2x2 keeps the set
+                balanced and gives each card more width for its photo.
+                A fifth sport would want this revisited, not widened. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
               {sports.map((sport) => {
                 const Icon = sport.icon;
 
