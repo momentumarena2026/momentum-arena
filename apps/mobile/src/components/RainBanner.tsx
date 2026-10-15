@@ -47,6 +47,12 @@ export function RainBanner({
     // Server ISR-caches this 5 min and the weather 15 min; a 15-min
     // client stale window keeps it from refetching on every focus.
     staleTime: 15 * 60 * 1000,
+    // Opts into the foreground refetch (see lib/queryClient.ts). The
+    // 15-minute window above still throttles it, so this does not
+    // refetch on every resume — it bounds how stale a rain call can
+    // get at ~15 minutes instead of "until something remounts", which
+    // was unbounded while nothing bridged focus at all.
+    refetchOnWindowFocus: true,
   });
 
   if (dismissed || !data?.show) return null;

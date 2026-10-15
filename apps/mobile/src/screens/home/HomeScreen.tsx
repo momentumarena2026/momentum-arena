@@ -125,7 +125,13 @@ export function HomeScreen() {
   const { data: infoBar } = useQuery({
     queryKey: ["info-bar"],
     queryFn: infoBarApi.get,
-    staleTime: 5 * 60 * 1000,
+    // An announcement is only worth anything while it is current, so
+    // this is one of the few queries that re-checks when the app comes
+    // back to the foreground. At five minutes' staleTime and no focus
+    // refetch it could show yesterday's bar for an entire session — the
+    // admin saves, the website updates, and the phone does not.
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
   });
   const navigation = useNavigation<Nav>();
   const homeNav = useNavigation<HomeNav>();
