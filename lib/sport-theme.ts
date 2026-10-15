@@ -66,11 +66,7 @@ const THEMES: Record<SportKey, SportTheme> = {
   TABLE_TENNIS: {
     label: "Table Tennis",
     emoji: "🏓",
-    // Deliberately the pickleball photo: table tennis is played on the
-    // SAME physical court, so the picture is accurate rather than a
-    // placeholder. Swap it the moment the venue has a photo of a table
-    // set up — nothing else needs to change.
-    image: "/pickleball.png",
+    image: "/table-tennis.jpg",
     text: "text-rose-300",
     chip: "border-rose-500/30 bg-rose-500/10 text-rose-300",
     gradient: "from-rose-950/95 via-rose-950/70 to-zinc-950/40",

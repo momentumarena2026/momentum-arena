@@ -26,6 +26,7 @@ import {
 } from "../../lib/admin-promo-banners";
 import { AdminApiError } from "../../lib/admin-api";
 import { ALL_SPORTS } from "../../lib/sport-theme";
+import { sportLabel } from "../../lib/format";
 
 /**
  * Web & App Config → Promotion Banners (mobile mirror of the web
@@ -357,7 +358,7 @@ export function AdminPromoBannersScreen() {
                               style={[styles.chip, on && styles.chipOn]}
                             >
                               <Text style={[styles.chipText, on && styles.chipTextOn]}>
-                                {sp.charAt(0) + sp.slice(1).toLowerCase()}
+                                {sportLabel(sp)}
                               </Text>
                             </Pressable>
                           );

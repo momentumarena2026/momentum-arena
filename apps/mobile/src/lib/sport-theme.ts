@@ -50,8 +50,7 @@ const THEMES: Record<string, SportTheme> = {
   TABLE_TENNIS: {
     label: "Table Tennis",
     emoji: "🏓",
-    // Same physical court as pickleball, so the same photo is honest.
-    imagePath: "/opt/pickleball.webp",
+    imagePath: "/opt/table-tennis.webp",
     hex: "#fb7185",
     chipBg: "rgba(251,113,133,0.12)",
     chipBorder: "rgba(251,113,133,0.35)",

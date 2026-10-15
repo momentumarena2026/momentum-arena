@@ -11,7 +11,12 @@
  * Values were already in use inline on the Home screen — this lifts
  * them out so a booking row and a home card can't drift apart.
  */
-export type SportSlug = "CRICKET" | "FOOTBALL" | "PICKLEBALL" | "BOWLING";
+export type SportSlug =
+  | "CRICKET"
+  | "FOOTBALL"
+  | "PICKLEBALL"
+  | "TABLE_TENNIS"
+  | "BOWLING";
 
 export interface SportPalette {
   /** Line work, icons, the card's edge. */
@@ -39,6 +44,14 @@ export const SPORT_COLORS: Record<SportSlug, SportPalette> = {
     border: "#eab308",
     tint: "rgba(234, 179, 8, 0.55)",
     soft: "rgba(234, 179, 8, 0.12)",
+  },
+  // Rose. Table tennis shares pickleball's FLOOR but not its colour —
+  // the two appear side by side in calendars and booking lists, and a
+  // shared hue there would read as one sport.
+  TABLE_TENNIS: {
+    border: "#fb7185",
+    tint: "rgba(251, 113, 133, 0.55)",
+    soft: "rgba(251, 113, 133, 0.12)",
   },
   // Bowling machine is a cricket facility, so it inherits cricket's hue
   // at lower intensity rather than introducing a fourth colour.

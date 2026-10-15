@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { formatPrice } from "@/lib/pricing";
 import { Ticket, Copy, Check, Sparkles, Tag } from "lucide-react";
+import { formatSportLabel } from "@/lib/court-config";
 
 interface PublicCoupon {
   id: string;
@@ -61,10 +62,10 @@ function CouponCard({ coupon }: { coupon: PublicCoupon }) {
       terms.push(`Max discount ${formatPrice(coupon.maxDiscount)}`);
     }
     if (coupon.sportFilter.length > 0) {
-      terms.push(`Valid for: ${coupon.sportFilter.map((s) => s.charAt(0) + s.slice(1).toLowerCase()).join(", ")}`);
+      terms.push(`Valid for: ${coupon.sportFilter.map(formatSportLabel).join(", ")}`);
     }
     if (coupon.categoryFilter.length > 0) {
-      terms.push(`Categories: ${coupon.categoryFilter.map((c) => c.charAt(0) + c.slice(1).toLowerCase()).join(", ")}`);
+      terms.push(`Categories: ${coupon.categoryFilter.map(titleCaseEnum).join(", ")}`);
     }
     for (const cond of coupon.conditions) {
       try {
@@ -155,6 +156,20 @@ function CouponCard({ coupon }: { coupon: PublicCoupon }) {
       </div>
     </div>
   );
+}
+
+/**
+ * "BOX_CRICKET" -> "Box Cricket". The old inline
+ * `charAt(0) + slice(1).toLowerCase()` only ever handled single-word
+ * enums, so anything with an underscore rendered as "Box_cricket" —
+ * on the PUBLIC coupons page.
+ */
+function titleCaseEnum(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 export function CouponCards({

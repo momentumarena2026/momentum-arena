@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Swords } from "lucide-react";
-import { ALL_SPORTS } from "@/lib/court-config";
+import { ALL_SPORTS , formatSportLabel} from "@/lib/court-config";
 import type { PublicMatchSport } from "@/lib/public-match";
 
 /**
@@ -80,7 +80,7 @@ export function MatchStartClient() {
                   : "border-zinc-700 text-zinc-400 hover:bg-zinc-800"
               }`}
             >
-              {s.charAt(0) + s.slice(1).toLowerCase()}
+              {formatSportLabel(s)}
             </button>
           ))}
         </div>

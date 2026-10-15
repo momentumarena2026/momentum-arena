@@ -91,6 +91,13 @@ const SPORTS = [
     // isActive=false in /admin/coupons hides the pill on the next
     // render — no hardcoded toggle to remember.
   },
+  {
+    slug: "TABLE_TENNIS" as const,
+    name: "Table Tennis",
+    image: `${ASSETS}/opt/table-tennis.webp`,
+    tagline: "Indoor tables on the shared court",
+    ...SPORT_COLORS.TABLE_TENNIS,
+  },
 ];
 
 const FACILITIES = [
@@ -351,7 +358,7 @@ export function HomeScreen() {
             Multi-sport Arena
           </Text>
           <Text variant="body" color={colors.mutedForeground} align="center" style={styles.heroSub}>
-            Cricket • Football • Pickleball
+            Cricket • Football • Pickleball • Table Tennis
           </Text>
           <Text variant="small" color={colors.subtleForeground} align="center">
             Professional courts • Floodlights • Cafeteria • Open 5 AM – 1 AM

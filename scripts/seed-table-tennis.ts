@@ -71,6 +71,15 @@ async function main() {
       slotDurationMinutes: true,
       maxPassMembers: true,
       prices: { select: { dayType: true, timeType: true, pricePerSlot: true } },
+      passPlans: {
+        where: { isActive: true },
+        select: {
+          name: true, totalMinutes: true, anchorPricePerHour: true, baseAmount: true,
+          discountPercent: true, price: true, validityDays: true, bands: true,
+          anchorPrice: true, isCheapestHourAnchor: true, sortOrder: true,
+        },
+        orderBy: { sortOrder: "asc" },
+      },
     },
   });
   if (!pickleball) {
@@ -82,7 +91,7 @@ async function main() {
   console.log(
     `copying pickleball: ${pickleball.widthFt}x${pickleball.lengthFt}ft, ` +
       `zones [${pickleball.zones.join(", ")}], ${pickleball.slotDurationMinutes}min slots, ` +
-      `${pickleball.prices.length} price rows\n`,
+      `${pickleball.prices.length} price rows, ${pickleball.passPlans.length} pass plans\n`,
   );
 
   const existing = await db.courtConfig.findFirst({
@@ -130,6 +139,62 @@ async function main() {
     })),
   });
 
+  // ── Pass plans ──────────────────────────────────────────────────────
+  //
+  // Cloned from pickleball's live ACTIVE plans, for the same reason the
+  // prices are: "same as pickleball" has to survive a repricing, and
+  // staging and production already hold different plans (one vs four).
+  //
+  // `bands` and `anchorPrice` carry over untouched and stay valid,
+  // because the table-tennis PricingRule rows were just cloned from the
+  // same source — a band is only honoured while its anchorPrice still
+  // equals the court's price for that cell, so copying one without the
+  // other would silently deactivate every plan.
+  //
+  // Matched by NAME so a re-run updates rather than duplicating. A plan
+  // the venue has since edited keeps its edits only if they renamed it;
+  // that is the same bargain the price re-sync makes, and re-running is
+  // how you intentionally pull pickleball's changes across.
+  const planName = (name: string) => {
+    const renamed = name.replace(/pickleball/gi, "Table Tennis");
+    return renamed === name ? `${LABEL} — ${name}` : renamed;
+  };
+
+  const existingPlans = new Map(
+    (
+      await db.passPlan.findMany({
+        where: { courtConfigId: courtId },
+        select: { id: true, name: true },
+      })
+    ).map((p) => [p.name, p.id]),
+  );
+
+  for (const plan of pickleball.passPlans) {
+    const name = planName(plan.name);
+    const data = {
+      name,
+      sport: "TABLE_TENNIS" as const,
+      courtConfigId: courtId,
+      totalMinutes: plan.totalMinutes,
+      anchorPricePerHour: plan.anchorPricePerHour,
+      baseAmount: plan.baseAmount,
+      discountPercent: plan.discountPercent,
+      price: plan.price,
+      validityDays: plan.validityDays,
+      bands: plan.bands ?? undefined,
+      anchorPrice: plan.anchorPrice,
+      // Safe to copy: the cheapest-hour anchor is scoped per (sport,
+      // bucket), and table tennis is its own sport, so this cannot
+      // displace pickleball's.
+      isCheapestHourAnchor: plan.isCheapestHourAnchor,
+      sortOrder: plan.sortOrder,
+      isActive: true,
+    };
+    const id = existingPlans.get(name);
+    if (id) await db.passPlan.update({ where: { id }, data });
+    else await db.passPlan.create({ data });
+  }
+
   // ── Verify, rather than trust the writes ────────────────────────────
   const check = await db.courtConfig.findUnique({
     where: { id: courtId },
@@ -137,6 +202,7 @@ async function main() {
       id: true, sport: true, label: true, zones: true, isActive: true,
       slotDurationMinutes: true, maxPassMembers: true,
       prices: { select: { dayType: true, timeType: true, pricePerSlot: true } },
+      passPlans: { select: { name: true, totalMinutes: true, price: true, isActive: true } },
     },
   });
 
@@ -155,6 +221,15 @@ async function main() {
         "would be sellable twice over at the same hour. Refusing to report success.",
     );
   }
+  for (const pl of check!.passPlans) {
+    console.log(`  pass  ₹${pl.price}  ${pl.totalMinutes / 60}h  ${pl.name}`);
+  }
+  if (check!.passPlans.length !== pickleball.passPlans.length) {
+    throw new Error(
+      `Expected ${pickleball.passPlans.length} pass plans, found ${check!.passPlans.length}.`,
+    );
+  }
+
   const missing = pickleball.prices.length - check!.prices.length;
   if (missing !== 0) {
     throw new Error(`Expected ${pickleball.prices.length} price rows, found ${check!.prices.length}.`);

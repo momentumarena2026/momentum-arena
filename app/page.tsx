@@ -69,9 +69,7 @@ const sports = [
   {
     name: "Table Tennis",
     slug: "table-tennis",
-    // Shares the pickleball photo: it is the same court. Swap it when
-    // the venue has a shot of a table set up.
-    image: "/pickleball.png",
+    image: "/table-tennis.jpg",
     tagline: "Indoor Tables on the Shared Court",
     icon: MdSportsTennis,
     color: "rose",

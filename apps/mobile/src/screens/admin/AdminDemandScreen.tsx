@@ -395,7 +395,13 @@ function fmtHour(h: number): string {
 }
 
 function prettySport(s: string): string {
-  return s.charAt(0) + s.slice(1).toLowerCase();
+  // Underscore-aware: the old single-word version printed
+  // "Table_tennis" the moment a sport had two words.
+  return s
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 type RangeKey = "LAST_7" | "LAST_30" | "LAST_90";
