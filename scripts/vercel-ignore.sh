@@ -17,6 +17,19 @@
 #   exit 0  → ignore (skip) the build
 #   exit 1  → proceed with the build
 #
+# ── AN EMPTY COMMIT WILL NOT REDEPLOY ─────────────────────────────────
+# `git commit --allow-empty` changes no files, so the diff below is
+# empty and this script skips the build — the commit lands, CI goes
+# green, and nothing deploys. The same is true of a deploy triggered
+# from the Vercel API or dashboard for a commit whose only changes are
+# under apps/mobile/: it is created and then CANCELED by this gate.
+#
+# That matters because an ENV VAR CHANGE needs a redeploy to take
+# effect (process.env is read from the deployment), and reaching for an
+# empty commit is the obvious way to force one. It does not work here.
+# Change a tracked file outside apps/mobile/ — a comment is enough —
+# or redeploy from the dashboard with "Use existing Build Cache" off.
+#
 # We diff against VERCEL_GIT_PREVIOUS_SHA (the SHA of the previous
 # successful production build) when Vercel provides it; otherwise fall
 # back to the immediate parent commit. If git itself errors out (e.g.
