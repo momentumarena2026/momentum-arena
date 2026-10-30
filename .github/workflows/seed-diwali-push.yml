@@ -1,0 +1,87 @@
+name: Seed Diwali Bumper push campaign
+
+# DATA only — no engine changes, idempotent, safe to re-run.
+#
+#   WINDOWS   twelve one-day DailyPushOccasion rows: a teaser on 31 Oct
+#             plus the eleven offer days, 1–11 Nov.
+#   LINES     the twelve dated campaign lines that may only run inside
+#             those windows.
+#   SEND HOUR DailyPushSettings.sendHourIST → 19 (7 PM IST), which the
+#             venue asked for. Production was on 15. Pass
+#             keep_send_hour=true to leave it alone.
+#
+# The script REPLAYS all twelve days through the real selection logic
+# and fails if they do not produce twelve distinct lines on the right
+# dates — including that the windows close on the 12th. It also refuses
+# if the teaser line claims the offer is live "aaj", because that line
+# runs the evening before it opens.
+#
+# Defaults to STAGING. Production is a deliberate choice in the dropdown.
+#
+#   gh workflow run seed-diwali-push.yml -f environment=staging -f dry_run=true
+#   gh workflow run seed-diwali-push.yml -f environment=production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which DB to write to"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      dry_run:
+        description: "Print what would change and write nothing"
+        required: false
+        default: false
+        type: boolean
+      keep_send_hour:
+        description: "Leave DailyPushSettings.sendHourIST alone (do not set it to 19:00 IST)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  seed:
+    name: Seed the Diwali campaign data
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ inputs.environment == 'production' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty for environment=${{ inputs.environment }}"
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars) for ${{ inputs.environment }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      # Windows, lines and the send hour are all plain rows on the
+      # existing schema, so no `prisma db push` is needed and this can
+      # run before or after a deploy.
+      - name: Seed the Diwali windows, lines and send hour
+        run: >-
+          npx tsx scripts/seed-diwali-push.ts
+          ${{ inputs.dry_run && '--dry-run' || '--allow-production' }}
+          ${{ inputs.keep_send_hour && '--keep-send-hour' || '' }}
+
+      - name: Show the daily-push library
+        run: npx tsx scripts/seed-daily-push-lines.ts --list
