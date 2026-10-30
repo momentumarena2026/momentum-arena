@@ -8,6 +8,17 @@ import { Ticket, Check, X, Loader2, ChevronRight, Tag, Copy } from "lucide-react
 
 interface DiscountInputProps {
   bookingId?: string;
+  /**
+   * The SlotHold this checkout is for. Court bookings pass it; the cafe
+   * has no hold and omits it, which makes a TARGET_PRICE ("one price,
+   * all day") coupon correctly refuse there.
+   *
+   * Only reason it exists: that coupon type prices per SLOT, so the
+   * validator needs the hold to see the breakdown. Without it the
+   * preview here would reject a coupon that then applied fine, and the
+   * displayed total would disagree with the charge.
+   */
+  holdId?: string;
   bookingAmount: number; // paise
   sport?: string;
   scope?: "SPORTS" | "CAFE";
@@ -34,6 +45,7 @@ interface CouponItem {
 
 export function DiscountInput({
   bookingId,
+  holdId,
   bookingAmount,
   sport,
   scope = "SPORTS",
@@ -163,6 +175,7 @@ export function DiscountInput({
       amount: bookingAmount,
       userId: userId || undefined,
       sport: sport || undefined,
+      holdId,
     });
 
     if (

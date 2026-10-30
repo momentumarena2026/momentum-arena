@@ -2,7 +2,16 @@ import { request } from "./admin-api";
 import type { KnownSport } from "./sport-theme";
 
 export type CouponScope = "BOTH" | "SPORTS" | "CAFE";
-export type CouponType = "PERCENTAGE" | "FLAT";
+/**
+ * Mirrors prisma's `DiscountType`. TARGET_PRICE means `value` is the
+ * price the customer ENDS UP paying per slot rather than an amount off
+ * — a shape no other type has, so every place that formats or computes
+ * from `value` has to branch on it. The create/edit form here offers
+ * only the first two; a TARGET_PRICE coupon is seeded or made on web,
+ * and this union exists so the list and the counter flow can display
+ * and price one correctly.
+ */
+export type CouponType = "PERCENTAGE" | "FLAT" | "TARGET_PRICE";
 /** Booking.platform values. Empty validPlatforms = all platforms. */
 export type CouponPlatform = "web" | "android" | "ios";
 

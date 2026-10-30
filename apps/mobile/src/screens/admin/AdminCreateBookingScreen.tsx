@@ -267,6 +267,20 @@ export function AdminCreateBookingScreen() {
   }, [isBowlingConfig, hours, slotPrices, bowlingSlots, bowlingPrices]);
   const selectedSlotCount = isBowlingConfig ? bowlingSlots.length : hours.length;
 
+  // The same slots as `slotSum`, kept UNSUMMED. A TARGET_PRICE coupon
+  // ("one price, all day") is priced per slot, so a total cannot
+  // express it — see lib/auto-apply-promo.ts.
+  const selectedSlotPrices = useMemo(() => {
+    if (isBowlingConfig) {
+      return bowlingSlots.map(
+        (s) =>
+          bowlingPrices.find((x) => x.hour === s.hour && x.minute === s.minute)
+            ?.price ?? 0,
+      );
+    }
+    return hours.map((h) => slotPrices.find((s) => s.hour === h)?.price ?? 0);
+  }, [isBowlingConfig, hours, slotPrices, bowlingSlots, bowlingPrices]);
+
   // Equipment subtotal in rupees. Mirror of the web form's formula:
   // qty * pricePerUnitPaise * slotCount, summed in paise, rounded
   // to rupees. Zero when no items picked.
@@ -300,11 +314,25 @@ export function AdminCreateBookingScreen() {
     !!selectedCoupon && method !== "FREE" && !payWithPass && !customAmountValid;
   // Mirrors actions/coupon-validation.ts: PERCENTAGE value is basis
   // points and caps at maxDiscount; FLAT is whole rupees, capped at the
-  // slot sum. Equipment isn't discounted, same as the web form.
+  // slot sum; TARGET_PRICE is per slot. Equipment isn't discounted,
+  // same as the web form.
   const couponDiscount = (() => {
     if (!couponApplies || !selectedCoupon) return 0;
     if (selectedCoupon.type === "PERCENTAGE") {
       const raw = Math.floor((slotSum * selectedCoupon.value) / 10000);
+      return selectedCoupon.maxDiscount !== null
+        ? Math.min(raw, selectedCoupon.maxDiscount)
+        : raw;
+    }
+    if (selectedCoupon.type === "TARGET_PRICE") {
+      // `value` is the price per slot the customer ends up paying, so
+      // the saving is what each slot is over it, floored per slot.
+      // Reading it as FLAT here would quote the admin ₹1500 off a
+      // ₹2000 slot instead of ₹500, at the counter, out loud.
+      const raw = selectedSlotPrices.reduce(
+        (sum, price) => sum + Math.max(0, price - selectedCoupon.value),
+        0,
+      );
       return selectedCoupon.maxDiscount !== null
         ? Math.min(raw, selectedCoupon.maxDiscount)
         : raw;
@@ -979,7 +1007,9 @@ export function AdminCreateBookingScreen() {
                           {c.code} ·{" "}
                           {c.type === "PERCENTAGE"
                             ? `${c.value / 100}% off`
-                            : `${formatRupees(c.value)} off`}
+                            : c.type === "TARGET_PRICE"
+                              ? `${formatRupees(c.value)}/slot`
+                              : `${formatRupees(c.value)} off`}
                         </Text>
                       </Pressable>
                     );

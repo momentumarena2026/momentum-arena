@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-10-16 · accurate as of `main` = `d7a803e2` (app 1.0.8). Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
+**Last substantive update:** 2026-10-30 · accurate as of `development` = `183cb4b7`, promoted to `main` the same day (app 1.0.8). **New: the DIWALI BUMPER run** — cricket and football at a flat ₹1500/hour on play dates 1–11 Nov, plus a twelve-day 7 PM push campaign (a teaser on 31 Oct, then one dated line a day). It needed a new discount type, `TARGET_PRICE`, because neither percentage nor flat can express "one price" across a ₹2000 peak and a ₹1600 off-peak band — see **gotcha 27** for that, for why the per-slot floor does the court filtering for free, and for why the validator takes a `holdId` rather than the prices. `DailyPushSettings.sendHourIST` moved 15 → 19. Campaign constants live in `lib/diwali-2026.ts`, shared by both seeders so the copy cannot outlive the discount it quotes — the same discipline `lib/navratri-2026.ts` installed. Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -574,6 +574,63 @@ Anything else means main has drifted — stop and investigate, do not push.
     local `isoDate()` helpers used device-local getters — correct only
     because the admins' phones happen to be in India, which is not a
     property of the code.
+
+27. **A discount that cannot be computed from a total needs the slots, and
+    asking the client for them is a self-service discount.** The Diwali
+    Bumper is "cricket and football, all day, one price ₹1500". The full
+    turf is ₹2000 from 17:00 and ₹1600 before it, so a flat rate needs
+    ₹500 off one band and ₹100 off the other — **no percentage and no
+    flat amount hits both**, and flattening the two bands is the entire
+    offer. Hence `DiscountType.TARGET_PRICE`, where `Coupon.value` is the
+    price the customer ENDS UP paying per slot and the discount is the
+    sum of (price − target), floored *per slot*.
+
+    Three things about it are worth carrying forward.
+
+    **The per-slot floor does the court filtering for free.** A coupon
+    can filter by sport but cannot say "full field only". Read literally,
+    "one price for cricket and football" would RAISE the ₹1000–1200 half
+    courts and the ₹500–800 leather pitches to ₹1500. Flooring at zero
+    per slot means anything already at or below the target is untouched,
+    so the offer lands on the full turf and nothing else — without a
+    court filter existing. `scripts/seed-diwali-coupon.ts` prints the
+    resulting price for every court and band against the live
+    `PricingRule` table and refuses if the figure discounts nothing,
+    because a coupon that quietly does nothing while twelve push
+    notifications advertise it is the failure worth preventing.
+
+    **`validateCoupon` is a server ACTION, so its context is attacker
+    input.** The obvious signature takes `number[]` of slot prices. That
+    is a self-service discount: post `[999999]`, read back the saving. It
+    takes a `holdId` instead and reads the hold itself, scoped to
+    `userId`, so a caller can only describe a hold that is really theirs.
+    The admin counter path has no hold, so it does pass prices — honoured
+    only after `requireAdmin()`, because **the gate is the session and
+    never the argument** (`lib/admin-auth.ts` explains why at length).
+    Absent either, TARGET_PRICE **refuses**: pricing a ₹1500 target off a
+    three-hour ₹6000 total gives ₹4500 off instead of ₹1500, so failing
+    closed is the difference between the offer and a ₹3000 giveaway.
+    Cafe, tournament and camp scopes have no hold and so can never
+    satisfy one, which is correct.
+
+    **A new enum member finds every place that assumed two.** The
+    compiler caught the legacy `DiscountCode` path (which shares the enum
+    but has no slot awareness); the ones it could not catch were string
+    comparisons that fall through an `else` — the public coupons page,
+    the mobile admin counter preview, the admin list labels — each of
+    which would have read ₹1500 as ₹1500 **OFF**. Grep for the OTHER
+    members, not just the one you added. And `actions/sport-promo.ts`
+    refuses to put a TARGET_PRICE coupon on the slot tiles at all: that
+    function gets no play date, so a strikethrough would quote ₹1500 on
+    every date in the calendar including ones checkout charges ₹2000 for.
+    The offer still auto-applies at checkout, which runs the full
+    validator and does honour `BOOKING_DATE`. NAVRATRI25 shipped the same
+    way.
+
+    Deploy order matters: Postgres rejects an enum value it has never
+    heard of, and `prisma db push` runs inside the Vercel build, so the
+    coupon **cannot be seeded until the schema is live**. The workflow
+    checks for the enum and says so rather than failing on a bare 22P02.
 
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo
@@ -1752,9 +1809,15 @@ the real rendered copy and correctly declined free slots on a night with none.
   separators that are also date separators.
 
 **Tests** (`npm test` — Node's built-in runner via `tsx`, no test framework dependency)
-- `tests/match-engine.parity.test.ts`, `tests/payment-split.parity.test.ts` — the two
-  must-stay-in-sync pairs above. Both suites were mutation-checked when written: breaking a
-  mirror on purpose fails them, so they are known to be capable of failing.
+- `tests/match-engine.parity.test.ts`, `tests/payment-split.parity.test.ts`,
+  `tests/auto-apply-promo.parity.test.ts` — the three must-stay-in-sync pairs. All were
+  mutation-checked when written: breaking a mirror on purpose fails them, so they are
+  known to be capable of failing. The third covers
+  `lib/auto-apply-promo.ts` ↔ `apps/mobile/src/lib/auto-apply-promo.ts`, which had
+  declared itself a pair in its own header for months with nothing enforcing it; the test
+  arrived with the commit that gave both copies a third discount type. It pins the
+  asymmetry that matters: PERCENTAGE reads the same per slot as on a total, TARGET_PRICE
+  does not, which is why `computeAutoApplyDiscountForSlots` exists.
 - `tests/booking-bot.test.ts` — includes a third sync guard: `VOCABULARY` in
   `lib/booking-bot/parse.ts` mirrors that file's own weekday/month tables and its sport
   and keyword regexes. It asserts every canonical form is still parseable, because a

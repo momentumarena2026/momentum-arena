@@ -177,6 +177,49 @@ export const DEFAULT_DAILY_PUSH_LINES: DailyPushLineSeed[] = [
   { title: "kal tak hai", body: "25% off ka aakhri mauka. ground khula hai.", tags: ["navratri-d8"] },
   { title: "aaj aakhri din", body: "navratri ka 25% off aaj raat tak. ground khula hai.", tags: ["navratri-d9"] },
 
+  // ── Diwali Bumper 2026, 31 Oct teaser + 1–11 Nov. One line per day. ─
+  //
+  // These twelve BREAK the no-prices rule at the top of this file, on
+  // purpose, for the same reason the Navratri nine do: each carries a
+  // SINGLE-DAY tag, and those tags are switched on by windows built
+  // from the same constants as the coupon's BOOKING_DATE condition
+  // (lib/diwali-2026.ts). The copy therefore cannot outlive the offer
+  // it quotes.
+  //
+  // ORDER IS LOAD-BEARING, and more so than for Navratri:
+  //   d0  is the TEASER and runs on 31 Oct, the evening BEFORE the
+  //       offer opens. It must promise TOMORROW. A line claiming the
+  //       rate is live "aaj" would be a day early, and the counter
+  //       would have to honour the screenshot. tests/diwali-2026.test.ts
+  //       asserts this one specifically.
+  //   d6  Dhanteras (Fri 6 Nov), d7 Chhoti Diwali, d8 Diwali itself
+  //       (Sun 8 Nov), d9 Govardhan Puja / Annakut — which is a Braj
+  //       festival and lands properly in Mathura.
+  //   d9–d11 count down, INCLUSIVE of the day they run: "teen din
+  //       baaki" on the 9th covers the 9th, 10th and 11th. Re-sequencing
+  //       these means re-doing that arithmetic, not just moving lines.
+  //
+  // The rupee figure, not a percentage, because the offer is a FLAT
+  // RATE: one price all day, which is the thing being advertised. A
+  // customer never pays more than the quoted figure on the covered
+  // courts, so the number is a ceiling rather than a promise about any
+  // one slot.
+  //
+  // Cricket and football only, because that is what the offer covers.
+  // Nothing about pickleball, table tennis, or the bowling machine.
+  { title: "kal se rate gir raha hai", body: "1 se 11 november, cricket aur football ₹1500 per hour.", tags: ["diwali-d0"] },
+  { title: "diwali bumper shuru", body: "cricket aur football ₹1500 per hour. aaj se 11 tak.", tags: ["diwali-d1"] },
+  { title: "monday ka bhi wahi rate", body: "₹1500 per hour. din ho ya raat, farak nahi padta.", tags: ["diwali-d2"] },
+  { title: "gyarah din, ek rate", body: "diwali bumper chal raha hai. turf ₹1500 ka.", tags: ["diwali-d3"] },
+  { title: "team ko bata diya?", body: "cricket aur football ₹1500 per hour, 11 november tak.", tags: ["diwali-d4"] },
+  { title: "subah ka rate, raat ka rate", body: "ab ek hi hai. ₹1500 per hour. diwali bumper.", tags: ["diwali-d5"] },
+  { title: "dhanteras pe sahi sauda", body: "turf ₹1500 per hour. cricket ya football, dono.", tags: ["diwali-d6"] },
+  { title: "chhoti diwali, bada match", body: "saturday shaam ₹1500 per hour. team bulao.", tags: ["diwali-d7"] },
+  { title: "diwali ki shubhkamnayein", body: "pataakhon se pehle ek match. turf ₹1500 mein.", tags: ["diwali-d8"] },
+  { title: "annakut ke baad thodi daud", body: "cricket aur football ₹1500 per hour. teen din baaki.", tags: ["diwali-d9"] },
+  { title: "offer kal khatam", body: "₹1500 ka rate kal raat tak. cricket aur football.", tags: ["diwali-d10"] },
+  { title: "aaj last din", body: "diwali bumper aaj raat tak. turf ₹1500 per hour.", tags: ["diwali-d11"] },
+
   // ── Cricket calendar. Also dated windows. ──────────────────────────
   { title: "match 7:30 pe hai", body: "turf 6 baje. dono ho jayenge.", tags: ["ipl"] },
   { title: "IPL dekh ke khujli hui?", body: "wahi shot yahan try karo.", tags: ["ipl"] },

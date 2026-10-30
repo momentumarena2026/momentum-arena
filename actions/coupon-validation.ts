@@ -7,6 +7,8 @@ import {
   isPlatformAllowed,
   platformRestrictionMessage,
 } from "@/lib/coupon-platform";
+import { holdPayableSlotPrices } from "@/lib/booking-amounts";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export interface CouponValidationResult {
   valid: boolean;
@@ -43,6 +45,93 @@ interface ValidateCouponContext {
    * a BOOKING_DATE coupon then rejects with a clear error.
    */
   bookingDate?: Date | null;
+  /**
+   * The SlotHold being checked out. Needed only by TARGET_PRICE
+   * coupons, which price per slot and so cannot be computed from
+   * `amount`; the per-slot breakdown is read from this hold HERE,
+   * server-side.
+   *
+   * ── WHY AN ID AND NOT THE PRICES ──────────────────────────────────
+   * `validateCoupon` is a server ACTION: the web checkout and the
+   * coupon drawer call it straight from the browser, so every field on
+   * this context is attacker-controlled. Taking `number[]` of slot
+   * prices would let a client post `[999999]` and mint its own
+   * discount. An id cannot — it is looked up against the database and
+   * scoped to `userId`, so a caller can only ever describe a hold that
+   * is really theirs. Same principle as lib/booking-amounts.ts, where
+   * the client's amount is a hint and never the charge.
+   *
+   * TARGET_PRICE REFUSES when this is absent. Failing closed is
+   * deliberate: pricing it off a total would subtract the target once
+   * instead of once per slot, so a three-hour booking at a ₹1500
+   * target would take ₹4500 off instead of ₹1500. Cafe, tournament and
+   * camp scopes have no hold and so can never satisfy such a coupon,
+   * which is correct — the offer is priced per hour of court time.
+   */
+  holdId?: string;
+  /**
+   * Per-slot prices, whole rupees, for a TARGET_PRICE coupon on a
+   * booking that has NO SlotHold — today only the admin counter path
+   * (`actions/admin-booking.ts`), which prices the slots itself from
+   * PricingRule and then creates the booking directly.
+   *
+   * ── HONOURED ONLY FOR AN AUTHENTICATED ADMIN ──────────────────────
+   * `validateCoupon` is a server action, so this field arrives from the
+   * client like every other. It is therefore checked against an admin
+   * session before being believed — see `payableSlotPrices`. Without
+   * that gate it would be a self-service discount: post any prices you
+   * like and read back the saving.
+   *
+   * The gate is the SESSION, never the argument. This file does not get
+   * a `trusted: true` parameter, for the reason spelled out at length
+   * in lib/admin-auth.ts: in a "use server" module every argument is
+   * attacker-controlled, so a flag that decides whether a check runs is
+   * a bypass with extra steps.
+   *
+   * Customer paths must leave this unset and pass `holdId` instead,
+   * which is non-forgeable because the hold is looked up scoped to the
+   * user.
+   */
+  adminSlotBasePrices?: number[];
+}
+
+/**
+ * The hold's per-slot prices, read from the database and scoped to the
+ * user the context claims to be.
+ *
+ * Returns [] for anything that is not a live hold belonging to this
+ * user, which makes a TARGET_PRICE coupon refuse. The `userId` filter
+ * is the security boundary: without it a caller could name somebody
+ * else's expensive hold to size their own discount.
+ */
+async function payableSlotPrices(
+  context: ValidateCouponContext,
+): Promise<number[]> {
+  if (context.holdId && context.userId) {
+    const hold = await db.slotHold.findFirst({
+      where: { id: context.holdId, userId: context.userId },
+      select: { slotPrices: true, passModeId: true, passModeCoverage: true, totalAmount: true },
+    });
+    if (hold) return holdPayableSlotPrices(hold);
+    return [];
+  }
+
+  // The admin counter path, which has prices but no hold. Believed only
+  // behind a real admin session — see `adminSlotBasePrices`.
+  const supplied = context.adminSlotBasePrices;
+  if (supplied && supplied.length > 0) {
+    try {
+      await requireAdmin();
+    } catch {
+      return [];
+    }
+    // Shape-check what an admin sent, so a malformed form submission
+    // cannot produce a NaN discount that later reads as a free booking.
+    if (!supplied.every((p) => Number.isInteger(p) && p >= 0)) return [];
+    return supplied;
+  }
+
+  return [];
 }
 
 export async function validateCoupon(
@@ -407,14 +496,36 @@ export async function validateCoupon(
       };
     }
 
-    // 10. Calculate discount. `context.amount`, `value` (FLAT) and
-    // `maxDiscount` are all in RUPEES here — PERCENTAGE `value` is basis
-    // points. (The schema comment says "paise" but the web admin, this
+    // 10. Calculate discount. `context.amount`, `value` (FLAT and
+    // TARGET_PRICE) and `maxDiscount` are all in RUPEES here —
+    // PERCENTAGE `value` is basis points. (The schema comment says "paise" but the web admin, this
     // validator, and auto-apply-promo all treat FLAT value/maxDiscount as
     // whole rupees; that's the canonical unit across existing coupon data.)
     let discountAmount: number;
     if (coupon.type === "PERCENTAGE") {
       discountAmount = Math.floor((context.amount * coupon.value) / 10000);
+      if (coupon.maxDiscount !== null) {
+        discountAmount = Math.min(discountAmount, coupon.maxDiscount);
+      }
+    } else if (coupon.type === "TARGET_PRICE") {
+      // "One price, all day": `value` is the target price PER SLOT, so
+      // the saving is the sum of what each slot is over it. Floored per
+      // slot rather than on the sum, so a slot already cheaper than the
+      // target does not subsidise a dearer one — a ₹1500 target on a
+      // mixed ₹2000 + ₹1000 booking saves ₹500, not ₹0.
+      const prices = await payableSlotPrices(context);
+      if (prices.length === 0) {
+        // See `holdId` above for why this is a refusal and not a
+        // fallback to the whole-amount formula.
+        return {
+          valid: false,
+          error: "This offer applies to court bookings only",
+        };
+      }
+      discountAmount = prices.reduce(
+        (sum, price) => sum + Math.max(0, price - coupon.value),
+        0,
+      );
       if (coupon.maxDiscount !== null) {
         discountAmount = Math.min(discountAmount, coupon.maxDiscount);
       }

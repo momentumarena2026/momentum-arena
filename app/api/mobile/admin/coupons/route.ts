@@ -63,7 +63,7 @@ const createSchema = z.object({
   code: z.string().min(3).max(30),
   description: z.string().optional(),
   scope: z.enum(["BOTH", "SPORTS", "CAFE"]),
-  type: z.enum(["PERCENTAGE", "FLAT"]),
+  type: z.enum(["PERCENTAGE", "FLAT", "TARGET_PRICE"]),
   value: z.number().int().positive(),
   maxDiscount: z.number().int().min(0).nullish(),
   maxUses: z.number().int().positive().nullish(),
@@ -187,6 +187,15 @@ export async function POST(request: NextRequest) {
   if (d.type === "PERCENTAGE" && d.value > 10000) {
     return NextResponse.json(
       { error: "Percentage cannot exceed 100%" },
+      { status: 400 },
+    );
+  }
+  // TARGET_PRICE `value` is the price the customer ENDS UP paying per
+  // slot, not an amount off. Zero would make every covered slot free,
+  // which is a typo away from a flat coupon and worth refusing outright.
+  if (d.type === "TARGET_PRICE" && d.value < 1) {
+    return NextResponse.json(
+      { error: "A target price must be at least ₹1 per slot" },
       { status: 400 },
     );
   }

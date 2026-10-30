@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
     sport?: Sport;
     categories?: string[];
     bookingCategory?: BookingCategory;
+    holdId?: string;
   };
   try {
     body = await request.json();
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { code, scope = "SPORTS", amount, sport, categories, bookingCategory } = body;
+  const { code, scope = "SPORTS", amount, sport, categories, bookingCategory, holdId } = body;
   if (!code || typeof amount !== "number") {
     return NextResponse.json({ error: "Missing code or amount" }, { status: 400 });
   }
@@ -40,6 +41,10 @@ export async function POST(request: NextRequest) {
     categories,
     bookingCategory: bookingCategory ?? null,
     platform: resolveRequestPlatform(request),
+    // TARGET_PRICE coupons price per slot, so they need the hold. Safe
+    // to forward straight from the body: the validator looks the hold up
+    // scoped to `user.id`, so naming somebody else's hold yields nothing.
+    holdId,
   });
 
   return NextResponse.json(result);

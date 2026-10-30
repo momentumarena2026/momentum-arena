@@ -59,6 +59,9 @@ export async function POST(request: NextRequest) {
     platform: resolveRequestPlatform(request),
     // Play date — drives BOOKING_DATE event promos (e.g. final-day 25%).
     bookingDate: hold.date,
+    // Per-slot pricing for TARGET_PRICE coupons — see the web twin in
+    // actions/booking.ts applyCouponToHold.
+    holdId,
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {

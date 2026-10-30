@@ -42,8 +42,28 @@ function CouponCard({ coupon }: { coupon: PublicCoupon }) {
       const pct = (coupon.value / 100).toFixed(0);
       return `${pct}% OFF`;
     }
+    // TARGET_PRICE's value is the price the customer PAYS per slot, not
+    // an amount off. Falling through to the line below would print
+    // "₹1500 OFF" for a ₹1500-an-hour offer — a promise of ₹500 for a
+    // ₹2000 slot, in writing, on the public coupons page.
+    if (coupon.type === "TARGET_PRICE") {
+      return `${formatPrice(coupon.value)}/hour`;
+    }
     return `${formatPrice(coupon.value)} OFF`;
   };
+
+  /**
+   * A BOOKING_DATE bound is a bare IST calendar date, not an instant.
+   * Parsed at NOON UTC rather than midnight so no viewer's timezone can
+   * render it as the day before — the same trap as gotchas 19 and 21,
+   * reaching the customer's screen instead of the database.
+   */
+  const formatPlayDate = (day: string) =>
+    new Date(`${day}T12:00:00.000Z`).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
 
   const formatDate = (iso: string) => {
     return new Date(iso).toLocaleDateString("en-IN", {
@@ -81,6 +101,20 @@ function CouponCard({ coupon }: { coupon: PublicCoupon }) {
             break;
           case "FIRST_PURCHASE":
             terms.push("First purchase only");
+            break;
+          // Without this the card shows only the REDEMPTION window
+          // ("Valid: 30 Oct – 11 Nov"), which reads as the dates you
+          // may play. For an event promo they are deliberately
+          // different: redemption opens early so advance bookings
+          // qualify, while the rate applies to a narrower set of play
+          // dates. A customer booking 31 Oct off that card would expect
+          // the offer and not get it.
+          case "BOOKING_DATE":
+            if (val.from && val.to) {
+              terms.push(
+                `Play dates: ${formatPlayDate(val.from)} - ${formatPlayDate(val.to)}`,
+              );
+            }
             break;
         }
       } catch {}

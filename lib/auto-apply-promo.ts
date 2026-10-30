@@ -69,8 +69,15 @@ export type ActiveSportPromo = {
 
 /**
  * The per-slot (or per-amount) discount in rupees the user would
- * actually save. Mirrors coupon-validation.ts:330's Math.floor so the
- * sum of per-slot discounts equals the whole-order discount.
+ * actually save. Mirrors coupon-validation.ts's Math.floor so the sum
+ * of per-slot discounts equals the whole-order discount.
+ *
+ * ── CALL THIS PER SLOT, NOT ON A TOTAL, FOR TARGET_PRICE ──────────────
+ * PERCENTAGE is linear, so it gives the same answer either way and both
+ * kinds of caller have always been fine. TARGET_PRICE is NOT: the
+ * saving is (price − target) per slot, so handing it a three-hour total
+ * of ₹6000 against a ₹1500 target returns ₹4500 instead of the correct
+ * ₹1500. Use `computeAutoApplyDiscountForSlots` when you hold a list.
  */
 export function computeAutoApplyDiscount(
   amount: number,
@@ -79,10 +86,34 @@ export function computeAutoApplyDiscount(
   if (promo.type === "PERCENTAGE") {
     return Math.floor((amount * promo.value) / 10000);
   }
+  if (promo.type === "TARGET_PRICE") {
+    // `value` is the TARGET price for one slot, so the saving is
+    // whatever this slot is over it. Floored at zero: a slot already
+    // cheaper than the target is not raised to it, and does not
+    // subsidise a dearer one.
+    return Math.max(0, amount - promo.value);
+  }
   // FLAT — coupon.value is the rupee amount (validator uses it directly
-  // at coupon-validation.ts:336 despite the schema's "paise" comment).
-  // We don't actually display flat-promo decorations per slot today
-  // (percentOff gating above), but keep the math correct in case a
-  // caller passes a flat promo.
+  // despite the schema's "paise" comment). We don't actually display
+  // flat-promo decorations per slot today (percentOff gating above), but
+  // keep the math correct in case a caller passes a flat promo.
   return Math.min(amount, promo.value);
+}
+
+/**
+ * The discount across a list of slot prices — the shape every caller
+ * that holds the breakdown should use.
+ *
+ * For PERCENTAGE this is identical to calling the function above on the
+ * sum. For TARGET_PRICE it is the only correct form. Having one helper
+ * means a caller does not have to know which types are linear.
+ */
+export function computeAutoApplyDiscountForSlots(
+  slotPrices: number[],
+  promo: ActiveSportPromo,
+): number {
+  return slotPrices.reduce(
+    (sum, price) => sum + computeAutoApplyDiscount(price, promo),
+    0,
+  );
 }

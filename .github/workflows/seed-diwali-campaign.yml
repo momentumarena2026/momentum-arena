@@ -1,0 +1,139 @@
+name: Seed Diwali Bumper campaign
+
+# DATA only — idempotent, safe to re-run.
+#
+#   COUPON    DIWALI1500: a TARGET_PRICE coupon putting cricket and
+#             football at a flat ₹1500/hour on play dates 1–11 Nov. It
+#             prints what the rate does to every court and band first,
+#             and REFUSES if the figure discounts nothing.
+#
+#   WINDOWS   twelve one-day DailyPushOccasion rows: a teaser on 31 Oct
+#             plus the eleven offer days, 1–11 Nov.
+#   LINES     the twelve dated campaign lines that may only run inside
+#             those windows.
+#   SEND HOUR DailyPushSettings.sendHourIST → 19 (7 PM IST), which the
+#             venue asked for. Production was on 15. Pass
+#             keep_send_hour=true to leave it alone.
+#
+# The script REPLAYS all twelve days through the real selection logic
+# and fails if they do not produce twelve distinct lines on the right
+# dates — including that the windows close on the 12th. It also refuses
+# if the teaser line claims the offer is live "aaj", because that line
+# runs the evening before it opens.
+#
+# ── ORDER MATTERS FOR THE COUPON, NOT THE PUSH ────────────────────────
+# The push rows sit on the existing schema. The coupon does NOT: its
+# `type` is a new `DiscountType` enum member, and Postgres rejects a
+# value its enum has never heard of. `prisma db push` runs inside the
+# VERCEL BUILD, so this workflow must run AFTER the deploy that carries
+# the schema. The coupon step checks for the enum value and fails with
+# that instruction rather than writing half the campaign.
+#
+# Defaults to STAGING. Production is a deliberate choice in the dropdown.
+#
+#   gh workflow run seed-diwali-campaign.yml -f environment=staging -f dry_run=true
+#   gh workflow run seed-diwali-campaign.yml -f environment=production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which DB to write to"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      dry_run:
+        description: "Print what would change and write nothing"
+        required: false
+        default: false
+        type: boolean
+      keep_send_hour:
+        description: "Leave DailyPushSettings.sendHourIST alone (do not set it to 19:00 IST)"
+        required: false
+        default: false
+        type: boolean
+      what:
+        description: "Which half to seed"
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - push-only
+          - coupon-only
+
+jobs:
+  seed:
+    name: Seed the Diwali campaign data
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ inputs.environment == 'production' && secrets.PRODUCTION_DB_URL || secrets.STAGING_DB_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify DATABASE_URL is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty for environment=${{ inputs.environment }}"
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} chars) for ${{ inputs.environment }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      # Windows, lines and the send hour are all plain rows on the
+      # existing schema, so no `prisma db push` is needed and this can
+      # run before or after a deploy.
+      - name: Seed the Diwali windows, lines and send hour
+        if: ${{ inputs.what != 'coupon-only' }}
+        run: >-
+          npx tsx scripts/seed-diwali-push.ts
+          ${{ inputs.dry_run && '--dry-run' || '--allow-production' }}
+          ${{ inputs.keep_send_hour && '--keep-send-hour' || '' }}
+
+      # TARGET_PRICE is a new enum member. Without it in the database the
+      # coupon insert fails with a bare Postgres 22P02 ("invalid input
+      # value for enum") that reads like a code bug; this turns it into
+      # the actual instruction.
+      - name: Check the TARGET_PRICE enum has landed
+        if: ${{ inputs.what != 'push-only' }}
+        run: |
+          npx tsx -e '
+            import { PrismaClient } from "@prisma/client";
+            const db = new PrismaClient();
+            db.$queryRawUnsafe(
+              `SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = $$DiscountType$$ AND e.enumlabel = $$TARGET_PRICE$$`
+            ).then((r) => {
+              if (!Array.isArray(r) || r.length === 0) {
+                console.error("::error::DiscountType has no TARGET_PRICE value — deploy the schema first (Vercel runs prisma db push in the build), then re-run this.");
+                process.exit(1);
+              }
+              console.log("TARGET_PRICE is present in the DiscountType enum");
+              process.exit(0);
+            });
+          '
+
+      - name: Seed the DIWALI1500 coupon
+        if: ${{ inputs.what != 'push-only' }}
+        run: >-
+          npx tsx scripts/seed-diwali-coupon.ts
+          ${{ inputs.dry_run && '--dry-run' || '--allow-production' }}
+
+      - name: Show the daily-push library
+        if: ${{ inputs.what != 'coupon-only' }}
+        run: npx tsx scripts/seed-daily-push-lines.ts --list
