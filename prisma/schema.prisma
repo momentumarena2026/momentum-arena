@@ -136,6 +136,25 @@ enum TimeType {
 enum DiscountType {
   PERCENTAGE
   FLAT
+  // "One price, all day" — `Coupon.value` is the TARGET price per slot
+  // in whole rupees, and the discount is the sum of (slot price −
+  // target) over the slots the customer actually pays for, floored at
+  // zero per slot.
+  //
+  // Exists because neither of the other two can express it. The full
+  // turf is ₹2000 at peak and ₹1600 off-peak, so a flat rate of ₹1500
+  // needs ₹500 off one and ₹100 off the other — no single percentage
+  // or flat amount hits both, and the whole point of the offer is that
+  // it flattens the two bands.
+  //
+  // UNLIKE the other two this cannot be computed from an order TOTAL;
+  // it needs the per-slot breakdown. `validateCoupon` therefore REFUSES
+  // a TARGET_PRICE coupon unless the caller passes `slotBasePrices`,
+  // which means it is only ever valid on court bookings — never cafe,
+  // tournament or camp scopes. Failing closed is deliberate: computing
+  // it off a total would silently charge (total − 1500) once instead of
+  // per slot, which on a three-hour booking is a ~₹3000 giveaway.
+  TARGET_PRICE
 }
 
 enum BannerPlacement {

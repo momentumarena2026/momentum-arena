@@ -283,6 +283,10 @@ export async function applyCouponToHold(
     platform,
     // Play date — drives BOOKING_DATE event promos (e.g. final-day 25%).
     bookingDate: hold.date,
+    // Lets a TARGET_PRICE ("one price, all day") coupon read the
+    // per-slot breakdown; the validator re-reads the hold itself rather
+    // than trusting prices from here.
+    holdId,
   });
 
   if (!result.valid || !result.couponId || !result.discountAmount) {

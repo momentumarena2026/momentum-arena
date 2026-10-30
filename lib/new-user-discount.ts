@@ -68,6 +68,16 @@ export async function getNewUserDiscount(
   });
   if (usageCount > 0) return null;
 
+  // TARGET_PRICE belongs to the newer `Coupon` system and is priced
+  // per SLOT, which this legacy DiscountCode path has no knowledge of —
+  // it only ever sees an order total. The two systems share the
+  // `DiscountType` enum, so such a row is representable here even
+  // though nothing can create one (the /admin/discounts form offers
+  // percentage and flat only). Refuse rather than fall through to the
+  // `else` below, which would read ₹1500 as ₹1500 OFF and hand away the
+  // whole booking.
+  if (systemCode.type === "TARGET_PRICE") return null;
+
   // Calculate discount
   let discountAmount: number;
   if (systemCode.type === "PERCENTAGE") {

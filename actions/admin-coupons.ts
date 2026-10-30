@@ -46,7 +46,7 @@ const couponSchema = z.object({
   code: z.string().min(3).max(30),
   description: z.string().optional(),
   scope: z.enum(["SPORTS", "CAFE", "BOTH"]),
-  type: z.enum(["PERCENTAGE", "FLAT"]),
+  type: z.enum(["PERCENTAGE", "FLAT", "TARGET_PRICE"]),
   value: z.number().int().min(1),
   maxDiscount: z.number().int().min(0).nullable().optional(),
   maxUses: z.number().int().min(1).nullable().optional(),
@@ -192,6 +192,11 @@ export async function createCoupon(data: {
   if (existing) return { success: false, error: "Coupon code already exists" };
 
   // Validate percentage <= 10000 basis points (100%)
+  // TARGET_PRICE `value` is the price the customer ENDS UP paying per
+  // slot, not an amount off — zero would give the court away.
+  if (parsed.data.type === "TARGET_PRICE" && parsed.data.value < 1) {
+    return { success: false, error: "A target price must be at least ₹1 per slot" };
+  }
   if (parsed.data.type === "PERCENTAGE" && parsed.data.value > 10000) {
     return { success: false, error: "Percentage cannot exceed 100%" };
   }

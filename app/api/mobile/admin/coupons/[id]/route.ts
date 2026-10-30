@@ -60,7 +60,7 @@ const conditionSchema = z.object({
 const patchSchema = z.object({
   description: z.string().nullish(),
   scope: z.enum(["BOTH", "SPORTS", "CAFE"]).optional(),
-  type: z.enum(["PERCENTAGE", "FLAT"]).optional(),
+  type: z.enum(["PERCENTAGE", "FLAT", "TARGET_PRICE"]).optional(),
   value: z.number().int().positive().optional(),
   maxDiscount: z.number().int().min(0).nullish(),
   maxUses: z.number().int().positive().nullish(),
@@ -105,6 +105,14 @@ export async function PATCH(
   if (d.type === "PERCENTAGE" && d.value !== undefined && d.value > 10000) {
     return NextResponse.json(
       { error: "Percentage cannot exceed 100%" },
+      { status: 400 },
+    );
+  }
+  // See the create route: a target price is what the customer pays per
+  // slot, so zero gives the court away.
+  if (d.type === "TARGET_PRICE" && d.value !== undefined && d.value < 1) {
+    return NextResponse.json(
+      { error: "A target price must be at least ₹1 per slot" },
       { status: 400 },
     );
   }

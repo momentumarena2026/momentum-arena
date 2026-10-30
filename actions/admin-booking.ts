@@ -2435,6 +2435,16 @@ export async function adminCreateBooking(data: {
         bookingDate: dateOnly,
         userId: data.userId,
         platform: "web",
+        // There is no SlotHold on this path — the admin is creating the
+        // booking outright — so a TARGET_PRICE ("one price, all day")
+        // coupon gets the per-slot prices this action already derived
+        // from PricingRule above. Honoured only because the validator
+        // re-checks the admin session; see `adminSlotBasePrices`.
+        adminSlotBasePrices: data.bowlingSlots
+          ? data.bowlingSlots.map(
+              (s) => bowlingPriceMap.get(`${s.hour}:${s.minute}`) ?? 0,
+            )
+          : data.hours.map((h) => priceMap.get(h) ?? peakPrice),
       });
       if (!verdict.valid || !verdict.discountAmount) {
         return {

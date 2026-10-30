@@ -42,6 +42,13 @@ function CouponCard({ coupon }: { coupon: PublicCoupon }) {
       const pct = (coupon.value / 100).toFixed(0);
       return `${pct}% OFF`;
     }
+    // TARGET_PRICE's value is the price the customer PAYS per slot, not
+    // an amount off. Falling through to the line below would print
+    // "₹1500 OFF" for a ₹1500-an-hour offer — a promise of ₹500 for a
+    // ₹2000 slot, in writing, on the public coupons page.
+    if (coupon.type === "TARGET_PRICE") {
+      return `${formatPrice(coupon.value)}/hour`;
+    }
     return `${formatPrice(coupon.value)} OFF`;
   };
 

@@ -693,6 +693,7 @@ export function CheckoutClient({
           <h2 className="mb-2 text-sm font-medium text-zinc-400">Discount Code</h2>
           <DiscountInput
             bookingAmount={amount}
+            holdId={holdId}
             sport={sport}
             disabled={discountApplied}
             disabledMessage={discountLabel || "Discount applied"}

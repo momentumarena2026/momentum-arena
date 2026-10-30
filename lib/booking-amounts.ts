@@ -40,6 +40,12 @@ import { db } from "@/lib/db";
 /** The SlotHold columns every derivation here reads. */
 export interface HoldAmountFields {
   totalAmount: number;
+  /**
+   * `[{ hour, minute?, price }]` — the per-slot price snapshot. Only
+   * `holdPayableSlotPrices` reads it; every other derivation here works
+   * off `totalAmount`.
+   */
+  slotPrices?: unknown;
   equipmentTotalAmount?: number | null;
   couponId?: string | null;
   discountAmount?: number | null;
@@ -61,6 +67,67 @@ export function holdCourtBase(hold: HoldAmountFields): number {
       ? cov.coveredAmount
       : 0;
   return Math.max(0, hold.totalAmount - covered);
+}
+
+/**
+ * Per-slot prices, in whole rupees, for the slots the customer actually
+ * PAYS for. Pass-covered slots are left out.
+ *
+ * Exists for TARGET_PRICE coupons ("one price, all day"), which are the
+ * only money rule in this codebase that cannot be computed from a
+ * total — see the enum comment in prisma/schema.prisma. Everything else
+ * prices off `holdCourtBase`.
+ *
+ * ── WHY COVERED SLOTS COME OUT ────────────────────────────────────────
+ * A pass-covered hour is already free. Offering it "₹1500 instead of
+ * ₹2000" is meaningless, and including it would hand the customer a
+ * discount against money they are not being asked for. So coverage is
+ * subtracted the same way `holdCourtBase` subtracts it, just per slot
+ * instead of in aggregate.
+ *
+ * The sum of what this returns is NOT guaranteed to equal
+ * `holdCourtBase`: the pass's `coveredAmount` is itself capped by the
+ * pass's remaining slot portion, so a partly-funded slot can be listed
+ * as covered while only some of its price came off the base. Callers
+ * must therefore still clamp any derived discount to the amount being
+ * charged — `validateCoupon` does, at the end of its calculation.
+ *
+ * Returns [] when `slotPrices` is missing or unparseable, which makes a
+ * TARGET_PRICE coupon refuse rather than silently price off a total.
+ */
+export function holdPayableSlotPrices(hold: HoldAmountFields): number[] {
+  if (!Array.isArray(hold.slotPrices)) return [];
+
+  // `{h, m, min}` on the coverage side, `{hour, minute, price}` on the
+  // price side — two shapes for the same slot, so match on the pair.
+  // `minute` is optional and absent on every pre-bowling-machine hold,
+  // where it means :00.
+  const covered = new Set<string>();
+  if (hold.passModeId) {
+    const cov = hold.passModeCoverage as { coveredSlots?: unknown } | null;
+    const slots = cov && typeof cov === "object" ? cov.coveredSlots : null;
+    if (Array.isArray(slots)) {
+      for (const e of slots) {
+        if (e && typeof e === "object") {
+          const { h, m } = e as Record<string, unknown>;
+          if (typeof h === "number") {
+            covered.add(`${h}:${typeof m === "number" ? m : 0}`);
+          }
+        }
+      }
+    }
+  }
+
+  const out: number[] = [];
+  for (const e of hold.slotPrices) {
+    if (!e || typeof e !== "object") continue;
+    const { hour, minute, price } = e as Record<string, unknown>;
+    if (typeof hour !== "number" || typeof price !== "number") continue;
+    const key = `${hour}:${typeof minute === "number" ? minute : 0}`;
+    if (covered.has(key)) continue;
+    out.push(price);
+  }
+  return out;
 }
 
 export interface HoldCharge {

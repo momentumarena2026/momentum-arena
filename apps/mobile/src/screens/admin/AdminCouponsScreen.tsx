@@ -130,9 +130,13 @@ function discountLabel(c: AdminCoupon): string {
   // PERCENTAGE: value = basis points (÷100 → percent). FLAT: value = whole
   // RUPEES (canonical — matches the web admin + the coupon validator).
   // maxDiscount is also whole rupees.
-  return c.type === "PERCENTAGE"
-    ? `${c.value / 100}% OFF${c.maxDiscount ? ` ≤ ${formatRupees(c.maxDiscount)}` : ""}`
-    : `${formatRupees(c.value)} OFF`;
+  if (c.type === "PERCENTAGE") {
+    return `${c.value / 100}% OFF${c.maxDiscount ? ` ≤ ${formatRupees(c.maxDiscount)}` : ""}`;
+  }
+  // TARGET_PRICE: value is what the customer PAYS per slot, not what
+  // comes off. "₹1500 OFF" would describe a completely different offer.
+  if (c.type === "TARGET_PRICE") return `${formatRupees(c.value)}/slot`;
+  return `${formatRupees(c.value)} OFF`;
 }
 
 function toggle<T>(list: T[], item: T): T[] {

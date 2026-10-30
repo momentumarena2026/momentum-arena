@@ -92,6 +92,23 @@ function qualifyPromo(
     return null;
   }
 
+  // ── TARGET_PRICE never decorates tiles, for now ───────────────────
+  // "One price, all day" coupons are dated: the flat rate applies to a
+  // BOOKING_DATE window (1–11 Nov for the Diwali run), and this
+  // function is not given the play date — it is called per court and
+  // sport, and `qualifyPromo` checks none of the coupon's conditions.
+  // So a TARGET_PRICE promo surfaced here would print "₹1500" on the
+  // tiles for every date in the calendar, including ones checkout will
+  // charge ₹2000 for. That is precisely the "tiles must never advertise
+  // a price checkout won't deliver" rule stated at the call site.
+  //
+  // Refusing it here costs nothing today: the offer still auto-applies
+  // at checkout, via getAutoApplyCouponCodes, which runs the full
+  // validator and so does honour BOOKING_DATE. NAVRATRI25 shipped the
+  // same way. To decorate tiles with one, thread the selected date into
+  // this function and evaluate the condition — do NOT just delete this.
+  if (coupon.type === "TARGET_PRICE") return null;
+
   // maxDiscount cap on percentage coupons would make per-slot display
   // diverge from the whole-amount checkout discount at large totals, so
   // suppress per-slot decoration in that case (percentOff stays null;

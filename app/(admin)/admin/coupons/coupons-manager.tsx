@@ -34,6 +34,7 @@ import {
   Users,
   UserCheck,
   Smartphone,
+  Tag,
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 // UserPicker lives next to the UserGroupsManager (single source of
@@ -472,6 +473,10 @@ export function CouponsManager({
 
   const formatValue = (type: DiscountType, value: number) => {
     if (type === "PERCENTAGE") return `${(value / 100).toFixed(0)}%`;
+    // A target price is not an amount OFF, and showing a bare
+    // "₹1500" next to a flat coupon's "₹1500" would read as the same
+    // offer while charging very differently.
+    if (type === "TARGET_PRICE") return `${formatPrice(value)}/slot`;
     return formatPrice(value);
   };
 
@@ -536,11 +541,15 @@ export function CouponsManager({
                     className={`mt-0.5 shrink-0 rounded-lg p-2 ${
                       coupon.type === "PERCENTAGE"
                         ? "bg-purple-500/10"
-                        : "bg-emerald-500/10"
+                        : coupon.type === "TARGET_PRICE"
+                          ? "bg-amber-500/10"
+                          : "bg-emerald-500/10"
                     }`}
                   >
                     {coupon.type === "PERCENTAGE" ? (
                       <Percent className="h-4 w-4 text-purple-400" />
+                    ) : coupon.type === "TARGET_PRICE" ? (
+                      <Tag className="h-4 w-4 text-amber-400" />
                     ) : (
                       <IndianRupee className="h-4 w-4 text-emerald-400" />
                     )}
@@ -865,6 +874,9 @@ export function CouponsManager({
                   >
                     <option value="PERCENTAGE">Percentage</option>
                     <option value="FLAT">Flat Amount</option>
+                    <option value="TARGET_PRICE">
+                      One price per slot
+                    </option>
                   </select>
                 </div>
                 <div>
@@ -873,7 +885,9 @@ export function CouponsManager({
                     <span className="text-zinc-600">
                       {form.type === "PERCENTAGE"
                         ? "(basis pts, 1000=10%)"
-                        : "(₹, 100=₹100)"}
+                        : form.type === "TARGET_PRICE"
+                          ? "(₹ per slot the customer ends up paying)"
+                          : "(₹, 100=₹100)"}
                     </span>
                   </label>
                   <input
@@ -882,7 +896,13 @@ export function CouponsManager({
                     onChange={(e) =>
                       setForm((p) => ({ ...p, value: e.target.value }))
                     }
-                    placeholder={form.type === "PERCENTAGE" ? "1000" : "100"}
+                    placeholder={
+                      form.type === "PERCENTAGE"
+                        ? "1000"
+                        : form.type === "TARGET_PRICE"
+                          ? "1500"
+                          : "100"
+                    }
                     className="w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2.5 text-sm text-white placeholder-zinc-500"
                   />
                 </div>
