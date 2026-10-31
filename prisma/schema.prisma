@@ -1921,6 +1921,21 @@ model ArenaSettings {
   // new-user offer copy so existing behaviour survives the migration.
   infoBarEnabled           Boolean  @default(true)
   infoBarText              String?
+  // ── Festive theme (Diwali / Christmas / Holi) ────────────────────
+  // The seasonal skin on the website and the app. AUTO follows the
+  // dated windows in lib/festive-themes.ts, ON forces one on, OFF shows
+  // the ordinary site whatever the calendar says.
+  //
+  // Defaults to AUTO rather than OFF, unlike the other master switches
+  // here: the windows are the feature. A theme can only appear inside
+  // one, those are typed out per year by hand, and a year with no entry
+  // renders nothing — so AUTO cannot surprise anybody the way an
+  // always-on module could. OFF stays the one-click kill switch.
+  festiveThemeMode         String   @default("AUTO")
+  // Which theme to show when mode is ON. Null means "whatever the
+  // calendar would have given", which is what makes an admin able to
+  // force a theme on early to look at it.
+  festiveThemeOverride     String?
   // Master switch for the Monthly Passes storefront. OFF hides the
   // customer /passes buying page + plan listing and blocks the
   // purchase API. Already-sold passes keep redeeming at checkout

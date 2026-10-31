@@ -5,6 +5,7 @@ import * as Updates from "expo-updates";
 import { useUpdates } from "expo-updates";
 import { AppProviders } from "./src/providers/AppProviders";
 import { RootNavigator } from "./src/navigation/RootNavigator";
+import { FestiveBackdrop } from "./src/components/festive/FestiveBackdrop";
 import { SplashScreen } from "./src/screens/splash/SplashScreen";
 import { ForceUpdateScreen } from "./src/screens/update/ForceUpdateScreen";
 import { initAnalytics } from "./src/lib/analytics";
@@ -145,6 +146,17 @@ export default function App() {
       ) : (
         <SplashScreen onComplete={() => setSplashDone(true)} />
       )}
+      {/* The festive skin, over the navigator and under nothing. It has
+          to be a sibling AFTER RootNavigator rather than a wrapper:
+          every screen paints an opaque background, so a layer behind
+          the navigator would never be seen. `pointerEvents="none"`
+          inside keeps it from touching any gesture.
+
+          Only while the app is actually in use — during the splash
+          there is nothing to decorate, and mounting it there would fire
+          its request alongside the prefetches that are already racing
+          to fill the landing screen. */}
+      {splashDone && <FestiveBackdrop />}
     </AppProviders>
   );
 }
