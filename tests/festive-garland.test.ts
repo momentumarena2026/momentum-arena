@@ -25,6 +25,13 @@ const NAV_FILES = [
   "app/page.tsx",
 ];
 
+/**
+ * The app has the same shape of problem for the same reason: its
+ * garland hangs from the home screen's own header row, because in the
+ * app-wide overlay it landed across the logo.
+ */
+const APP_NAV_FILES = ["apps/mobile/src/screens/home/HomeScreen.tsx"];
+
 test("every top nav hangs the festive garland", () => {
   for (const file of NAV_FILES) {
     const src = readFileSync(file, "utf8");
@@ -60,5 +67,30 @@ test("the garland hangs from a positioned nav, or it lands in the wrong place", 
     home,
     /<nav className="fixed top-0/,
     "the home nav is no longer fixed at the top; re-check where the garland lands",
+  );
+});
+
+test("the app hangs its garland from the header too", () => {
+  for (const file of APP_NAV_FILES) {
+    const src = readFileSync(file, "utf8");
+    assert.match(
+      src,
+      /<FestiveGarland\s*\/>/,
+      `${file} lost <FestiveGarland> — the app would show glows and diyas but no toran`,
+    );
+  }
+});
+
+test("the app header does not clip the garland hanging below it", () => {
+  // The garland is absolutely positioned at top:"100%" of the header
+  // row, so it lives entirely OUTSIDE that row's bounds. Default
+  // overflow would clip it away completely and the symptom would be
+  // simply nothing rendering, with no error anywhere.
+  const src = readFileSync("apps/mobile/src/screens/home/HomeScreen.tsx", "utf8");
+  const block = /topNav: \{[\s\S]{0,400}/.exec(src)?.[0] ?? "";
+  assert.match(
+    block,
+    /overflow:\s*"visible"/,
+    'HomeScreen topNav lost `overflow: "visible"` — the garland hangs outside it and would be clipped',
   );
 });

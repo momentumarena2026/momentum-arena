@@ -71,6 +71,7 @@ const SIGNED_OUT_SURFACES = [
   // Mounted at the app root, so it is on screen before anybody signs
   // in — the landing screen should be dressed up for a new visitor too.
   "src/components/festive/FestiveBackdrop.tsx",
+  "src/components/festive/FestiveGarland.tsx",
   "src/navigation/MomentumTabBar.tsx",
   // The booking flow shows "Sign in to continue" in place — the person
   // signs in without the screen going anywhere.
