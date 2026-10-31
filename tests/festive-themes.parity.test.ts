@@ -218,3 +218,83 @@ test("every theme names an app icon key, and they are distinct", () => {
   assert.equal(new Set(keys).size, keys.length, `duplicate iconKey among ${keys.join(", ")}`);
   for (const k of keys) assert.match(k, /^[a-z][a-z0-9-]*$/, `${k} is not a safe asset key`);
 });
+
+/**
+ * The overlay's opacity is the one number that can quietly make the
+ * product less readable, and it lives in CSS where no type checker
+ * looks. These read the real files.
+ */
+import { readFileSync } from "node:fs";
+import { relativeLuminance } from "../lib/festive-themes";
+
+/** Composite `fg` over `bg` at `alpha`, per simple source-over blending. */
+function over(fg: string, bg: string, alpha: number): string {
+  const parse = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [fr, fg_, fb] = parse(fg);
+  const [br, bg_, bb] = parse(bg);
+  const mix = (f: number, b: number) => Math.round(f * alpha + b * (1 - alpha));
+  return (
+    "#" +
+    [mix(fr, br), mix(fg_, bg_), mix(fb, bb)]
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+function contrast(a: string, b: string): number {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+test("the glow, at the opacity actually shipped, keeps body text above AA", () => {
+  // The layer sits OVER the page, so it tints the text and the canvas
+  // together. White-on-black starts at 21:1; the question is what the
+  // hottest point of the glow leaves. Read from globals.css rather than
+  // hardcoded, so raising the opacity there fails HERE rather than on a
+  // phone in daylight.
+  const css = readFileSync("app/globals.css", "utf8");
+  const block = /\.festive-glow\s*\{[\s\S]*?opacity:\s*([\d.]+);/.exec(css);
+  assert.ok(block, "could not find .festive-glow's opacity in app/globals.css");
+  const alpha = Number(block![1]);
+  assert.ok(alpha > 0 && alpha <= 1, `implausible glow opacity ${alpha}`);
+
+  for (const id of webIds) {
+    for (const hex of [web[id].accent, web[id].accentSoft]) {
+      const text = over(hex, "#ffffff", alpha);
+      const canvas = over(hex, "#000000", alpha);
+      const ratio = contrast(text, canvas);
+      assert.ok(
+        ratio >= 4.5,
+        `${id}: at glow opacity ${alpha}, white-on-black falls to ${ratio.toFixed(1)}:1 — under AA`,
+      );
+    }
+  }
+});
+
+test("the festive layer can never intercept a tap", () => {
+  // It spans the whole viewport on both platforms. Without this it
+  // would swallow every click on the page underneath — which is the
+  // kind of outage a decoration has no business causing.
+  const webSrc = readFileSync("components/festive/festive-backdrop.tsx", "utf8");
+  assert.match(webSrc, /pointer-events-none/, "the web layer must be pointer-events-none");
+  const appSrc = readFileSync(
+    "apps/mobile/src/components/festive/FestiveBackdrop.tsx",
+    "utf8",
+  );
+  assert.match(appSrc, /pointerEvents=["']none["']/, "the app layer must set pointerEvents none");
+});
+
+test("reduced motion is honoured", () => {
+  // Someone who turned animation off should still get the festival,
+  // just still. Asserted because a new motif is the easy place to
+  // forget it.
+  const css = readFileSync("app/globals.css", "utf8");
+  const idx = css.indexOf("prefers-reduced-motion");
+  assert.ok(idx > -1, "globals.css has no prefers-reduced-motion rule for the festive layer");
+  assert.match(
+    css.slice(idx, idx + 400),
+    /animation:\s*none/,
+    "the reduced-motion block must stop the particle animation",
+  );
+});
