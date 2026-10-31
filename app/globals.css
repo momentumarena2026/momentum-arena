@@ -321,10 +321,13 @@ summary {
   max-height: 820px;
   border-radius: 9999px;
   filter: blur(90px);
-  /* 0.18 is the ceiling found by eye against body copy: enough to read
-     as "the site is dressed up", not enough to lift the black behind
-     paragraphs. Raising it is the first thing that will hurt text. */
-  opacity: 0.18;
+  /* The layer sits OVER the page (see the component header), so this is
+     a tint on top of body copy rather than behind it. 0.10 is the
+     ceiling that still reads as "the site is dressed up" while leaving
+     text contrast measurably unchanged — verified on the live staging
+     home page, not judged by eye. Raising it is the first thing that
+     will hurt readability. */
+  opacity: 0.1;
 }
 .festive-glow-a {
   top: -22vw;
@@ -353,7 +356,9 @@ summary {
   border-radius: 9999px;
   background: var(--festive-accent);
   box-shadow: 0 0 10px 2px var(--festive-accent), 0 0 22px 6px var(--festive-accent-soft);
-  opacity: 0.55;
+  /* Over the page now, so dimmer than a true backdrop would be. A diya
+     that lands on a word must not make it harder to read. */
+  opacity: 0.45;
   animation: festive-bob 5.5s ease-in-out infinite;
 }
 

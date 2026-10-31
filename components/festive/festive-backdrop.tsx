@@ -1,7 +1,7 @@
 import { FESTIVE_THEMES, type FestiveThemeId } from "@/lib/festive-themes";
 
 /**
- * The seasonal skin, as a fixed layer BEHIND everything.
+ * The seasonal skin, as a non-interactive layer OVER the page.
  *
  * ── WHY IT IS A BACKDROP AND NOT A THEME SWAP ─────────────────────────
  * The obvious implementation redefines the CSS variables in
@@ -15,6 +15,22 @@ import { FESTIVE_THEMES, type FestiveThemeId } from "@/lib/festive-themes";
  * So the canvas stays black, the text stays white, and this adds glows
  * and a motif underneath. The worst a bad palette can do here is look
  * wrong; it cannot make the site unreadable.
+ *
+ * ── WHY IT IS OVER THE PAGE AND NOT BEHIND IT ─────────────────────────
+ * It was behind, at `-z-10`, which is the obvious place for a backdrop
+ * and did not work: `<main>` carries `bg-black` and individual sections
+ * carry `bg-zinc-950`, so an opaque column covered the entire layer and
+ * the glow was visible only in the margins either side of the content.
+ * Making every page's background transparent would mean touching every
+ * page and would still miss the sections.
+ *
+ * So it sits on top, at a z-index above page content but below the
+ * bottom nav and the chat button, with `pointer-events-none` so it can
+ * never eat a tap. The opacities are correspondingly LOW: the glow is
+ * now over body copy rather than under it, and the number that looked
+ * right behind the text would wash it out in front. This also makes the
+ * two platforms agree — React Native has no choice but to overlay,
+ * because every screen there paints an opaque background too.
  *
  * `pointer-events-none` throughout: a decoration must never eat a tap,
  * and this spans the viewport.
@@ -36,7 +52,7 @@ export function FestiveBackdrop({ theme }: { theme: FestiveThemeId | null }) {
     <div
       aria-hidden="true"
       data-festive={t.id}
-      className="festive-backdrop pointer-events-none fixed inset-0 -z-10 overflow-hidden"
+      className="festive-backdrop pointer-events-none fixed inset-0 z-[45] overflow-hidden"
       style={
         {
           "--festive-accent": t.accent,
@@ -44,9 +60,9 @@ export function FestiveBackdrop({ theme }: { theme: FestiveThemeId | null }) {
         } as React.CSSProperties
       }
     >
-      {/* Two corner glows. Kept at the edges and well under half
-          opacity so the middle of the page — where the text is — stays
-          on the flat black it was designed for. */}
+      {/* Two corner glows, anchored off-screen at opposite corners so
+          the middle of the viewport — where the text is — gets the
+          least of them. */}
       <div className="festive-glow festive-glow-a" />
       <div className="festive-glow festive-glow-b" />
       {/* The motif. One element per particle; the count is small on
