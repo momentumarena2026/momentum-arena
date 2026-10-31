@@ -430,3 +430,75 @@ summary {
     display: none;
   }
 }
+
+/* ── Festive decor: garland, greeting, flyby ──────────────────────────
+   The recognisable artwork, as opposed to the glow layer above.
+   Components: components/festive/festive-garland.tsx and
+   festive-flyby.tsx. */
+
+/* Each hanging unit sways a little, out of phase with its neighbours
+   (the delay is set inline). Rotation about the TOP of the unit, so it
+   pivots from the string the way something hanging actually does. */
+.festive-hang {
+  transform-origin: 50% 0;
+  animation: festive-sway 4.5s ease-in-out infinite;
+  display: inline-block;
+}
+@keyframes festive-sway {
+  0%, 100% { transform: translateX(-50%) rotate(-5deg); }
+  50%      { transform: translateX(-50%) rotate(5deg); }
+}
+
+.festive-greeting {
+  animation: festive-greeting-in 900ms ease-out both;
+  backdrop-filter: blur(2px);
+}
+@keyframes festive-greeting-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Santa crosses once every 45s and is off-screen the rest of the time.
+   `left: -220px` parks him clear of the viewport at both ends so he
+   never pops in or out mid-screen. */
+.festive-sleigh {
+  position: relative;
+  left: -220px;
+  animation: festive-cross 45s linear infinite;
+  filter: drop-shadow(0 0 10px rgba(248, 113, 113, 0.5));
+}
+@keyframes festive-cross {
+  0%      { transform: translateX(0) translateY(0); opacity: 0; }
+  4%      { opacity: 1; }
+  /* A gentle rise and fall across the middle, so it flies rather than
+     slides. */
+  50%     { transform: translateX(55vw) translateY(-26px); opacity: 1; }
+  92%     { opacity: 1; }
+  100%    { transform: translateX(calc(100vw + 260px)) translateY(10px); opacity: 0; }
+}
+
+/* The diya row breathes rather than travels. */
+.festive-diya {
+  display: inline-block;
+  animation: festive-flicker 3.4s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.65));
+}
+@keyframes festive-flicker {
+  0%, 100% { transform: translateY(0) scale(1);     opacity: 0.9; }
+  40%      { transform: translateY(-3px) scale(1.04); opacity: 1; }
+  70%      { transform: translateY(-1px) scale(0.99); opacity: 0.85; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .festive-hang,
+  .festive-greeting,
+  .festive-diya {
+    animation: none !important;
+  }
+  /* Parked off-screen rather than frozen mid-flight: a sleigh stopped
+     in the middle of the page reads as a rendering bug. */
+  .festive-sleigh {
+    animation: none !important;
+    opacity: 0;
+  }
+}

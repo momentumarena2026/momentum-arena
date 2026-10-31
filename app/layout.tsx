@@ -20,6 +20,7 @@ import { NavLoader } from "@/components/nav-loader";
 import { PageViewTracker } from "@/components/page-view-tracker";
 import "./globals.css";
 import { FestiveBackdrop } from "@/components/festive/festive-backdrop";
+import { FestiveFlyby } from "@/components/festive/festive-flyby";
 import { getFestiveTheme } from "@/actions/admin-arena-settings";
 
 
@@ -171,6 +172,9 @@ export default async function RootLayout({
             outside a festival window or when an admin switches it off
             at /admin/config/festive-theme. */}
         <FestiveBackdrop theme={festiveTheme} />
+        {/* The one moving piece per festival — Santa crossing, or the
+            row of diyas along the foot of the screen. */}
+        <FestiveFlyby theme={festiveTheme} />
         <SessionProvider session={session}>
           <NavLoader />
           <PageViewTracker />
