@@ -37,6 +37,32 @@ jobs:
       - name: Tests
         run: npm test
 
+  db-cost:
+    name: Database cost — scheduled compute
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Neon bills COMPUTE TIME, not queries. A job scheduled more often
+      # than the compute's suspend window pins the database awake 24/7
+      # whether or not it finds work — which is what took the bill from
+      # under $20 to about $40 in October 2026, from a change that looked
+      # small and was correct on its own terms. Nothing caught it.
+      #
+      # This compares vercel.json's schedule against the committed
+      # baseline in .github/db-cost-baseline.json. Raising the cost means
+      # raising the baseline IN THE SAME COMMIT, with a name and a
+      # reason. That edit is the approval, and it shows up in review.
+      #
+      # Separate job so the failure reads as "database cost", not as a
+      # test that happens to be red.
+      - name: Cost gate (baseline in .github/db-cost-baseline.json)
+        run: npx tsx scripts/check-db-cost.ts
+
   mobile:
     name: Mobile — typecheck (baseline 15)
     runs-on: ubuntu-latest
