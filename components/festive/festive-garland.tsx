@@ -24,7 +24,25 @@ import { garlandUnit } from "./festive-art";
  * reads as a dense garland on a phone and a generous one on a desktop.
  * Spacing is a percentage, so it never wraps or overflows.
  */
-export function FestiveGarland({ theme }: { theme: FestiveThemeId | null }) {
+export function FestiveGarland({
+  theme,
+  variant = "hang",
+}: {
+  theme: FestiveThemeId | null;
+  /**
+   * "hang"   absolutely positioned just under its container — for a nav
+   *          that has nothing beneath it.
+   * "inline" in normal flow — for the home page, where a FIXED
+   *          announcement stack sits directly under the nav. Hung
+   *          absolutely there, the garland landed on the green
+   *          Information Bar and made the announcement unreadable, which
+   *          is how it went out to production: staging had no bar
+   *          switched on, so the collision never appeared in testing.
+   *          In flow as the last child of that stack, it sits under
+   *          whatever bars are showing and moves with them.
+   */
+  variant?: "hang" | "inline";
+}) {
   if (!theme) return null;
   const t = FESTIVE_THEMES[theme];
   const COUNT = 28;
@@ -32,7 +50,11 @@ export function FestiveGarland({ theme }: { theme: FestiveThemeId | null }) {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-x-0 top-full z-10 select-none"
+      className={
+        variant === "inline"
+          ? "pointer-events-none relative z-10 select-none"
+          : "pointer-events-none absolute inset-x-0 top-full z-10 select-none"
+      }
     >
       {/* The string itself. A gradient rather than a flat rule so it
           reads as thread catching the light rather than a border. */}

@@ -378,11 +378,6 @@ export default async function Home() {
       <main className="bg-black text-white overflow-x-hidden">
         {/* NAV BAR */}
         <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/5">
-          {/* Festive garland. The home page renders its own nav instead
-              of SiteHeader (see the note further down), so the garland
-              has to be hung in both places — `tests/festive-garland.test.ts`
-              fails if either one loses it. */}
-          <FestiveGarland theme={festiveTheme} />
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-20 gap-2">
             <Link href="/" className="flex-shrink-0">
               <Image
@@ -484,6 +479,13 @@ export default async function Home() {
           {rainBanner.show ? (
             <RainBanner title={rainBanner.title} body={rainBanner.body} href="/book" />
           ) : null}
+          {/* Festive garland, LAST in the announcement stack so it hangs
+              under whatever bars are showing rather than across them.
+              The home page renders its own nav instead of SiteHeader
+              (see the note further down), so the garland has to appear
+              in both places — `tests/festive-garland.test.ts` fails if
+              either one loses it. */}
+          <FestiveGarland theme={festiveTheme} variant="inline" />
         </div>
 
         {/* HERO */}
