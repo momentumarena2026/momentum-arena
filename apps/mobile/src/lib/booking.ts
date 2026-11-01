@@ -368,8 +368,15 @@ export interface PublicCoupon {
   code: string;
   description: string | null;
   scope: "SPORTS" | "CAFE" | "BOTH";
-  type: "PERCENTAGE" | "FLAT";
-  /** For PERCENTAGE this is percent * 100 (e.g. 10% = 1000). For FLAT it's paise. */
+  type: "PERCENTAGE" | "FLAT" | "TARGET_PRICE";
+  /**
+   * For PERCENTAGE this is percent * 100 (e.g. 10% = 1000). For FLAT it's
+   * the amount OFF. For TARGET_PRICE it is the price the customer ENDS UP
+   * PAYING per slot — the opposite direction — so anything rendering this
+   * has to branch on `type` rather than assume "off". Narrowing this union
+   * to two values is how the app came to advertise "₹1,500 OFF" for a
+   * ₹1,500-an-hour offer.
+   */
   value: number;
   maxDiscount: number | null;
   minAmount: number | null;

@@ -261,6 +261,12 @@ function formatDiscount(coupon: PublicCoupon): string {
       : "";
     return `${pct}% OFF${maxStr}`;
   }
+  // TARGET_PRICE's value is the price the customer PAYS per slot, not an
+  // amount off. Falling through would advertise "₹1,500 OFF" on a ₹2,000
+  // hour — promising ₹500, to a customer, at the moment of purchase.
+  if (coupon.type === "TARGET_PRICE") {
+    return `${formatRupees(coupon.value)}/hour`;
+  }
   return `${formatRupees(coupon.value)} OFF`;
 }
 

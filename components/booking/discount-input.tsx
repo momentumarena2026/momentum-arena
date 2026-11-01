@@ -232,6 +232,13 @@ export function DiscountInput({
         : "";
       return `${pct}% OFF${maxStr}`;
     }
+    // TARGET_PRICE's value is the price the customer PAYS per slot, not
+    // an amount off. This drawer is CUSTOMER-facing, so falling through
+    // would advertise "₹1,500 OFF" on a ₹2,000 hour — promising ₹500,
+    // in writing, at the moment of purchase.
+    if (coupon.type === "TARGET_PRICE") {
+      return `${formatPrice(coupon.value)}/hour`;
+    }
     return `${formatPrice(coupon.value)} OFF`;
   }
 
