@@ -1204,7 +1204,10 @@ model BookingEditHistory {
   booking       Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   adminId       String
   adminUsername String
-  editType      String // CREATED | SLOTS_CHANGED | DATE_CHANGED | COURT_CHANGED
+  // CREATED | SLOTS_CHANGED | DATE_CHANGED | COURT_CHANGED
+  // MARKED_COMPLETED | MARKED_ABSENT — post-session closeouts
+  // REOPENED — a closeout undone, back to CONFIRMED
+  editType      String
 
   previousDate          DateTime? @db.Date
   newDate               DateTime? @db.Date

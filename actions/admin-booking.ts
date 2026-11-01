@@ -5366,6 +5366,141 @@ async function closeOutBooking(
   }
 }
 
+/**
+ * Undo a closeout — put a COMPLETED or ABSENT booking back to CONFIRMED.
+ *
+ * ── WHY THIS EXISTS ───────────────────────────────────────────────────
+ * Closing out is one click and was a one-way door. `closeOutBooking`
+ * only accepts CONFIRMED, every other admin action on the detail page is
+ * gated on CONFIRMED too, and the generic "Confirm Booking" escape hatch
+ * was restricted to PENDING. So an admin who hit "Mark Completed" on the
+ * wrong row had no way back from the UI at all — reported from
+ * production, on a booking that was simply mis-clicked.
+ *
+ * ── WHAT IT RESTORES, AND WHAT IT DELIBERATELY DOES NOT ───────────────
+ * A closeout does up to three things. This reverses the first two:
+ *
+ *   status        back to CONFIRMED. Always.
+ *   forfeited     if the closeout wrote off an uncollected remainder, it
+ *   remainder     is put back on the booking and the payment, and the
+ *                 payment returns to PARTIAL — which is what the row
+ *                 means again once money is owed on it.
+ *
+ * It does NOT un-settle a payment that the closeout had merely marked
+ * COMPLETED without forfeiting anything, and does not clear `confirmedAt`.
+ * Cash reporting keys on `confirmedAt`, so retracting it would quietly
+ * pull money out of the Sports Earnings KPI and the CA report for a day
+ * that has probably already been reconciled. The admin who needs that
+ * changed has Edit Payment, which exists for exactly this and leaves its
+ * own audit trail.
+ *
+ * The forfeited amount is read from the BookingEditHistory row the
+ * closeout wrote, which is the only place it was recorded.
+ */
+export async function reopenBooking(
+  bookingId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const admin = await requireAdminWithDetails();
+
+  try {
+    const booking = await db.booking.findUnique({
+      where: { id: bookingId },
+      include: { payment: true },
+    });
+    if (!booking) return { success: false, error: "Booking not found" };
+
+    if (booking.status !== "COMPLETED" && booking.status !== "ABSENT") {
+      return {
+        success: false,
+        error: `Only a closed-out booking can be reopened (current: ${booking.status})`,
+      };
+    }
+    const previousStatus = booking.status;
+
+    // The closeout that put it here, if it is still on record. Matched
+    // on the newest closeout row rather than assuming one exists: a
+    // booking could have been set to COMPLETED by an older path, or the
+    // history could have been trimmed, and neither should block an undo.
+    const closeout = await db.bookingEditHistory.findFirst({
+      where: {
+        bookingId,
+        editType: { in: ["MARKED_COMPLETED", "MARKED_ABSENT"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { previousAmount: true, newAmount: true },
+    });
+
+    // Both amount columns are nullable, and a null pair means the
+    // closeout recorded no amount change — so nothing was written off
+    // and there is nothing to give back.
+    const before = closeout?.previousAmount ?? null;
+    const after = closeout?.newAmount ?? null;
+    const forfeited =
+      before !== null && after !== null && before > after ? before - after : 0;
+    const restoredTotal = forfeited > 0 ? (before as number) : booking.totalAmount;
+
+    await db.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: "CONFIRMED",
+          ...(forfeited > 0
+            ? {
+                totalAmount: restoredTotal,
+                // originalAmount is nullable, and a null there means
+                // "never had a pre-discount figure" — not zero. Leave it
+                // alone in that case rather than inventing one.
+                ...(booking.originalAmount !== null
+                  ? { originalAmount: booking.originalAmount + forfeited }
+                  : {}),
+              }
+            : {}),
+        },
+      });
+
+      // Money is owed again, so the payment row has to say so. Left
+      // alone when nothing was forfeited — see the note above about
+      // confirmedAt and the earnings reports.
+      if (forfeited > 0 && booking.payment) {
+        await tx.payment.update({
+          where: { id: booking.payment.id },
+          data: {
+            isPartialPayment: true,
+            remainingAmount: forfeited,
+            status: "PARTIAL",
+          },
+        });
+      }
+
+      await tx.bookingEditHistory.create({
+        data: {
+          bookingId,
+          adminId: admin.id,
+          adminUsername: admin.username,
+          editType: "REOPENED",
+          previousAmount: booking.totalAmount,
+          newAmount: restoredTotal,
+          note:
+            `Booking reopened to CONFIRMED (was ${previousStatus}).` +
+            (forfeited > 0
+              ? ` Written-off remainder Rs.${forfeited} restored — total ${booking.totalAmount} → ${restoredTotal}, payment back to PARTIAL.`
+              : " Payment left as it stands; nothing had been written off."),
+        },
+      });
+    });
+
+    await revalidateBookingPaths(bookingId);
+    return { success: true };
+  } catch (error) {
+    console.error("[reopenBooking] failed", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to reopen booking",
+    };
+  }
+}
+
 export async function markBookingCompleted(bookingId: string) {
   return closeOutBooking(bookingId, "COMPLETED");
 }
