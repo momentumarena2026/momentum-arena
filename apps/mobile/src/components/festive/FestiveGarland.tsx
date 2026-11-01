@@ -41,7 +41,20 @@ import { GarlandUnit } from "./FestiveArt";
  */
 const GARLAND_UNITS = 11;
 
-export function FestiveGarland() {
+export function FestiveGarland({
+  variant = "hang",
+}: {
+  /**
+   * "hang"   absolutely positioned just under its container.
+   * "inline" in normal flow — for a header with an announcement strip
+   *          directly beneath it. Hung absolutely there, the garland
+   *          lands ON the Information Bar and makes the announcement
+   *          unreadable; it went out that way on web and in the app
+   *          because staging had no bar switched on, so there was
+   *          nothing to collide with in testing.
+   */
+  variant?: "hang" | "inline";
+} = {}) {
   const { data } = useQuery({
     queryKey: ["festive-theme"],
     queryFn: festiveApi.get,
@@ -69,7 +82,10 @@ export function FestiveGarland() {
   const rotate = sway.interpolate({ inputRange: [0, 1], outputRange: ["-5deg", "5deg"] });
 
   return (
-    <View pointerEvents="none" style={styles.wrap}>
+    <View
+      pointerEvents="none"
+      style={variant === "inline" ? styles.wrapInline : styles.wrap}
+    >
       <View style={[styles.thread, { backgroundColor: theme.accent, shadowColor: theme.accent }]} />
       <View style={styles.row}>
         {Array.from({ length: GARLAND_UNITS }).map((_, i) => (
@@ -100,6 +116,8 @@ const styles = StyleSheet.create({
   // string. Without it the garland sat flush against the header border
   // and the two read as one thick bar.
   wrap: { position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, marginTop: 3 },
+  // In flow, so whatever follows it is pushed down rather than covered.
+  wrapInline: { marginTop: 3, marginBottom: 2 },
   thread: { height: 1, opacity: 0.35, shadowOpacity: 0.5, shadowRadius: 3 },
   row: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6 },
   greetingRow: { alignItems: "center", marginTop: 3 },

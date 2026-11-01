@@ -337,11 +337,6 @@ export function HomeScreen() {
           ) : (
             <Button label="Sign in" variant="secondary" size="sm" onPress={signIn} />
           )}
-          {/* Festive garland, hung from this header's bottom edge. It
-              is rendered here rather than in the app-wide overlay
-              because a toran needs something to hang from — in the
-              overlay it landed across the logo. See FestiveGarland.tsx. */}
-          <FestiveGarland />
         </View>
 
         {/* Information Bar — admin-configurable announcement strip
@@ -363,6 +358,13 @@ export function HomeScreen() {
             navigation.navigate("Sports", { screen: "BookSport" })
           }
         />
+
+        {/* Festive garland, AFTER the announcement strips so it hangs
+            under whatever is showing rather than across it. Rendered
+            here rather than in the app-wide overlay because a toran
+            needs something to hang from — in the overlay it landed
+            across the logo. See FestiveGarland.tsx. */}
+        <FestiveGarland variant="inline" />
 
         {/* Hero */}
         <View style={styles.hero}>
