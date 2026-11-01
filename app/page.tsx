@@ -489,7 +489,17 @@ export default async function Home() {
         </div>
 
         {/* HERO */}
-        <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-16 mt-10">
+        {/* `mt-10` normally. The announcement stack above is FIXED, so it
+            overlays rather than pushes — the hero's top margin is what
+            clears it, and a festive garland makes that stack ~70px
+            taller. Without the extra margin the greeting plaque lands
+            on the hero logo, which is exactly what happened on
+            production once the garland moved below the info bar. */}
+        <section
+          className={`relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-16 ${
+            festiveTheme ? "mt-28" : "mt-10"
+          }`}
+        >
           {/* Animated gradient background */}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/30 via-black to-black" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-amber-900/15 via-transparent to-transparent" />
