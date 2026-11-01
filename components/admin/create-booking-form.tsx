@@ -320,6 +320,17 @@ export function CreateBookingForm({
         const slot = slots.find((s) => s.hour === h && s.minute === undefined);
         return sum + (slot?.price ?? 0);
       }, 0);
+  // The same slots as `totalPrice`, kept UNSUMMED. A TARGET_PRICE coupon
+  // ("one price, all day") is priced per slot, so a total cannot express
+  // it — see lib/auto-apply-promo.ts.
+  const selectedSlotPrices = isBowlingConfig
+    ? selectedBowlingSlots.map(
+        (s) =>
+          slots.find((x) => x.hour === s.hour && x.minute === s.minute)?.price ?? 0,
+      )
+    : selectedHours.map(
+        (h) => slots.find((s) => s.hour === h && s.minute === undefined)?.price ?? 0,
+      );
   const selectedSlotCount = isBowlingConfig
     ? selectedBowlingSlots.length
     : selectedHours.length;
@@ -355,12 +366,29 @@ export function CreateBookingForm({
   const selectedCoupon =
     couponOptions.find((c) => c.code === selectedCouponCode) || null;
   // Mirrors the server's math in actions/coupon-validation.ts: PERCENTAGE
-  // `value` is basis points and honours maxDiscount; FLAT `value` is rupees.
-  // Preview only — the booking is priced from the server's own validation.
+  // `value` is basis points and honours maxDiscount; FLAT `value` is
+  // rupees OFF; TARGET_PRICE `value` is the price the customer ENDS UP
+  // paying per slot. Preview only — the booking is priced from the
+  // server's own validation, which is why the ₹500 this used to show was
+  // never actually charged. It was still wrong where it mattered: the
+  // counter reads this number out loud and collects that much cash.
   const couponDiscount = (() => {
     if (!showCouponBox || !selectedCoupon) return 0;
     if (selectedCoupon.type === "PERCENTAGE") {
       const raw = Math.floor((totalPrice * selectedCoupon.value) / 10000);
+      return selectedCoupon.maxDiscount !== null
+        ? Math.min(raw, selectedCoupon.maxDiscount)
+        : raw;
+    }
+    if (selectedCoupon.type === "TARGET_PRICE") {
+      // Per slot, floored at zero each — a slot already cheaper than the
+      // target is left alone and does not subsidise a dearer one.
+      // Reading it as FLAT took a ₹2,000 hour to ₹500 instead of ₹1,500:
+      // the opposite of the offer.
+      const raw = selectedSlotPrices.reduce(
+        (sum, price) => sum + Math.max(0, price - selectedCoupon.value),
+        0,
+      );
       return selectedCoupon.maxDiscount !== null
         ? Math.min(raw, selectedCoupon.maxDiscount)
         : raw;
@@ -1379,7 +1407,9 @@ export function CreateBookingForm({
                     {c.code} —{" "}
                     {c.type === "PERCENTAGE"
                       ? `${c.value / 100}% off${c.maxDiscount !== null ? ` (max ${formatPrice(c.maxDiscount)})` : ""}`
-                      : `${formatPrice(c.value)} off`}
+                      : c.type === "TARGET_PRICE"
+                        ? `${formatPrice(c.value)}/slot`
+                        : `${formatPrice(c.value)} off`}
                     {c.autoApply ? " · auto-apply" : ""}
                   </option>
                 ))}
