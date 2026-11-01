@@ -10,6 +10,7 @@ import {
   refundBooking,
   markBookingCompleted,
   markBookingAbsent,
+  reopenBooking,
 } from "@/actions/admin-booking";
 import {
   CheckCircle2,
@@ -162,6 +163,14 @@ export function AdminBookingActions({
   // COMPLETED so the booking stops sitting in a half-paid state.
   const canCloseOut = bookingStatus === "CONFIRMED";
 
+  // ...and the way back. Closing out is one click and used to be a
+  // one-way door: closeOutBooking only accepts CONFIRMED, every other
+  // action here is gated on CONFIRMED, and the generic confirm escape
+  // hatch below is PENDING-only — so a mis-click left the booking with
+  // no available action at all. Reported from production exactly that
+  // way. See reopenBooking for what it restores and what it leaves.
+  const canReopen = bookingStatus === "COMPLETED" || bookingStatus === "ABSENT";
+
   // Edit-payment is available on every non-cancelled booking that has
   // a payment row — covers both stuck states (admin recorded the
   // wrong method, needs to fix) and routine corrections (logging the
@@ -210,7 +219,7 @@ export function AdminBookingActions({
     // heavy.
     if (
       !confirm(
-        "Mark this booking as COMPLETED?\n\nThe advance the customer paid stays in your earnings. Any uncollected remainder is forfeit.",
+        "Mark this booking as COMPLETED?\n\nThe advance the customer paid stays in your earnings. Any uncollected remainder is forfeit. You can undo this with Reopen if it was a mistake.",
       )
     ) {
       return;
@@ -227,10 +236,30 @@ export function AdminBookingActions({
     setProcessing(null);
   };
 
+  const handleReopen = async () => {
+    if (
+      !confirm(
+        `Put this booking back to CONFIRMED?\n\nUse this when the close-out was a mistake. If a remainder had been written off it is restored and the payment goes back to PARTIAL.\n\nA payment that was already settled stays settled — use Edit Payment for that.`,
+      )
+    ) {
+      return;
+    }
+    setProcessing("reopen");
+    setError(null);
+    const result = await reopenBooking(bookingId);
+    if (result.success) {
+      setSuccessMsg("Booking reopened — back to CONFIRMED.");
+      router.refresh();
+    } else {
+      setError(result.error || "Failed to reopen booking");
+    }
+    setProcessing(null);
+  };
+
   const handleMarkAbsent = async () => {
     if (
       !confirm(
-        "Mark this booking as ABSENT (no-show)?\n\nThe advance stays in your earnings. Any uncollected remainder is forfeit. This action is irreversible from the UI.",
+        "Mark this booking as ABSENT (no-show)?\n\nThe advance stays in your earnings. Any uncollected remainder is forfeit. You can undo this with Reopen if it was a mistake.",
       )
     ) {
       return;
@@ -386,6 +415,22 @@ export function AdminBookingActions({
           >
             <CreditCard className="h-4 w-4" />
             Edit Payment
+          </button>
+        )}
+
+        {canReopen && (
+          <button
+            onClick={handleReopen}
+            disabled={processing === "reopen"}
+            className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300 hover:bg-sky-500/20 disabled:opacity-50"
+            title="Undo the close-out — put the booking back to CONFIRMED"
+          >
+            {processing === "reopen" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RotateCcw className="h-4 w-4" />
+            )}
+            Reopen Booking
           </button>
         )}
 
