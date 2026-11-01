@@ -19,6 +19,21 @@ import { processNextQueuedReport } from "@/lib/reports/queue";
  * gets cleared in a single tick rather than spreading across minutes. Each
  * report runs sub-second to a few seconds, so the loop is bounded and short.
  *
+ * ── WHY THIS IS HOURLY AND NOT EVERY MINUTE ──────────────────────────
+ * It ran on a one-minute tick from 2026-09-21, on the reasoning that "this is a queue
+ * an admin is actively waiting on". That reasoning does not survive contact
+ * with the rest of the code: BOTH admin routes that enqueue a report already
+ * drain it inline via `after(() => processNextQueuedReport())`, so the admin
+ * never waits for this cron at all. Its own docstring said as much — "the
+ * cron stays in place as a safety net for stuck-state recovery".
+ *
+ * So the minute schedule bought no latency. What it bought was 43,200 runs a
+ * month, each one a WRITE (`db.report.updateMany`), against a queue that
+ * handled TWO reports in thirty days — and, because Neon suspends an idle
+ * compute only after five minutes, a production database that never slept.
+ * That was most of a doubled Neon bill. A safety net for a worker that died
+ * mid-row does not need to run every sixty seconds.
+ *
  * Auth: Bearer CRON_SECRET, and it REFUSES when the secret is unset rather
  * than running open — reports can carry customer and revenue data, so an
  * environment that forgot to configure it should fail loudly.

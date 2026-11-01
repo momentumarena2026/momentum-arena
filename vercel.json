@@ -11,11 +11,11 @@
   "crons": [
     {
       "path": "/api/cron/cleanup-locks",
-      "schedule": "0 3 * * *"
+      "schedule": "30 3 * * *"
     },
     {
       "path": "/api/cron/analytics-retention",
-      "schedule": "0 4 * * *"
+      "schedule": "30 4 * * *"
     },
     {
       "path": "/api/cron/cohort-backfill",
@@ -23,11 +23,11 @@
     },
     {
       "path": "/api/cron/reports-retention",
-      "schedule": "45 4 * * *"
+      "schedule": "30 4 * * *"
     },
     {
       "path": "/api/cron/rewards-expire",
-      "schedule": "0 5 * * *"
+      "schedule": "30 5 * * *"
     },
     {
       "path": "/api/cron/rewards-alerts",
@@ -35,31 +35,31 @@
     },
     {
       "path": "/api/cron/send-reminders",
-      "schedule": "0 * * * *"
+      "schedule": "30 * * * *"
     },
     {
       "path": "/api/cron/generator-check",
-      "schedule": "0 9 * * *"
+      "schedule": "30 9 * * *"
     },
     {
       "path": "/api/cron/challenge-money",
-      "schedule": "*/5 * * * *"
+      "schedule": "30 * * * *"
     },
     {
       "path": "/api/cron/challenge-offers",
-      "schedule": "* * * * *"
+      "schedule": "30 * * * *"
     },
     {
       "path": "/api/cron/process-reports",
-      "schedule": "* * * * *"
+      "schedule": "30 * * * *"
     },
     {
       "path": "/api/cron/rollup-metrics",
-      "schedule": "5 * * * *"
+      "schedule": "30 * * * *"
     },
     {
       "path": "/api/cron/store-availability",
-      "schedule": "20 * * * *"
+      "schedule": "30 * * * *"
     },
     {
       "path": "/api/cron/daily-push",
