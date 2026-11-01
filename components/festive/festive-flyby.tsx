@@ -48,7 +48,13 @@ export function FestiveFlyby({ theme }: { theme: FestiveThemeId | null }) {
     return (
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-x-0 bottom-1 z-[46] hidden justify-around px-3 opacity-80 md:flex"
+        // 60%, not 80%. Even on desktop this is a FIXED row over a
+        // SCROLLING page, so sooner or later it sits on top of
+        // something — there is no bottom ledge here the way the app has
+        // a tab bar. At this weight it reads as lamplight along the
+        // bottom edge and a label underneath stays legible, which is
+        // the difference between decoration and obstruction.
+        className="pointer-events-none fixed inset-x-0 bottom-1 z-[46] hidden justify-around px-3 opacity-60 md:flex"
       >
         {Array.from({ length: 5 }).map((_, i) => (
           <span
