@@ -34,18 +34,22 @@ export function FestiveFlyby({ theme }: { theme: FestiveThemeId | null }) {
   if (theme === "diwali") {
     // A row along the bottom edge, lifted clear of the fixed bottom nav
     // on phones so the lamps sit ON the ledge rather than behind it.
+    // `bottom-0` on phones, where the fixed bottom nav is a real ledge
+    // for them to stand on. At `bottom-20` they floated a nav's height
+    // up the page and landed ON the Camps and Tournaments buttons,
+    // obscuring the labels — a decoration covering a control.
     return (
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-x-0 bottom-20 z-[46] flex justify-around px-2 md:bottom-2"
+        className="pointer-events-none fixed inset-x-0 bottom-16 z-[46] flex justify-around px-3 opacity-80 md:bottom-1"
       >
-        {Array.from({ length: 7 }).map((_, i) => (
+        {Array.from({ length: 5 }).map((_, i) => (
           <span
             key={i}
             className="festive-diya"
-            style={{ animationDelay: `${i * 0.6}s` }}
+            style={{ animationDelay: `${i * 0.7}s` }}
           >
-            <Diya size={i % 2 === 0 ? 34 : 27} />
+            <Diya size={i % 2 === 0 ? 28 : 22} />
           </span>
         ))}
       </div>

@@ -65,14 +65,23 @@ export function FestiveBackdrop({ theme }: { theme: FestiveThemeId | null }) {
           least of them. */}
       <div className="festive-glow festive-glow-a" />
       <div className="festive-glow festive-glow-b" />
-      {/* The motif. One element per particle; the count is small on
-          purpose (18), because this renders on every page including
-          long admin tables on mid-range Android. */}
-      <div className={`festive-motif festive-motif-${t.motif}`}>
-        {Array.from({ length: 18 }).map((_, i) => (
-          <span key={i} className="festive-particle" data-i={i} />
-        ))}
-      </div>
+      {/* The scattered motif — snow for Christmas, colour for Holi.
+          The count is small on purpose (18), because this renders on
+          every page including long admin tables on mid-range Android.
+
+          NOT for Diwali. Diwali's motif is the row of real diyas along
+          the foot of the screen (festive-flyby.tsx), and running both
+          meant amber dots sprinkled across body copy on top of it —
+          two lamp motifs at once, which is most of what made the page
+          feel crowded. Snow and colour splashes have no such twin, so
+          they keep theirs. */}
+      {t.motif !== "diyas" && (
+        <div className={`festive-motif festive-motif-${t.motif}`}>
+          {Array.from({ length: 18 }).map((_, i) => (
+            <span key={i} className="festive-particle" data-i={i} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

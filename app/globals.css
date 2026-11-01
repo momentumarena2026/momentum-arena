@@ -460,7 +460,10 @@ summary {
    it stays cacheable and there is no layout shift while JS works out
    how wide the screen is. */
 @media (max-width: 640px) {
-  .festive-hang:nth-child(even) {
+  /* Keep one in three. Hiding only every other one still left 24px
+     flowers 27px apart at 375px — touching, which is the thing being
+     fixed. One in three gives ~10 units and real black between them. */
+  .festive-hang:not(:nth-child(3n + 1)) {
     display: none;
   }
 }
