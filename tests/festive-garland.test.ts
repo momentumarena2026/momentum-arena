@@ -75,22 +75,46 @@ test("the app hangs its garland from the header too", () => {
     const src = readFileSync(file, "utf8");
     assert.match(
       src,
-      /<FestiveGarland\s*\/>/,
+      /<FestiveGarland\s/,
       `${file} lost <FestiveGarland> — the app would show glows and diyas but no toran`,
     );
   }
 });
 
-test("the app header does not clip the garland hanging below it", () => {
-  // The garland is absolutely positioned at top:"100%" of the header
-  // row, so it lives entirely OUTSIDE that row's bounds. Default
-  // overflow would clip it away completely and the symptom would be
-  // simply nothing rendering, with no error anywhere.
-  const src = readFileSync("apps/mobile/src/screens/home/HomeScreen.tsx", "utf8");
-  const block = /topNav: \{[\s\S]{0,400}/.exec(src)?.[0] ?? "";
-  assert.match(
-    block,
-    /overflow:\s*"visible"/,
-    'HomeScreen topNav lost `overflow: "visible"` — the garland hangs outside it and would be clipped',
-  );
+test("the garland is rendered AFTER the announcement bars, on both platforms", () => {
+  // THE BUG THIS REPLACED AN OBSOLETE CHECK WITH.
+  //
+  // Both home screens put a fixed announcement strip — the Information
+  // Bar, then the rain banner — directly beneath the nav. The garland
+  // originally hung from the nav itself, absolutely, which placed it on
+  // exactly the pixel where that strip starts: measured live at 81-105
+  // against an info bar at 80-116. "Table Tennis just launched" became
+  // unreadable behind marigolds, on production, on both web and app.
+  //
+  // It survived testing because staging had no announcement bar switched
+  // on, so there was nothing to collide with. Order is the invariant
+  // that actually prevents it: the garland must come after the bars, in
+  // flow, so it hangs under whatever happens to be showing.
+  const cases: { file: string; bar: RegExp }[] = [
+    { file: "app/page.tsx", bar: /infoBar\.show/ },
+    { file: "apps/mobile/src/screens/home/HomeScreen.tsx", bar: /infoBar\?\.show/ },
+  ];
+  for (const { file, bar } of cases) {
+    const src = readFileSync(file, "utf8");
+    const barAt = src.search(bar);
+    const garlandAt = src.search(/<FestiveGarland\s/);
+    assert.ok(barAt > -1, `${file}: could not find the Information Bar`);
+    assert.ok(garlandAt > -1, `${file}: could not find <FestiveGarland>`);
+    assert.ok(
+      garlandAt > barAt,
+      `${file} renders <FestiveGarland> BEFORE the Information Bar, so it will be ` +
+        `drawn across the announcement instead of hanging under it.`,
+    );
+    assert.match(
+      src.slice(garlandAt, garlandAt + 120),
+      /variant="inline"/,
+      `${file}'s garland must use variant="inline" — the default hangs it absolutely, ` +
+        `which is what put it on top of the bar.`,
+    );
+  }
 });
