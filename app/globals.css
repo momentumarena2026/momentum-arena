@@ -449,6 +449,22 @@ summary {
   50%      { transform: translateX(-50%) rotate(5deg); }
 }
 
+/* Density is a function of width, and 28 units is tuned for a desktop
+   viewport. On a phone browser that is one every ~13px: they touch, and
+   the garland stops reading as a string of flowers and becomes a solid
+   band welded under the header. (The app hit exactly this and was
+   reported as "too crowded, the header is not properly visible".)
+
+   Hiding alternate units rather than rendering fewer keeps this a
+   CSS-only concern — the server sends one markup for every viewport, so
+   it stays cacheable and there is no layout shift while JS works out
+   how wide the screen is. */
+@media (max-width: 640px) {
+  .festive-hang:nth-child(even) {
+    display: none;
+  }
+}
+
 .festive-greeting {
   animation: festive-greeting-in 900ms ease-out both;
   backdrop-filter: blur(2px);

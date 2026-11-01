@@ -137,7 +137,7 @@ export function SantaSleigh({ width = 150, color = "#f87171", trim = "#ffffff" }
 /** What hangs from the garland, per theme — mirrors web's `garlandUnit`. */
 export function GarlandUnit({ theme, i }: { theme: FestiveThemeId; i: number }) {
   if (theme === "diwali") {
-    return i % 2 === 0 ? <Marigold size={i % 4 === 0 ? 21 : 17} /> : <MangoLeaf size={14} />;
+    return i % 2 === 0 ? <Marigold size={i % 4 === 0 ? 18 : 15} /> : <MangoLeaf size={12} />;
   }
   if (theme === "christmas") {
     return i % 3 === 1 ? (

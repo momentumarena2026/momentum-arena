@@ -29,6 +29,18 @@ import { GarlandUnit } from "./FestiveArt";
  * Shares `["festive-theme"]` with the backdrop, so react-query serves
  * both from one request.
  */
+/**
+ * How many things hang from the string.
+ *
+ * Was 20, which on a 402pt phone is one every 20pt — they touched, and
+ * the garland stopped reading as a string of flowers and became a solid
+ * orange band welded to the bottom of the header. Eleven leaves black
+ * between them, which is what makes it look hung rather than printed.
+ *
+ * The web garland can afford 28 because it has three times the width.
+ */
+const GARLAND_UNITS = 11;
+
 export function FestiveGarland() {
   const { data } = useQuery({
     queryKey: ["festive-theme"],
@@ -60,7 +72,7 @@ export function FestiveGarland() {
     <View pointerEvents="none" style={styles.wrap}>
       <View style={[styles.thread, { backgroundColor: theme.accent, shadowColor: theme.accent }]} />
       <View style={styles.row}>
-        {Array.from({ length: 20 }).map((_, i) => (
+        {Array.from({ length: GARLAND_UNITS }).map((_, i) => (
           <Animated.View
             key={i}
             style={{
@@ -84,21 +96,28 @@ export function FestiveGarland() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5 },
-  thread: { height: 1, opacity: 0.5, shadowOpacity: 0.8, shadowRadius: 4 },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 2 },
-  greetingRow: { alignItems: "center", marginTop: 2 },
+  // `marginTop` is the gap between the header's bottom edge and the
+  // string. Without it the garland sat flush against the header border
+  // and the two read as one thick bar.
+  wrap: { position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, marginTop: 3 },
+  thread: { height: 1, opacity: 0.35, shadowOpacity: 0.5, shadowRadius: 3 },
+  row: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6 },
+  greetingRow: { alignItems: "center", marginTop: 3 },
   greeting: {
-    fontSize: 11,
+    // Smaller and flatter than it was. A bold pill under a dense
+    // garland made a third horizontal band across the top of the app,
+    // directly under the header and above the hero — three stacked
+    // strips before any content. It is a touch, not a banner.
+    fontSize: 10,
     fontWeight: "600",
-    letterSpacing: 0.5,
-    paddingHorizontal: 10,
-    paddingVertical: 2,
+    letterSpacing: 0.6,
+    paddingHorizontal: 8,
+    paddingVertical: 1,
     borderRadius: 999,
     overflow: "hidden",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    shadowOpacity: 0.7,
-    shadowRadius: 8,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    shadowOpacity: 0.45,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
   },
 });

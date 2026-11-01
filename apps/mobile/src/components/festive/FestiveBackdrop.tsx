@@ -99,9 +99,14 @@ export function FestiveBackdrop() {
           0.10, below what a true backdrop would use, because this is
           over the UI rather than behind it. */}
       <View
-        style={[styles.glow, {
+        style={[styles.glow, styles.glowTop, {
           width: glow, height: glow, borderRadius: glow / 2,
-          backgroundColor: theme.accent, top: -glow * 0.45, left: -glow * 0.3,
+          // Pulled further off the top-left corner than it used to be.
+          // At -0.45/-0.3 the bright part of this circle sat directly
+          // over the app header, tinting the bar behind the logo brown
+          // and taking away the flat black the logo was drawn against —
+          // which read as "the header is not properly visible".
+          backgroundColor: theme.accent, top: -glow * 0.62, left: -glow * 0.42,
         }]}
       />
       <View
@@ -163,6 +168,11 @@ export function FestiveBackdrop() {
 
 const styles = StyleSheet.create({
   glow: { position: "absolute", opacity: 0.1 },
+  // The top glow is dimmer than the bottom one, and not for symmetry:
+  // it is the one that overlaps the header and the hero logo, where
+  // anything warm shows up as a muddy cast. The bottom glow only ever
+  // meets the tab bar, so it can carry the colour instead.
+  glowTop: { opacity: 0.06 },
   diyaRow: {
     position: "absolute",
     left: 0,
