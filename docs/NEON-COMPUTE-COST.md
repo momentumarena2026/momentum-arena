@@ -78,6 +78,44 @@ Two things made this free rather than a trade:
 
 Projected: ~88% uptime → ~8%, which is below where September actually sat.
 
+## The gate that stops this happening again
+
+`npx tsx scripts/check-db-cost.ts`, run as its own CI job on every push
+and PR to `main` and `development`, and also from `npm test`.
+
+It computes one number from `vercel.json` — **awake minutes per day**:
+how long the schedule alone keeps the compute out of suspension, with
+overlapping wake windows merged — and compares it to the committed
+baseline in `.github/db-cost-baseline.json`.
+
+Going up is a failure. Going up **on purpose** means raising
+`awakeMinutesPerDay` in that file in the same commit, with a name, a
+date and a reason. That edit is the approval, it lands in review, and it
+is in the repo rather than in somebody's memory.
+
+Two failure modes, separately reported:
+
+| | |
+|---|---|
+| **Always-on cron** | A cadence tighter than the suspend window — it can never let the compute go. Fails on its own terms even if the total is under the baseline, because it is never accidental and it is what caused the incident. Opt in per path via `allowAlwaysOnCrons`. |
+| **Budget exceeded** | The total crept up. Usually a new job on a minute of its own. |
+
+It models **scheduled work only** — that is what is declared in the repo
+and therefore reviewable. It cannot see real customer traffic (the cost
+we want to pay), how heavy a query is, a branch created in the console,
+or a connection held open outside `vercel.json`. A green check is not
+proof the bill cannot rise; it is proof that *the thing that actually
+happened* cannot happen again unnoticed.
+
+The gate over-estimates on purpose where it is unsure: day-of-week is
+ignored, so a weekly job counts as daily, and an unparseable cron
+expression throws rather than scoring zero. It can be too cautious,
+never too permissive.
+
+**It was checked against the real regression.** Replaying the September
+schedule gives 1,440 awake minutes a day against today's 120, and names
+both culprits.
+
 ## Things that are easy to get wrong here
 
 **You cannot fix this inside the cron handler.** An early return like "check

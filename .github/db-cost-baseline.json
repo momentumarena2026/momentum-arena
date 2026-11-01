@@ -1,0 +1,7 @@
+{
+  "awakeMinutesPerDay": 120,
+  "allowAlwaysOnCrons": [],
+  "approvedBy": "nakul",
+  "reviewedOn": "2026-11-01",
+  "reason": "Baseline set after the October cost incident. Every cron fires at :30, so a day costs 24 compute wakes of 5 minutes each. See docs/NEON-COMPUTE-COST.md."
+}

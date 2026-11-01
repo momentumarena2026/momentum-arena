@@ -93,6 +93,31 @@ npm test                             # parity + money suites
 `development`, plus the mobile typecheck against its **15-error baseline** (ratchet
 that number down as errors get fixed, never up).
 
+## Database cost gate (installed 2026-11-01)
+
+**Nothing reaches `main` that raises Neon compute cost without explicit
+approval.** Neon bills compute TIME, not queries: a job scheduled more often
+than the compute's suspend window pins the database awake 24/7 whether or not
+it finds work. That took the bill from under $20 to ~$40 in October 2026, from
+a change that looked small and was correct on its own terms, and nothing caught
+it.
+
+`scripts/check-db-cost.ts` runs as its own CI job and from `npm test`. It
+measures **awake minutes per day** from `vercel.json` and compares it to
+`.github/db-cost-baseline.json`.
+
+- Going up **fails the build**.
+- Going up on purpose = raise `awakeMinutesPerDay` in that file **in the same
+  commit**, with `approvedBy`, `reviewedOn` and a real `reason`. That edit is
+  the approval and it shows up in review.
+- A cron tighter than the suspend window fails on its own terms, even under
+  budget. Opt in per path via `allowAlwaysOnCrons`.
+- If a change makes it **cheaper**, ratchet the baseline DOWN, like the mobile
+  typecheck's error count.
+
+Covers scheduled work only — not real traffic, query weight, or anything
+created in the Neon console. Full reasoning: `docs/NEON-COMPUTE-COST.md`.
+
 The suites in `tests/` exist to enforce the "these two files must stay in sync"
 pairs that this repo relies on — `lib/public-match.ts` ↔
 `apps/mobile/src/lib/match-engine.ts`, and `lib/payment-split.ts` ↔
