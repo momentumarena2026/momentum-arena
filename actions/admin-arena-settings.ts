@@ -5,6 +5,13 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { OPERATING_HOURS } from "@/lib/court-config";
 import { getMathuraRain } from "@/lib/weather";
 import { revalidatePath } from "next/cache";
+import {
+  FESTIVE_THEMES,
+  resolveFestiveTheme,
+  type FestiveThemeId,
+  type FestiveThemeMode,
+} from "@/lib/festive-themes";
+import { istDateKey } from "@/lib/ist";
 
 /**
  * Result shape — discriminated union so the admin client can
@@ -305,6 +312,105 @@ export async function setInfoBar(data: {
     // and it would have corrected itself in five minutes, which is not
     // what an admin pressing Save and opening their phone believes.
     revalidatePath("/api/info-bar");
+  } catch {
+    /* write already landed */
+  }
+  return { ok: true };
+}
+
+// ── Festive theme ─────────────────────────────────────────────────────
+
+/** Raw setting, for the admin editor. */
+export async function getFestiveThemeConfig(): Promise<{
+  mode: FestiveThemeMode;
+  override: FestiveThemeId | null;
+}> {
+  try {
+    const row = await db.arenaSettings.findFirst({
+      select: { festiveThemeMode: true, festiveThemeOverride: true },
+    });
+    const mode = row?.festiveThemeMode;
+    return {
+      mode: mode === "ON" || mode === "OFF" ? mode : "AUTO",
+      override:
+        row?.festiveThemeOverride && row.festiveThemeOverride in FESTIVE_THEMES
+          ? (row.festiveThemeOverride as FestiveThemeId)
+          : null,
+    };
+  } catch (err) {
+    console.error("[festive-theme] config read failed", err);
+    return { mode: "AUTO", override: null };
+  }
+}
+
+/**
+ * The theme to render right now — public by design (home page, app).
+ *
+ * Returns the small payload both surfaces need rather than the whole
+ * theme object: the app has its own copy of the palette (it cannot
+ * import from /lib), so sending colours over the wire would create a
+ * second source of truth that could disagree with the bundle. The id is
+ * the contract; the look is compiled into each side.
+ */
+export async function getFestiveTheme(): Promise<{
+  theme: FestiveThemeId | null;
+  greeting: string | null;
+}> {
+  try {
+    const { mode, override } = await getFestiveThemeConfig();
+    const theme = resolveFestiveTheme({
+      mode,
+      override,
+      dayKey: istDateKey(new Date()),
+    });
+    return { theme: theme?.id ?? null, greeting: theme?.greeting ?? null };
+  } catch (err) {
+    console.error("[festive-theme] resolve failed", err);
+    // A decoration must never take the home page down.
+    return { theme: null, greeting: null };
+  }
+}
+
+/** Update the festive theme setting. Admin-only. */
+export async function setFestiveTheme(data: {
+  mode: FestiveThemeMode;
+  override?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requireAdmin("MANAGE_PRICING");
+  } catch {
+    return { ok: false, error: "You don't have permission to update this." };
+  }
+  const mode: FestiveThemeMode =
+    data.mode === "ON" || data.mode === "OFF" ? data.mode : "AUTO";
+  // Only stored when it names a real theme, so a renamed or removed
+  // theme id cannot sit in the column and resolve to nothing forever.
+  const override =
+    data.override && data.override in FESTIVE_THEMES ? data.override : null;
+  try {
+    const existing = await db.arenaSettings.findFirst({ select: { id: true } });
+    if (existing) {
+      await db.arenaSettings.update({
+        where: { id: existing.id },
+        data: { festiveThemeMode: mode, festiveThemeOverride: override },
+      });
+    } else {
+      await db.arenaSettings.create({
+        data: { festiveThemeMode: mode, festiveThemeOverride: override },
+      });
+    }
+  } catch (err) {
+    console.error("[festive-theme] update failed", err);
+    return { ok: false, error: "Couldn't save. Please try again." };
+  }
+  try {
+    revalidatePath("/");
+    revalidatePath("/admin/config/festive-theme");
+    // The APP reads /api/festive-theme, which is ISR-cached. Purge it
+    // too — gotcha 26: the website updates instantly off revalidatePath
+    // ("/") while the app keeps serving the cached route, which reads
+    // as "the toggle didn't work on the app".
+    revalidatePath("/api/festive-theme");
   } catch {
     /* write already landed */
   }

@@ -21,7 +21,8 @@ import { db } from "@/lib/db";
 import { SPORT_INFO, customerFacingCourtLabel, formatHoursAsRanges } from "@/lib/court-config";
 import { formatBookingDate, formatPrice } from "@/lib/pricing";
 import { getActiveSportPromo } from "@/actions/sport-promo";
-import { getRainBanner, getInfoBar } from "@/actions/admin-arena-settings";
+import { getRainBanner, getInfoBar, getFestiveTheme } from "@/actions/admin-arena-settings";
+import { FestiveGarland } from "@/components/festive/festive-garland";
 import { arePassesEnabled } from "@/lib/passes";
 import { areTournamentsEnabled } from "@/lib/tournaments";
 import { areCampsEnabled } from "@/lib/camps";
@@ -248,6 +249,9 @@ export default async function Home() {
   // Admin-configurable announcement strip; falls back to the new-user
   // offer copy, and disappears entirely when switched off.
   const infoBar = await getInfoBar().catch(() => ({ show: false, text: "" }));
+  const { theme: festiveTheme } = await getFestiveTheme().catch(() => ({
+    theme: null,
+  }));
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -374,6 +378,11 @@ export default async function Home() {
       <main className="bg-black text-white overflow-x-hidden">
         {/* NAV BAR */}
         <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/5">
+          {/* Festive garland. The home page renders its own nav instead
+              of SiteHeader (see the note further down), so the garland
+              has to be hung in both places — `tests/festive-garland.test.ts`
+              fails if either one loses it. */}
+          <FestiveGarland theme={festiveTheme} />
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-20 gap-2">
             <Link href="/" className="flex-shrink-0">
               <Image

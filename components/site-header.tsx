@@ -10,6 +10,8 @@ import { areTournamentsEnabled } from "@/lib/tournaments";
 import { areCampsEnabled } from "@/lib/camps";
 import { StoreBadges } from "@/components/store-badges";
 import { AppCtaBar } from "@/components/app-cta-bar";
+import { FestiveGarland } from "@/components/festive/festive-garland";
+import { getFestiveTheme } from "@/actions/admin-arena-settings";
 
 type Section = "sports" | "cafe" | "shop" | "passes" | "tournaments" | "camps";
 
@@ -24,12 +26,14 @@ type Section = "sports" | "cafe" | "shop" | "passes" | "tournaments" | "camps";
  * for Cafe) instead of the hover-only zinc used for the rest.
  */
 export async function SiteHeader({ active }: { active?: Section }) {
-  const [session, passesEnabled, tournamentsEnabled, campsEnabled] = await Promise.all([
+  const [session, passesEnabled, tournamentsEnabled, campsEnabled, festive] = await Promise.all([
     auth(),
     arePassesEnabled().catch(() => false),
     areTournamentsEnabled().catch(() => false),
     areCampsEnabled().catch(() => false),
+    getFestiveTheme().catch(() => ({ theme: null })),
   ]);
+  const festiveTheme = festive.theme;
   const unread = session?.user?.id
     ? await unreadNotificationCount(session.user.id).catch(() => 0)
     : 0;
@@ -44,7 +48,11 @@ export async function SiteHeader({ active }: { active?: Section }) {
   // strip sticky left the nav scrolling away above it.
   return (
     <div className="sticky top-0 z-50">
-    <nav className="border-b border-zinc-800 bg-zinc-950">
+    <nav className="relative border-b border-zinc-800 bg-zinc-950">
+      {/* Festive garland, hung from the nav's bottom edge. `absolute`
+          inside this `relative` nav, so the header's own height is
+          unchanged and nothing reflows when a festival starts or ends. */}
+      <FestiveGarland theme={festiveTheme} />
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-6">

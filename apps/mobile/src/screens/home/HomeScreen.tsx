@@ -37,6 +37,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { BookingCard } from "../../components/BookingCard";
 import { RewardsChip } from "../../components/RewardsChip";
+import { FestiveGarland } from "../../components/festive/FestiveGarland";
 import { RainBanner } from "../../components/RainBanner";
 import { colors, radius, spacing, SPORT_COLORS } from "../../theme";
 import { useAuth } from "../../providers/AuthProvider";
@@ -336,6 +337,11 @@ export function HomeScreen() {
           ) : (
             <Button label="Sign in" variant="secondary" size="sm" onPress={signIn} />
           )}
+          {/* Festive garland, hung from this header's bottom edge. It
+              is rendered here rather than in the app-wide overlay
+              because a toran needs something to hang from — in the
+              overlay it landed across the logo. See FestiveGarland.tsx. */}
+          <FestiveGarland />
         </View>
 
         {/* Information Bar — admin-configurable announcement strip
@@ -1326,6 +1332,9 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   topNav: {
+    // `overflow: visible` so the festive garland, which hangs at
+    // top:100% of this row, is not clipped away.
+    overflow: "visible",
     // Reduced left/right padding from spacing["6"] (24px) so the
     // logo sits closer to the screen edge — was floating too far in
     // from the left at the bigger logo size. Sign-in button on the

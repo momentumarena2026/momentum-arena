@@ -19,6 +19,9 @@ import { GoogleAnalytics } from "@/components/google-analytics";
 import { NavLoader } from "@/components/nav-loader";
 import { PageViewTracker } from "@/components/page-view-tracker";
 import "./globals.css";
+import { FestiveBackdrop } from "@/components/festive/festive-backdrop";
+import { FestiveFlyby } from "@/components/festive/festive-flyby";
+import { getFestiveTheme } from "@/actions/admin-arena-settings";
 
 
 export const metadata: Metadata = {
@@ -147,6 +150,14 @@ export default async function RootLayout({
   const tournamentsEnabled = await areTournamentsEnabled().catch(() => false);
   const campsEnabled = await areCampsEnabled().catch(() => false);
 
+  // The festive skin. Resolved server-side so the first paint is
+  // already dressed — a client-side fetch would flash the plain site
+  // for a frame on every navigation. Falls back to no theme on any
+  // error; a decoration must never take the layout down.
+  const { theme: festiveTheme } = await getFestiveTheme().catch(() => ({
+    theme: null,
+  }));
+
   return (
     <html lang="en" suppressHydrationWarning className={michroma.variable}>
       <head>
@@ -156,6 +167,14 @@ export default async function RootLayout({
       <body
         className={`antialiased bg-black text-white ${michroma.className}`}
       >
+        {/* Festive skin — a fixed layer at -z-10 behind every page, so
+            no page has to know about it. Null (and renders nothing)
+            outside a festival window or when an admin switches it off
+            at /admin/config/festive-theme. */}
+        <FestiveBackdrop theme={festiveTheme} />
+        {/* The one moving piece per festival — Santa crossing, or the
+            row of diyas along the foot of the screen. */}
+        <FestiveFlyby theme={festiveTheme} />
         <SessionProvider session={session}>
           <NavLoader />
           <PageViewTracker />
