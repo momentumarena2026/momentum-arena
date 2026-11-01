@@ -34,14 +34,21 @@ export function FestiveFlyby({ theme }: { theme: FestiveThemeId | null }) {
   if (theme === "diwali") {
     // A row along the bottom edge, lifted clear of the fixed bottom nav
     // on phones so the lamps sit ON the ledge rather than behind it.
-    // `bottom-0` on phones, where the fixed bottom nav is a real ledge
-    // for them to stand on. At `bottom-20` they floated a nav's height
-    // up the page and landed ON the Camps and Tournaments buttons,
-    // obscuring the labels — a decoration covering a control.
+    // DESKTOP ONLY, and that is a real constraint rather than a
+    // preference. On a phone the bottom of the web viewport is taken by
+    // the fixed 73px bottom nav, so a row of lamps has nowhere to
+    // stand: high enough to clear the nav and they sit on the Camps and
+    // Tournaments buttons, obscuring the labels; low enough to miss the
+    // buttons and the nav draws over them. A decoration covering a
+    // control is worse than no decoration, so on phones the garland and
+    // the glows carry the festival and the lamps sit this one out.
+    //
+    // The APP keeps its row, because its tab bar is a genuine ledge
+    // with clear space above it.
     return (
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-x-0 bottom-16 z-[46] flex justify-around px-3 opacity-80 md:bottom-1"
+        className="pointer-events-none fixed inset-x-0 bottom-1 z-[46] hidden justify-around px-3 opacity-80 md:flex"
       >
         {Array.from({ length: 5 }).map((_, i) => (
           <span
