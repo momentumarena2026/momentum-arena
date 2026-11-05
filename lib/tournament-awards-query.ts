@@ -26,6 +26,9 @@ import {
   type TournamentTally,
 } from "@/lib/tournament-awards";
 
+/** Which award a line is being written for; see summarise/summariseTally. */
+type Discipline = "all" | "bat" | "bowl";
+
 export type AwardPlayer = {
   memberId: string;
   name: string;
@@ -71,20 +74,29 @@ export type AwardRow = {
   summary: string;
 };
 
-/** Which table a row is being built for; see summariseTally. */
-type Discipline = "all" | "bat" | "bowl";
-
 type MemberRef = { id: string; name: string; teamId: string; teamName: string; teamColor: string | null };
 
 const oversOf = (balls: number) => `${Math.floor(balls / 6)}.${balls % 6}`;
 
-/** The one-line stat quote under a player's name. */
-function summarise(sport: string, p: MatchPerf): string {
+/**
+ * The one-line stat quote under a player's name, for the award it won.
+ *
+ * Player of the Match gets the whole game; Best Batter gets the innings and
+ * Best Bowler the figures. Quoting "1/14" under a BEST BATTER heading reads
+ * as a mistake, which is exactly how it looked in the app.
+ */
+function summarise(sport: string, p: MatchPerf, discipline: Discipline = "all"): string {
   if (sport === "CRICKET") {
     const bits: string[] = [];
-    if (p.batBalls > 0 || p.batRuns > 0) bits.push(`${p.batRuns}${p.out ? "" : "*"} (${p.batBalls})`);
-    if (p.bowlBalls > 0) bits.push(`${p.wickets}/${p.bowlRuns} (${oversOf(p.bowlBalls)})`);
-    const field = p.catches + p.stumpings + p.runOuts;
+    if (discipline !== "bowl" && (p.batBalls > 0 || p.batRuns > 0)) {
+      bits.push(`${p.batRuns}${p.out ? "" : "*"} (${p.batBalls})`);
+    }
+    if (discipline !== "bat" && p.bowlBalls > 0) {
+      bits.push(`${p.wickets}/${p.bowlRuns} (${oversOf(p.bowlBalls)})`);
+    }
+    // Fielding belongs to the all-round picture, not to a batting or
+    // bowling card.
+    const field = discipline === "all" ? p.catches + p.stumpings + p.runOuts : 0;
     if (field > 0) {
       const f: string[] = [];
       if (p.catches) f.push(`${p.catches} ct`);
@@ -147,6 +159,7 @@ const toPlayer = (
   breakdown: PointsBreakdown,
   perf: MatchPerf | undefined,
   members: Map<string, MemberRef>,
+  discipline: Discipline = "all",
 ): AwardPlayer | null => {
   const m = members.get(memberId);
   if (!m) return null;
@@ -156,7 +169,7 @@ const toPlayer = (
     teamName: m.teamName,
     teamColor: m.teamColor,
     points,
-    summary: perf ? summarise(sport, perf) : "—",
+    summary: perf ? summarise(sport, perf, discipline) : "—",
     lines: breakdown.lines,
   };
 };
@@ -206,10 +219,10 @@ export function awardsForMatch(args: {
     playerOfMatch,
     playerOfMatchIsManual,
     bestBatter: a.bestBatter
-      ? toPlayer(sport, a.bestBatter.memberId, a.bestBatter.points, a.bestBatter.breakdown, perfOf.get(a.bestBatter.memberId), members)
+      ? toPlayer(sport, a.bestBatter.memberId, a.bestBatter.points, a.bestBatter.breakdown, perfOf.get(a.bestBatter.memberId), members, "bat")
       : null,
     bestBowler: a.bestBowler
-      ? toPlayer(sport, a.bestBowler.memberId, a.bestBowler.points, a.bestBowler.breakdown, perfOf.get(a.bestBowler.memberId), members)
+      ? toPlayer(sport, a.bestBowler.memberId, a.bestBowler.points, a.bestBowler.breakdown, perfOf.get(a.bestBowler.memberId), members, "bowl")
       : null,
   };
 }

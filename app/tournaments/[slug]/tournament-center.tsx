@@ -786,7 +786,11 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
           )}
 
         <div className="grid gap-5 md:grid-cols-2">
-          {data.leaderboards.length === 0 && (
+          {/* Only when there is genuinely nothing: saying "once matches are
+              scored" directly beneath a populated MVP table reads as a bug,
+              and a tournament with no configured stat fields hits exactly
+              that combination. */}
+          {data.leaderboards.length === 0 && !(data.awards && data.awards.scoredMatches > 0) && (
             <p className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8 text-center text-sm text-zinc-500 md:col-span-2">
               Player leaderboards appear once matches are scored.
             </p>

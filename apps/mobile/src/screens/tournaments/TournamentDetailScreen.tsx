@@ -1136,7 +1136,16 @@ export function TournamentDetailScreen() {
                     if (rows.length === 0) {
                       return <Text style={styles.cardBody}>No player-tagged scoring yet.</Text>;
                     }
-                    const max = Math.max(1, ...rows.map((r) => r.rating));
+                    // Scale on the RANKED players. An unqualified one-match
+                    // player can out-rate everyone, and letting them set the
+                    // maximum leaves the actual leader's bar a third full.
+                    // Unqualified bars then clamp at 100%. Matches the web
+                    // Leaders tab in app/tournaments/[slug]/tournament-center.tsx.
+                    const max = Math.max(
+                      1,
+                      ...rows.filter((r) => r.qualified).map((r) => r.rating),
+                      rows[0].rating,
+                    );
                     let dividerShown = false;
                     return rows.map((r, i) => {
                       const divider = !r.qualified && !dividerShown;
@@ -1174,7 +1183,7 @@ export function TournamentDetailScreen() {
                 </View>
               </View>
             )}
-            {data.leaderboards.length === 0 && (
+            {data.leaderboards.length === 0 && !(data.awards && data.awards.scoredMatches > 0) && (
               <View style={styles.card}>
                 <Text style={styles.cardBody}>Player leaderboards appear once matches are scored.</Text>
               </View>

@@ -29,6 +29,7 @@ import {
   type MatchPerf,
 } from "../lib/tournament-awards";
 import { foldScorecard } from "../lib/tournament-scorecard";
+import { awardsForMatch } from "../lib/tournament-awards-query";
 
 const HOME = "team-home";
 const AWAY = "team-away";
@@ -458,4 +459,67 @@ test("a rating can be negative, which every bar chart must clamp", () => {
     [batPerf({ memberId: "duck", batRuns: 0, batBalls: 1, out: true })],
   ]);
   assert.ok(t.mvp[0].rating < 0, "a pair of ducks must rate below zero");
+});
+
+// ── The display seam (awardsForMatch) ───────────────────────────────
+
+test("each match award quotes its own discipline, not the whole game", () => {
+  // Found in the iOS app: the BEST BATTER card read "13* (10) · 1/14 (0.4)",
+  // quoting bowling figures under a batting heading.
+  reset();
+  const members = new Map([
+    ["amit", { id: "amit", name: "Amit", teamId: HOME, teamName: "Home", teamColor: null }],
+    ["dev", { id: "dev", name: "Dev", teamId: AWAY, teamName: "Away", teamColor: null }],
+  ]);
+  const events = [
+    ev("INNINGS_START", {}, HOME),
+    // Amit: an all-rounder — bats, bowls and takes a catch.
+    ...Array.from({ length: 12 }, () => ball({ runs: 4, batterId: "amit", bowlerId: "dev" })),
+    ev("BALL", { runs: 0, batterId: "dev", bowlerId: "amit", wicket: true, dismissal: "caught", outBatterId: "dev", fielderId: "amit" }),
+  ];
+  const a = awardsForMatch({ sport: "CRICKET", events, members });
+
+  assert.match(a.bestBatter!.summary, /^\d+\*? \(\d+\)$/, `batting card must be batting only, got "${a.bestBatter!.summary}"`);
+  assert.ok(!a.bestBatter!.summary.includes("/"), "no bowling figures on the batting card");
+  // A bowling line is "W/R (overs)" — brackets are expected there; what must
+  // NOT appear is the batter's "48 (12)" alongside it.
+  assert.match(
+    a.bestBowler!.summary,
+    /^\d+\/\d+ \(\d+\.\d+\)$/,
+    `bowling card must be figures only, got "${a.bestBowler!.summary}"`,
+  );
+});
+
+test("a manual player of the match wins and is flagged as the organiser's", () => {
+  reset();
+  const members = new Map([
+    ["amit", { id: "amit", name: "Amit", teamId: HOME, teamName: "Home", teamColor: null }],
+    ["dev", { id: "dev", name: "Dev", teamId: AWAY, teamName: "Away", teamColor: null }],
+  ]);
+  const events = [
+    ev("INNINGS_START", {}, HOME),
+    ...Array.from({ length: 12 }, () => ball({ runs: 6, batterId: "amit", bowlerId: "dev" })),
+  ];
+
+  const computed = awardsForMatch({ sport: "CRICKET", events, members });
+  assert.equal(computed.playerOfMatch?.memberId, "amit", "the engine would pick the centurion");
+  assert.equal(computed.playerOfMatchIsManual, false);
+
+  // The organiser disagrees. Their choice wins, and says so.
+  const overridden = awardsForMatch({ sport: "CRICKET", events, members, manualPlayerOfMatchId: "dev" });
+  assert.equal(overridden.playerOfMatch?.memberId, "dev", "the organiser's pick must win");
+  assert.equal(overridden.playerOfMatchIsManual, true);
+  // Best batter is still decided by the maths — the override is POTM only.
+  assert.equal(overridden.bestBatter?.memberId, "amit");
+});
+
+test("a manual id that is not in the match is ignored, not rendered blank", () => {
+  reset();
+  const members = new Map([
+    ["amit", { id: "amit", name: "Amit", teamId: HOME, teamName: "Home", teamColor: null }],
+  ]);
+  const events = [ev("INNINGS_START", {}, HOME), ball({ runs: 4, batterId: "amit", bowlerId: "amit" })];
+  const a = awardsForMatch({ sport: "CRICKET", events, members, manualPlayerOfMatchId: "ghost" });
+  assert.equal(a.playerOfMatch?.memberId, "amit", "falls back to the computed winner");
+  assert.equal(a.playerOfMatchIsManual, false);
 });
