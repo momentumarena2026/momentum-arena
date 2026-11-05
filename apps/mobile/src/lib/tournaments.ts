@@ -7,6 +7,34 @@ import { api, type UploadFile } from "./api";
 //   POST /api/tournaments/verify          (bearer, Razorpay confirm)
 //   GET  /api/tournaments/live/[matchId]?platform=app
 
+/** One player's award line, shared by match and tournament awards. */
+export type AwardPlayer = {
+  memberId: string; name: string; teamName: string; teamColor: string | null;
+  points: number; summary: string; lines: { label: string; points: number }[];
+};
+
+export type MatchAwardsView = {
+  playerOfMatch: AwardPlayer | null;
+  playerOfMatchIsManual: boolean;
+  bestBatter: AwardPlayer | null;
+  bestBowler: AwardPlayer | null;
+};
+
+export type AwardRow = {
+  memberId: string; name: string; teamName: string; teamColor: string | null;
+  rating: number; totalPoints: number; matches: number; qualified: boolean; summary: string;
+};
+
+export type TournamentAwards = {
+  sport: string;
+  minMatches: number;
+  scoredMatches: number;
+  totalMatches: number;
+  mvp: AwardRow[];
+  bestBatters: AwardRow[];
+  bestBowlers: AwardRow[];
+};
+
 export type TeamLite = {
   id: string;
   name: string;
@@ -110,6 +138,7 @@ export type TournamentPublic = {
   standings: { poolId: string | null; poolName: string | null; rows: StandRow[] }[];
   matches: MatchLite[];
   leaderboards: LeaderBoard[];
+  awards: TournamentAwards | null;
 };
 
 export type TournamentListItem = {
@@ -391,6 +420,7 @@ export type MatchCentre = {
   liveNow: LiveNow | null;
   innings: InningsCard[];
   commentary: CommentaryBall[];
+  awards: MatchAwardsView;
   statTable: { teamId: string; teamName: string; rows: { name: string; values: Record<string, number> }[] }[];
   statFields: { key: string; label: string }[];
 };

@@ -48,9 +48,98 @@ type Payload = {
   standings: { poolId: string | null; poolName: string | null; rows: StandRow[] }[];
   matches: MatchLite[];
   leaderboards: { key: string; label: string; rows: { memberId: string; name: string; teamName: string; teamColor: string | null; value: number }[] }[];
+  awards: {
+    sport: string;
+    minMatches: number;
+    scoredMatches: number;
+    totalMatches: number;
+    mvp: AwardRow[];
+    bestBatters: AwardRow[];
+    bestBowlers: AwardRow[];
+  } | null;
 };
 
 export type CenterTab = "reveal" | "table" | "bracket" | "matches" | "leaders";
+
+type AwardRow = {
+  memberId: string;
+  name: string;
+  teamName: string;
+  teamColor: string | null;
+  rating: number;
+  totalPoints: number;
+  matches: number;
+  qualified: boolean;
+  summary: string;
+};
+
+type AwardView = "mvp" | "bat" | "bowl";
+
+const AWARD_VIEWS: { key: AwardView; label: string }[] = [
+  { key: "mvp", label: "MVP" },
+  { key: "bat", label: "Best Batter" },
+  { key: "bowl", label: "Best Bowler" },
+];
+
+/**
+ * One ranked award table.
+ *
+ * The headline number is points PER MATCH, so a player whose side went out
+ * in the pools is still comparable with a finalist. Players below the
+ * minimum-matches bar are listed under a divider rather than hidden: they
+ * are often the most interesting names, and silently dropping them reads
+ * as a bug to anyone who watched the game.
+ */
+function AwardTable({ rows, minMatches }: { rows: AwardRow[]; minMatches: number }) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-zinc-500">No player-tagged scoring yet.</p>;
+  }
+  const max = Math.max(1, ...rows.filter((r) => r.qualified).map((r) => r.rating), rows[0].rating);
+  let dividerShown = false;
+  return (
+    <div className="space-y-2.5">
+      {rows.map((r, i) => {
+        const divider = !r.qualified && !dividerShown;
+        if (divider) dividerShown = true;
+        return (
+          <div key={r.memberId}>
+            {divider && (
+              <div className="mb-2.5 mt-4 flex items-center gap-2 text-[11px] uppercase tracking-wide text-zinc-600">
+                <span className="h-px flex-1 bg-zinc-800" />
+                Fewer than {minMatches} matches
+                <span className="h-px flex-1 bg-zinc-800" />
+              </div>
+            )}
+            <div className={`flex items-center gap-3 ${r.qualified ? "" : "opacity-60"}`}>
+              <span className={`w-5 text-right text-sm font-bold ${i === 0 && r.qualified ? "text-amber-400" : "text-zinc-500"}`}>
+                {r.qualified ? i + 1 : "—"}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-sm font-medium text-white">{r.name}</span>
+                  <span className="text-sm font-bold tabular-nums text-emerald-400">{r.rating.toFixed(2)}</span>
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.max(0, Math.min(100, (r.rating / max) * 100))}%` }}
+                    transition={{ duration: 0.7, delay: i * 0.05 }}
+                    className="h-full rounded-full"
+                    style={{ backgroundColor: r.teamColor || "#10b981" }}
+                  />
+                </div>
+                <div className="mt-0.5 flex items-baseline justify-between gap-2 text-[11px] text-zinc-500">
+                  <span className="truncate">{r.teamName}{r.summary !== "—" ? ` · ${r.summary}` : ""}</span>
+                  <span className="shrink-0 tabular-nums">{r.matches} {r.matches === 1 ? "match" : "matches"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const TABS: { key: CenterTab; label: string; icon: typeof Table2 }[] = [
   { key: "reveal", label: "Pools", icon: Sparkles },
@@ -116,6 +205,8 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
   }, [slug]);
   const [data, setData] = useState<Payload | null>(null);
   const [tab, setTab] = useState<CenterTab>(initialTab);
+  const [awardView, setAwardView] = useState<AwardView>("mvp");
+  const [showAwardHelp, setShowAwardHelp] = useState(false);
   const [drawPlayed, setDrawPlayed] = useState(false);
   const [drawStep, setDrawStep] = useState(-1); // index into the draw order during the ceremony
   const wasUnrevealed = useRef(false);
@@ -613,6 +704,87 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
 
       {/* ══ LEADERS ══ */}
       {tab === "leaders" && (
+        <div className="space-y-5">
+          {data.awards && data.awards.scoredMatches === 0 && data.awards.totalMatches > 0 && (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 text-sm text-zinc-400">
+              <h3 className="mb-1 font-semibold text-white">No awards yet</h3>
+              <p>
+                {data.awards.totalMatches} {data.awards.totalMatches === 1 ? "match has" : "matches have"}{" "}
+                finished, but none were scored with players tagged — the ball-by-ball log
+                records the runs without saying who scored them. Tag the batter and bowler in
+                the scorer console and awards appear automatically.
+              </p>
+            </div>
+          )}
+          {data.awards && data.awards.scoredMatches > 0 && (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {AWARD_VIEWS.filter((v) => v.key === "mvp" || data.awards!.sport === "CRICKET").map((v) => (
+                    <button
+                      key={v.key}
+                      onClick={() => setAwardView(v.key)}
+                      className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                        awardView === v.key
+                          ? "bg-emerald-600 text-white"
+                          : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setShowAwardHelp((v) => !v)}
+                  className="text-sm text-emerald-400 hover:text-emerald-300"
+                >
+                  How is this calculated?
+                </button>
+              </div>
+
+              {showAwardHelp && (
+                <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 text-[13px] leading-relaxed text-zinc-400">
+                  <p>
+                    Every performance earns points, and the number shown is{" "}
+                    <strong className="text-zinc-200">points per match played</strong> — so a
+                    player knocked out in the pools is still comparable with a finalist.
+                  </p>
+                  {data.awards.sport === "CRICKET" && (
+                    <p className="mt-2">
+                      Batting pays 1 per run, plus boundary and milestone bonuses, with a
+                      strike-rate adjustment once a batter has faced 10 balls. Bowling pays
+                      25 per wicket — the long-standing rule of thumb that a wicket is worth
+                      about 25 runs, which is what lets batters and bowlers share one table —
+                      plus maidens, hauls and an economy adjustment after 2 overs. Catches,
+                      stumpings and run-outs count too.
+                    </p>
+                  )}
+                  <p className="mt-2">
+                    A player needs at least {data.awards.minMatches} matches to be ranked;
+                    anyone below that is listed separately.
+                  </p>
+                </div>
+              )}
+
+              {(() => {
+                const rows =
+                  awardView === "bat"
+                    ? data.awards!.bestBatters
+                    : awardView === "bowl"
+                      ? data.awards!.bestBowlers
+                      : data.awards!.mvp;
+                return <AwardTable rows={rows} minMatches={data.awards!.minMatches} />;
+              })()}
+
+              {data.awards.scoredMatches < data.awards.totalMatches && (
+                <p className="mt-4 text-[11px] text-zinc-600">
+                  Based on {data.awards.scoredMatches} of {data.awards.totalMatches} completed
+                  matches — the rest were scored without tagging players.
+                </p>
+              )}
+            </div>
+          )}
+
         <div className="grid gap-5 md:grid-cols-2">
           {data.leaderboards.length === 0 && (
             <p className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8 text-center text-sm text-zinc-500 md:col-span-2">
@@ -656,6 +828,7 @@ export function TournamentCenter({ slug, initialTab }: { slug: string; initialTa
               </div>
             );
           })}
+        </div>
         </div>
       )}
     </div>

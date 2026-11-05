@@ -62,6 +62,13 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 const TABS = ["Overview", "Pools", "Table", "Bracket", "Matches", "Leaders"] as const;
+
+type AwardView = "mvp" | "bat" | "bowl";
+const AWARD_VIEWS: { key: AwardView; label: string }[] = [
+  { key: "mvp", label: "MVP" },
+  { key: "bat", label: "Best Batter" },
+  { key: "bowl", label: "Best Bowler" },
+];
 type Tab = (typeof TABS)[number];
 
 function Badge({ team, size = 26 }: { team: TeamLite | undefined | null; size?: number }) {
@@ -533,6 +540,8 @@ export function TournamentDetailScreen() {
   const route = useRoute<Rt>();
   const { slug } = route.params;
   const [tab, setTab] = useState<Tab>("Overview");
+  const [awardView, setAwardView] = useState<AwardView>("mvp");
+  const [showAwardHelp, setShowAwardHelp] = useState(false);
 
   useEffect(() => {
     trackTournamentView(slug);
@@ -1075,6 +1084,96 @@ export function TournamentDetailScreen() {
         {/* Leaders */}
         {tab === "Leaders" && (
           <View style={{ gap: 12 }}>
+            {data.awards && data.awards.scoredMatches === 0 && data.awards.totalMatches > 0 && (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>No awards yet</Text>
+                <Text style={[styles.cardBody, { marginTop: 4 }]}>
+                  {data.awards.totalMatches} {data.awards.totalMatches === 1 ? "match has" : "matches have"} finished,
+                  but none were scored with players tagged. Tag the batter and bowler in the
+                  scorer console and awards appear automatically.
+                </Text>
+              </View>
+            )}
+            {data.awards && data.awards.scoredMatches > 0 && (
+              <View style={styles.card}>
+                <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+                  {AWARD_VIEWS.filter((v) => v.key === "mvp" || data.awards!.sport === "CRICKET").map((v) => (
+                    <Pressable
+                      key={v.key}
+                      onPress={() => setAwardView(v.key)}
+                      style={[styles.awardChip, awardView === v.key && styles.awardChipOn]}
+                    >
+                      <Text style={{ color: awardView === v.key ? "#fff" : colors.zinc500, fontSize: 12, fontWeight: "600" }}>
+                        {v.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Pressable onPress={() => setShowAwardHelp((x) => !x)} style={{ marginTop: 10 }}>
+                  <Text style={{ color: colors.emerald400, fontSize: 12 }}>How is this calculated?</Text>
+                </Pressable>
+                {showAwardHelp && (
+                  <Text style={{ color: colors.zinc500, fontSize: 11, lineHeight: 17, marginTop: 6 }}>
+                    Every performance earns points, and the number shown is points per match
+                    played — so a player knocked out in the pools is still comparable with a
+                    finalist.
+                    {data.awards.sport === "CRICKET"
+                      ? " Batting pays 1 per run plus boundary and milestone bonuses, with a strike-rate adjustment after 10 balls. Bowling pays 25 per wicket — a wicket is worth about 25 runs, which is what lets batters and bowlers share one table — plus maidens, hauls and an economy adjustment after 2 overs. Catches, stumpings and run-outs count too."
+                      : ""}
+                    {" "}A player needs at least {data.awards.minMatches} matches to be ranked.
+                  </Text>
+                )}
+
+                <View style={{ gap: 8, marginTop: 10 }}>
+                  {(() => {
+                    const rows =
+                      awardView === "bat"
+                        ? data.awards!.bestBatters
+                        : awardView === "bowl"
+                          ? data.awards!.bestBowlers
+                          : data.awards!.mvp;
+                    if (rows.length === 0) {
+                      return <Text style={styles.cardBody}>No player-tagged scoring yet.</Text>;
+                    }
+                    const max = Math.max(1, ...rows.map((r) => r.rating));
+                    let dividerShown = false;
+                    return rows.map((r, i) => {
+                      const divider = !r.qualified && !dividerShown;
+                      if (divider) dividerShown = true;
+                      return (
+                        <View key={r.memberId} style={{ opacity: r.qualified ? 1 : 0.6 }}>
+                          {divider && (
+                            <Text style={{ color: colors.zinc500, fontSize: 10, marginBottom: 6, marginTop: 4 }}>
+                              FEWER THAN {data.awards!.minMatches} MATCHES
+                            </Text>
+                          )}
+                          <View style={styles.rowBetween}>
+                            <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: i === 0 && r.qualified ? "700" : "400" }}>
+                              {r.qualified ? `${i + 1}. ` : "— "}{r.name}
+                            </Text>
+                            <Text style={{ color: colors.emerald400, fontWeight: "700", fontSize: 13 }}>
+                              {r.rating.toFixed(2)}
+                            </Text>
+                          </View>
+                          <View style={styles.barTrack}>
+                            <View
+                              style={[
+                                styles.barFill,
+                                { width: `${Math.max(0, Math.min(100, (r.rating / max) * 100))}%`, backgroundColor: r.teamColor || colors.emerald500 },
+                              ]}
+                            />
+                          </View>
+                          <Text style={{ color: colors.zinc500, fontSize: 11 }}>
+                            {r.teamName}{r.summary !== "—" ? ` · ${r.summary}` : ""} · {r.matches} {r.matches === 1 ? "match" : "matches"}
+                          </Text>
+                        </View>
+                      );
+                    });
+                  })()}
+                </View>
+              </View>
+            )}
             {data.leaderboards.length === 0 && (
               <View style={styles.card}>
                 <Text style={styles.cardBody}>Player leaderboards appear once matches are scored.</Text>
@@ -1118,6 +1217,13 @@ export function TournamentDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  awardChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.muted,
+  },
+  awardChipOn: { backgroundColor: colors.emerald500 },
   // padded={false} on <Screen> — this is the ONLY horizontal
   // padding, matching camps/passes at spacing 5. Leaving Screen
   // padded stacked 24 + 16 and made these screens 40px a side.

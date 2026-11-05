@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-10-30 · accurate as of `development` = `183cb4b7`, promoted to `main` the same day (app 1.0.8). **New: the DIWALI BUMPER run** — cricket and football at a flat ₹1500/hour on play dates 1–11 Nov, plus a twelve-day 7 PM push campaign (a teaser on 31 Oct, then one dated line a day). It needed a new discount type, `TARGET_PRICE`, because neither percentage nor flat can express "one price" across a ₹2000 peak and a ₹1600 off-peak band — see **gotcha 27** for that, for why the per-slot floor does the court filtering for free, and for why the validator takes a `holdId` rather than the prices. `DailyPushSettings.sendHourIST` moved 15 → 19. Campaign constants live in `lib/diwali-2026.ts`, shared by both seeders so the copy cannot outlive the discount it quotes — the same discipline `lib/navratri-2026.ts` installed. Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
+**Last substantive update:** 2026-11-05 · accurate as of `development` = `093ac63b`. **New: the AWARDS engine** — Player of the Match, Best Batter and Best Bowler per match, plus tournament MVP / Best Batter / Best Bowler, across all four sports (`lib/tournament-awards.ts` + `-query.ts`, §8). Derived from the event log with no new tables and nothing cached, because a stored trophy can contradict an undone ball. Building it turned up **gotcha 28**: a match can be scored ball-by-ball with no players tagged, which is what "no MVP" almost always means; a rating can be negative, so bar widths must clamp; and TABLE_TENNIS was deriving no player stats at all. Previously, 2026-10-30 (app 1.0.8, `183cb4b7`). **New: the DIWALI BUMPER run** — cricket and football at a flat ₹1500/hour on play dates 1–11 Nov, plus a twelve-day 7 PM push campaign (a teaser on 31 Oct, then one dated line a day). It needed a new discount type, `TARGET_PRICE`, because neither percentage nor flat can express "one price" across a ₹2000 peak and a ₹1600 off-peak band — see **gotcha 27** for that, for why the per-slot floor does the court filtering for free, and for why the validator takes a `holdId` rather than the prices. `DailyPushSettings.sendHourIST` moved 15 → 19. Campaign constants live in `lib/diwali-2026.ts`, shared by both seeders so the copy cannot outlive the discount it quotes — the same discipline `lib/navratri-2026.ts` installed. Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -631,6 +631,32 @@ Anything else means main has drifted — stop and investigate, do not push.
     heard of, and `prisma db push` runs inside the Vercel build, so the
     coupon **cannot be seeded until the schema is live**. The workflow
     checks for the enum and says so rather than failing on a bare 22P02.
+
+28. **Awards are only as good as player tagging, and a scorer can skip it.**
+    The tournament scorer console lets a match be scored ball-by-ball with
+    no `batterId` / `bowlerId` on the delivery — `{"runs": 6}` is a valid
+    event. The innings total, the commentary and the result are all
+    correct; there is simply nobody to attribute anything to. Three
+    COMPLETED matches on staging ("Claude Test Cup", 35 events) are exactly
+    this, and the awards engine correctly produced nothing for all three.
+    **So "no MVP" almost never means the maths is broken — it means the
+    log has no names in it.** Both Leaders tabs now say that in words
+    rather than rendering an empty table, because an empty table reads as
+    a bug. If the school cup wants awards, the scorers must tag players.
+
+    Two more things that fell out of building it. **A rating can be
+    negative** — a duck is −5 and nothing cancels it — so every bar width
+    computed as `rating / max` has to clamp at 0 or it goes negative;
+    real data produced this on the first run against the Premier League
+    match. And **TABLE_TENNIS derived no player stats at all**:
+    `deriveStats` branched on `PICKLEBALL` while the score fold fell
+    through to the pickleball branch for both, so a TT match scored
+    perfectly and left every player with nothing — no leaderboard, no
+    awards. `DEFAULT_STAT_FIELDS` was missing a TT entry too, which would
+    have discarded the stats anyway via the `validKeys` filter. Both
+    fixed. When a sport is added, the fold is not the only place that
+    branches on it (see gotchas 22–24 for the same lesson).
+
 
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo
@@ -1701,6 +1727,26 @@ the real rendered copy and correctly declined free slots on a night with none.
   is one verdict rather than three. Its `inQuietHours` is a deliberate duplicate of the
   challenge board's, pinned by a parity test — see the note in the file for why four
   lines beat the coupling. §7c has the rest.
+- `lib/tournament-awards.ts` ↔ `tests/tournament-awards.test.ts` — Player of the
+  Match, Best Batter / Bowler and the tournament MVP rating. Pure: weights, the
+  per-match points formula and the tournament rollup, with no DB. It folds the
+  event log a THIRD time (after `tournament-live.ts` and `tournament-scorecard.ts`)
+  because awards need maidens and fielding credit that no scorecard line carries —
+  a real divergence risk, so the test file has PARITY cases asserting the figures
+  both folds share come out identical from the same log. Run attribution itself is
+  shared, not restated (`batterRunsOf` / `bowlerRunsOf`). The anchor weight is
+  **1 wicket = 25 runs**, which is what lets batters and bowlers share one table;
+  rate adjustments need a minimum sample or the table fills with cameos. The
+  headline number is points **per match played**, with a two-match qualifier.
+- `lib/tournament-awards-query.ts` — the DB seam: loads event logs, runs the engine,
+  attaches names and summary lines. Feeds BOTH surfaces from one place
+  (`app/api/tournaments/[slug]/public` and the match-centre payload), so web and app
+  cannot name different winners. Deliberately stores nothing: a cached trophy can
+  contradict the log the moment a scorer undoes a ball. An admin's manual
+  `playerOfMatchId` still wins over the computed one and is labelled as such.
+- `lib/tournament-scorecard.ts` — `foldScorecard` was extracted out of
+  `getMatchCentre` so it can be tested without a database, and so the awards fold
+  can be checked against it. Keep it pure.
 - `lib/ist.ts` — IST calendar arithmetic that does not read the host timezone.
   **Any date bucketing on money must go through this**, never through JS local
   getters — see gotcha 18 for what that cost. Mirrors the SQL side's

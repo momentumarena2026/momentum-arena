@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeStandings, inningsFromLiveState, standingsConfig } from "@/lib/tournament-points";
 import { getTournamentLeaderboards } from "@/lib/tournament-leaderboards";
+import { getTournamentAwards } from "@/lib/tournament-awards-query";
 import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
 import { parsePrizes } from "@/lib/tournament-config";
 import { poolMatchesArePublic, rosterIsPublic } from "@/lib/tournament-config";
@@ -134,7 +135,13 @@ export async function GET(
     key: string;
     label: string;
   }[];
-  const leaderboards = await getTournamentLeaderboards(t.id, statFields);
+  // Leaderboards answer "most runs"; awards answer "best player", which is
+  // a different question — most runs is not the MVP, and a tournament that
+  // only ever showed aggregates could not name a best bowler at all.
+  const [leaderboards, awards] = await Promise.all([
+    getTournamentLeaderboards(t.id, statFields),
+    getTournamentAwards(t.id),
+  ]);
 
   return NextResponse.json({
     tournament: {
@@ -226,5 +233,6 @@ export async function GET(
     // stay hidden until the flip; knockout fixtures are unaffected.
     matches: poolsRevealed ? t.matches : t.matches.filter((m) => m.stage !== "POOL"),
     leaderboards,
+    awards,
   });
 }
