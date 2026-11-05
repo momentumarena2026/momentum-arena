@@ -67,6 +67,7 @@ export const DEFAULT_STAT_FIELDS: Record<string, StatField[]> = {
     { key: "assists", label: "Assists" },
   ],
   PICKLEBALL: [{ key: "points", label: "Points Won" }],
+  TABLE_TENNIS: [{ key: "points", label: "Points Won" }],
 };
 
 export function parseStatFields(raw: unknown): StatField[] {

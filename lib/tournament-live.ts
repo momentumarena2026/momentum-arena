@@ -18,7 +18,8 @@ import {
 //               batterId?, bowlerId?}   (wd/nb don't count the ball)
 //   FOOTBALL  : CLOCK_START · CLOCK_STOP · GOAL {teamId, memberId?, assistId?}
 //               · CARD {teamId, memberId?, card}
-//   PICKLEBALL: POINT {teamId} · GAME_END
+//   PICKLEBALL: POINT {teamId, memberId?} · GAME_END
+//               TABLE_TENNIS uses this same engine.
 // Player stats sync: after every change the stat rows for the match are
 // re-derived from the event log (cricket runs/wickets, football goals/
 // assists, pickleball points) — keyed to the tournament's stat fields.
@@ -618,7 +619,10 @@ function deriveStats(
     } else if (sport === "FOOTBALL" && e.kind === "GOAL") {
       bump(e.memberId, "goals", 1);
       bump(d.assistId as string, "assists", 1);
-    } else if (sport === "PICKLEBALL" && e.kind === "POINT") {
+    } else if ((sport === "PICKLEBALL" || sport === "TABLE_TENNIS") && e.kind === "POINT") {
+      // TABLE_TENNIS folds its SCORE through the pickleball branch below but
+      // was missing here, so a TT match scored correctly and left every
+      // player with no stats at all — and so no leaderboard and no awards.
       bump(e.memberId, "points", 1);
     }
   }

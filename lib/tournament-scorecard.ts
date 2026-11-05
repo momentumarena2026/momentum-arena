@@ -9,6 +9,7 @@ import {
   dismissalCommentary,
   dismissalLine,
 } from "@/lib/cricket-dismissal";
+import { awardsForMatch, type MatchAwardsView } from "@/lib/tournament-awards-query";
 
 // ESPNcricinfo-style match centre data.
 //
@@ -118,6 +119,9 @@ export type MatchCentre = {
   liveNow: LiveNow | null;
   innings: InningsCard[];
   commentary: CommentaryBall[];
+  /** Player of the Match, Best Batter and Best Bowler, derived from the
+   *  event log. Null for a match with no player-tagged scoring. */
+  awards: MatchAwardsView;
   /** Fallback per-player stat table for non-cricket sports and for
    *  matches whose result was entered by hand. */
   statTable: { teamId: string; teamName: string; rows: { name: string; values: Record<string, number> }[] }[];
@@ -298,65 +302,29 @@ function ballText(d: {
 }
 
 /** Full match-centre payload: header, innings scorecards, commentary. */
-export async function getMatchCentre(matchId: string): Promise<MatchCentre | null> {
-  const match = await db.tournamentMatch.findUnique({
-    where: { id: matchId },
-    select: {
-      id: true,
-      status: true,
-      stage: true,
-      roundLabel: true,
-      scheduledAt: true,
-      homeScore: true,
-      awayScore: true,
-      homeScoreNote: true,
-      awayScoreNote: true,
-      isDraw: true,
-      winnerTeamId: true,
-      liveState: true,
-      clockStartedAt: true,
-      clockElapsedSec: true,
-      courtConfig: { select: { label: true } },
-      playerOfMatch: { select: { name: true } },
-      homeTeam: {
-        select: {
-          id: true, name: true, color: true, logoUrl: true,
-          members: { orderBy: { order: "asc" }, select: { id: true, name: true } },
-        },
-      },
-      awayTeam: {
-        select: {
-          id: true, name: true, color: true, logoUrl: true,
-          members: { orderBy: { order: "asc" }, select: { id: true, name: true } },
-        },
-      },
-      tournament: {
-        select: {
-          id: true, slug: true, name: true, sport: true, status: true,
-          statFields: true, wicketsPerInnings: true,
-        },
-      },
-    },
-  });
-  if (!match) return null;
-  if (["DRAFT", "CANCELLED"].includes(match.tournament.status)) return null;
-
-  const events = await db.tournamentMatchEvent.findMany({
-    where: { matchId },
-    orderBy: { seq: "asc" },
-    select: { seq: true, kind: true, teamId: true, memberId: true, data: true, createdAt: true },
-  });
-
-  const nameOf = new Map<string, string>();
-  for (const m of match.homeTeam?.members || []) nameOf.set(m.id, m.name);
-  for (const m of match.awayTeam?.members || []) nameOf.set(m.id, m.name);
-  const teamOf = (id: string | null) =>
-    id === match.homeTeam?.id ? match.homeTeam : id === match.awayTeam?.id ? match.awayTeam : null;
-
+/**
+ * The innings cards and commentary, folded from one match's event log.
+ *
+ * Extracted from getMatchCentre so it can be tested without a database —
+ * and, more importantly, so lib/tournament-awards.ts can be checked
+ * AGAINST it. Awards fold the same log separately (they need maidens and
+ * fielding credit that no scorecard line carries), and two folds of one
+ * log drift apart unless something compares them. See the PARITY tests in
+ * tests/tournament-awards.test.ts.
+ */
+export function foldScorecard(args: {
+  sport: string;
+  events: { seq: number; kind: string; teamId: string | null; memberId: string | null; data: unknown; createdAt: Date }[];
+  /** memberId -> display name, for both sides. */
+  nameOf: Map<string, string>;
+  /** teamId -> the team, or null when the id is neither side. */
+  teamOf: (id: string | null) => { id: string; name: string; color: string | null } | null;
+}): { innings: InningsCard[]; commentary: CommentaryBall[] } {
+  const { sport, events, nameOf, teamOf } = args;
   const innings: InningsCard[] = [];
   const commentary: CommentaryBall[] = [];
 
-  if (match.tournament.sport === "CRICKET") {
+  if (sport === "CRICKET") {
     type Acc = {
       teamId: string;
       runs: number; wickets: number; balls: number; extras: number;
@@ -534,6 +502,72 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
       });
     }
   }
+  return { innings, commentary };
+}
+
+
+export async function getMatchCentre(matchId: string): Promise<MatchCentre | null> {
+  const match = await db.tournamentMatch.findUnique({
+    where: { id: matchId },
+    select: {
+      id: true,
+      status: true,
+      stage: true,
+      roundLabel: true,
+      scheduledAt: true,
+      homeScore: true,
+      awayScore: true,
+      homeScoreNote: true,
+      awayScoreNote: true,
+      isDraw: true,
+      winnerTeamId: true,
+      liveState: true,
+      clockStartedAt: true,
+      clockElapsedSec: true,
+      courtConfig: { select: { label: true } },
+      playerOfMatchId: true,
+      playerOfMatch: { select: { name: true } },
+      homeTeam: {
+        select: {
+          id: true, name: true, color: true, logoUrl: true,
+          members: { orderBy: { order: "asc" }, select: { id: true, name: true } },
+        },
+      },
+      awayTeam: {
+        select: {
+          id: true, name: true, color: true, logoUrl: true,
+          members: { orderBy: { order: "asc" }, select: { id: true, name: true } },
+        },
+      },
+      tournament: {
+        select: {
+          id: true, slug: true, name: true, sport: true, status: true,
+          statFields: true, wicketsPerInnings: true,
+        },
+      },
+    },
+  });
+  if (!match) return null;
+  if (["DRAFT", "CANCELLED"].includes(match.tournament.status)) return null;
+
+  const events = await db.tournamentMatchEvent.findMany({
+    where: { matchId },
+    orderBy: { seq: "asc" },
+    select: { seq: true, kind: true, teamId: true, memberId: true, data: true, createdAt: true },
+  });
+
+  const nameOf = new Map<string, string>();
+  for (const m of match.homeTeam?.members || []) nameOf.set(m.id, m.name);
+  for (const m of match.awayTeam?.members || []) nameOf.set(m.id, m.name);
+  const teamOf = (id: string | null) =>
+    id === match.homeTeam?.id ? match.homeTeam : id === match.awayTeam?.id ? match.awayTeam : null;
+
+  const { innings, commentary } = foldScorecard({
+    sport: match.tournament.sport,
+    events,
+    nameOf,
+    teamOf,
+  });
 
   // Stored per-player stats (admin entry, or the live derivation) — shown
   // for non-cricket sports and as the fallback when no balls were tagged.
@@ -561,6 +595,25 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
 
   const brief = (t: typeof match.homeTeam): TeamBrief | null =>
     t ? { id: t.id, name: t.name, color: t.color, logoUrl: t.logoUrl } : null;
+
+  // Awards fold the SAME events already loaded above, so this costs no
+  // extra query — only the fold.
+  const awardMembers = new Map<string, { id: string; name: string; teamId: string; teamName: string; teamColor: string | null }>();
+  for (const [team, members] of [
+    [match.homeTeam, match.homeTeam?.members || []] as const,
+    [match.awayTeam, match.awayTeam?.members || []] as const,
+  ]) {
+    if (!team) continue;
+    for (const m of members) {
+      awardMembers.set(m.id, { id: m.id, name: m.name, teamId: team.id, teamName: team.name, teamColor: team.color });
+    }
+  }
+  const awards = awardsForMatch({
+    sport: match.tournament.sport,
+    events,
+    members: awardMembers,
+    manualPlayerOfMatchId: match.playerOfMatchId,
+  });
 
   return {
     match: {
@@ -612,6 +665,7 @@ export async function getMatchCentre(matchId: string): Promise<MatchCentre | nul
         : null,
     innings,
     commentary: commentary.slice(-120).reverse(), // newest first, bounded
+    awards,
     statTable,
     statFields,
   };

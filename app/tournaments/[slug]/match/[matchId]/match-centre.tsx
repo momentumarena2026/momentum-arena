@@ -51,6 +51,48 @@ function fmtWhen(iso: string | null): string {
   });
 }
 
+
+/**
+ * The three per-match awards.
+ *
+ * Only rendered for a finished match: naming a Player of the Match at the
+ * innings break would be wrong half the time, and the number moves on
+ * every ball while the game is live.
+ */
+function MatchAwards({
+  awards,
+  status,
+}: {
+  awards: MatchCentre["awards"];
+  status: string;
+}) {
+  if (status !== "COMPLETED") return null;
+  const items = [
+    { label: "Player of the Match", player: awards.playerOfMatch, accent: "text-amber-400", ring: "border-amber-500/40 bg-amber-500/5" },
+    { label: "Best Batter", player: awards.bestBatter, accent: "text-emerald-400", ring: "border-zinc-800 bg-zinc-900/60" },
+    { label: "Best Bowler", player: awards.bestBowler, accent: "text-sky-400", ring: "border-zinc-800 bg-zinc-900/60" },
+  ].filter((i) => i.player);
+  if (items.length === 0) return null;
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {items.map((i) => (
+        <div key={i.label} className={`rounded-2xl border p-4 ${i.ring}`}>
+          <div className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${i.accent}`}>
+            <Trophy className="h-3 w-3" /> {i.label}
+          </div>
+          <div className="mt-1.5 truncate text-base font-bold text-white">{i.player!.name}</div>
+          <div className="truncate text-xs text-zinc-400">{i.player!.teamName}</div>
+          <div className="mt-1.5 text-sm font-medium tabular-nums text-zinc-200">{i.player!.summary}</div>
+          {i.label === "Player of the Match" && awards.playerOfMatchIsManual && (
+            <div className="mt-1 text-[10px] uppercase tracking-wide text-zinc-500">Awarded by the organiser</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MatchCentreClient({ initial }: { initial: MatchCentre }) {
   const [data, setData] = useState<MatchCentre>(initial);
   const [tab, setTab] = useState<Tab>("Scorecard");
@@ -133,9 +175,10 @@ export function MatchCentreClient({ initial }: { initial: MatchCentre }) {
 
           <div className="border-t border-zinc-800 pt-3 text-sm">
             <span className={isLive ? "text-amber-400" : "text-emerald-400"}>{m.resultText}</span>
-            {m.playerOfMatch && (
+            {(data.awards?.playerOfMatch?.name || m.playerOfMatch) && m.status === "COMPLETED" && (
               <span className="ml-2 inline-flex items-center gap-1 text-xs text-zinc-400">
-                <Trophy className="h-3 w-3 text-amber-400" /> POTM: {m.playerOfMatch}
+                <Trophy className="h-3 w-3 text-amber-400" />{" "}
+                POTM: {data.awards?.playerOfMatch?.name || m.playerOfMatch}
               </span>
             )}
           </div>
@@ -269,6 +312,7 @@ export function MatchCentreClient({ initial }: { initial: MatchCentre }) {
       {/* ── Scorecard ── */}
       {tab === "Scorecard" && (
         <div className="mt-4 space-y-6">
+          <MatchAwards awards={data.awards} status={m.status} />
           {isCricket && data.innings.length > 0
             ? data.innings.map((inn, i) => (
                 <div key={i} className="overflow-hidden rounded-2xl border border-zinc-800">
@@ -468,11 +512,6 @@ export function MatchCentreClient({ initial }: { initial: MatchCentre }) {
           <p className="text-zinc-400">
             {data.tournament.name} · {m.roundLabel || m.stage} · {m.sport}
           </p>
-          {m.playerOfMatch && (
-            <p className="flex items-center gap-2 text-amber-400">
-              <Trophy className="h-4 w-4" /> Player of the Match: {m.playerOfMatch}
-            </p>
-          )}
         </div>
       )}
     </div>

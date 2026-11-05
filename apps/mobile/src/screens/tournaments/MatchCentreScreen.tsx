@@ -7,7 +7,7 @@ import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { colors, radius } from "../../theme";
-import { getMatchCentre, type InningsCard } from "../../lib/tournaments";
+import { getMatchCentre, type InningsCard, type MatchAwardsView } from "../../lib/tournaments";
 import type { AccountStackParamList } from "../../navigation/types";
 import { usePullToRefresh } from "../../hooks/usePullToRefresh";
 
@@ -102,6 +102,49 @@ function InningsBlock({ inn }: { inn: InningsCard }) {
   );
 }
 
+/**
+ * Player of the Match, Best Batter, Best Bowler for a finished match.
+ *
+ * Mirrors the web card in app/tournaments/[slug]/match/[matchId]/match-centre.tsx;
+ * both read the same `awards` block off the match-centre payload, so the
+ * app and the site cannot name different winners.
+ */
+function MatchAwards({ awards, status }: { awards: MatchAwardsView; status: string }) {
+  if (status !== "COMPLETED" || !awards) return null;
+  const items = [
+    { label: "Player of the Match", player: awards.playerOfMatch, accent: "#fbbf24" },
+    { label: "Best Batter", player: awards.bestBatter, accent: "#34d399" },
+    { label: "Best Bowler", player: awards.bestBowler, accent: "#38bdf8" },
+  ].filter((i) => i.player);
+  if (items.length === 0) return null;
+
+  return (
+    <View style={{ gap: 8 }}>
+      {items.map((i) => (
+        <View key={i.label} style={[styles.card, { borderColor: i.accent + "55" }]}>
+          <Text style={{ color: i.accent, fontSize: 10, fontWeight: "700", letterSpacing: 0.8 }}>
+            {i.label.toUpperCase()}
+          </Text>
+          <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "700", marginTop: 3 }} numberOfLines={1}>
+            {i.player!.name}
+          </Text>
+          <Text style={{ color: colors.zinc500, fontSize: 12 }} numberOfLines={1}>
+            {i.player!.teamName}
+          </Text>
+          <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600", marginTop: 3 }}>
+            {i.player!.summary}
+          </Text>
+          {i.label === "Player of the Match" && awards.playerOfMatchIsManual && (
+            <Text style={{ color: colors.zinc500, fontSize: 10, marginTop: 2, letterSpacing: 0.6 }}>
+              AWARDED BY THE ORGANISER
+            </Text>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function MatchCentreScreen() {
   const { matchId } = useRoute<Rt>().params;
   const [tab, setTab] = useState<Tab>("Scorecard");
@@ -182,10 +225,12 @@ export function MatchCentreScreen() {
           <Text style={[styles.result, { color: isLive ? "#fbbf24" : colors.emerald400 }]}>
             {m.resultText}
           </Text>
-          {m.playerOfMatch && (
+          {(data.awards?.playerOfMatch?.name || m.playerOfMatch) && m.status === "COMPLETED" && (
             <View style={styles.potmRow}>
               <Trophy size={12} color="#fbbf24" />
-              <Text style={styles.potm}>Player of the Match: {m.playerOfMatch}</Text>
+              <Text style={styles.potm}>
+                Player of the Match: {data.awards?.playerOfMatch?.name || m.playerOfMatch}
+              </Text>
             </View>
           )}
         </View>
@@ -303,6 +348,7 @@ export function MatchCentreScreen() {
         {/* Scorecard */}
         {tab === "Scorecard" && (
           <View style={{ gap: 12 }}>
+            <MatchAwards awards={data.awards} status={m.status} />
             {isCricket && data.innings.map((inn, i) => <InningsBlock key={i} inn={inn} />)}
 
             {data.statTable.length > 0 && (!isCricket || noBallByBall) &&

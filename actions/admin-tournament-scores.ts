@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { applyProgression } from "@/lib/tournament-progression";
+import { awardsForMatch } from "@/lib/tournament-awards-query";
 
 async function gate() {
   return requireAdmin("MANAGE_TOURNAMENTS");
@@ -203,4 +204,61 @@ export async function getMatchRosters(matchId: string) {
     },
   });
   return match;
+}
+
+/**
+ * What the awards engine would pick for this match, for the organiser to
+ * accept or ignore.
+ *
+ * Advisory only: nothing here writes `playerOfMatchId`. An admin's choice
+ * always wins over the computed one (and the public page labels it as the
+ * organiser's), because a match-turning catch or a spell that broke a
+ * partnership without taking the wicket is a judgement the maths cannot
+ * make. Returns null when the match was scored without tagging players —
+ * the common case for a result typed straight into this form, which has no
+ * ball-by-ball log behind it at all.
+ */
+export async function suggestMatchAwards(matchId: string) {
+  await gate();
+  const match = await db.tournamentMatch.findUnique({
+    where: { id: matchId },
+    select: {
+      playerOfMatchId: true,
+      tournament: { select: { sport: true } },
+      homeTeam: { select: { id: true, name: true, color: true, members: { select: { id: true, name: true } } } },
+      awayTeam: { select: { id: true, name: true, color: true, members: { select: { id: true, name: true } } } },
+    },
+  });
+  if (!match?.homeTeam || !match.awayTeam) return null;
+
+  const events = await db.tournamentMatchEvent.findMany({
+    where: { matchId },
+    orderBy: { seq: "asc" },
+    select: { kind: true, teamId: true, memberId: true, data: true },
+  });
+  if (events.length === 0) return null;
+
+  const members = new Map<string, { id: string; name: string; teamId: string; teamName: string; teamColor: string | null }>();
+  for (const team of [match.homeTeam, match.awayTeam]) {
+    for (const m of team.members) {
+      members.set(m.id, { id: m.id, name: m.name, teamId: team.id, teamName: team.name, teamColor: team.color });
+    }
+  }
+
+  // Ask for the COMPUTED winner, not the stored one: this is the
+  // suggestion, so the admin's existing pick must not be echoed back at
+  // them as if the engine had chosen it.
+  const a = awardsForMatch({
+    sport: match.tournament.sport,
+    events,
+    members,
+    manualPlayerOfMatchId: null,
+  });
+  if (!a.playerOfMatch && !a.bestBatter && !a.bestBowler) return null;
+  return {
+    playerOfMatch: a.playerOfMatch,
+    bestBatter: a.bestBatter,
+    bestBowler: a.bestBowler,
+    currentIsManual: !!match.playerOfMatchId,
+  };
 }
