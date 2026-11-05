@@ -175,9 +175,10 @@ export function MatchCentreClient({ initial }: { initial: MatchCentre }) {
 
           <div className="border-t border-zinc-800 pt-3 text-sm">
             <span className={isLive ? "text-amber-400" : "text-emerald-400"}>{m.resultText}</span>
-            {m.playerOfMatch && (
+            {(data.awards?.playerOfMatch?.name || m.playerOfMatch) && m.status === "COMPLETED" && (
               <span className="ml-2 inline-flex items-center gap-1 text-xs text-zinc-400">
-                <Trophy className="h-3 w-3 text-amber-400" /> POTM: {m.playerOfMatch}
+                <Trophy className="h-3 w-3 text-amber-400" />{" "}
+                POTM: {data.awards?.playerOfMatch?.name || m.playerOfMatch}
               </span>
             )}
           </div>

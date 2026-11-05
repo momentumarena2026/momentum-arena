@@ -225,10 +225,12 @@ export function MatchCentreScreen() {
           <Text style={[styles.result, { color: isLive ? "#fbbf24" : colors.emerald400 }]}>
             {m.resultText}
           </Text>
-          {m.playerOfMatch && (
+          {(data.awards?.playerOfMatch?.name || m.playerOfMatch) && m.status === "COMPLETED" && (
             <View style={styles.potmRow}>
               <Trophy size={12} color="#fbbf24" />
-              <Text style={styles.potm}>Player of the Match: {m.playerOfMatch}</Text>
+              <Text style={styles.potm}>
+                Player of the Match: {data.awards?.playerOfMatch?.name || m.playerOfMatch}
+              </Text>
             </View>
           )}
         </View>
