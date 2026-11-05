@@ -71,6 +71,9 @@ export type AwardRow = {
   summary: string;
 };
 
+/** Which table a row is being built for; see summariseTally. */
+type Discipline = "all" | "bat" | "bowl";
+
 type MemberRef = { id: string; name: string; teamId: string; teamName: string; teamColor: string | null };
 
 const oversOf = (balls: number) => `${Math.floor(balls / 6)}.${balls % 6}`;
@@ -103,12 +106,28 @@ function summarise(sport: string, p: MatchPerf): string {
   return "—";
 }
 
-/** Aggregate summary across the whole tournament. */
-function summariseTally(sport: string, t: TournamentTally): string {
+/**
+ * Aggregate summary across the whole tournament, for the table it appears in.
+ *
+ * `discipline` matters: quoting "45 runs · 4 wkts" under a BEST BATTERS
+ * heading reads as a mistake, and the number beside it is a batting-only
+ * rating, so the two disagree. Each table now summarises its own discipline.
+ */
+function summariseTally(sport: string, t: TournamentTally, discipline: Discipline): string {
   if (sport === "CRICKET") {
     const bits: string[] = [];
-    if (t.runs > 0) bits.push(`${t.runs} runs`);
-    if (t.wickets > 0) bits.push(`${t.wickets} wkts`);
+    if (discipline !== "bowl" && t.runs > 0) {
+      bits.push(`${t.runs} run${t.runs === 1 ? "" : "s"}`);
+      if (t.balls > 0 && discipline === "bat") {
+        bits.push(`SR ${((t.runs / t.balls) * 100).toFixed(1)}`);
+      }
+    }
+    if (discipline !== "bat" && t.wickets > 0) {
+      bits.push(`${t.wickets} wkt${t.wickets === 1 ? "" : "s"}`);
+      if (t.bowlBalls > 0 && discipline === "bowl") {
+        bits.push(`econ ${((t.bowlRuns / t.bowlBalls) * 6).toFixed(2)}`);
+      }
+    }
     return bits.join(" · ") || "—";
   }
   if (sport === "FOOTBALL") {
@@ -269,7 +288,7 @@ export async function getTournamentAwards(
 
   const { mvp, bestBatters, bestBowlers } = computeTournamentAwards(t.sport, perfsByMatch);
 
-  const toRow = (tally: TournamentTally, rating: number): AwardRow | null => {
+  const toRow = (tally: TournamentTally, rating: number, discipline: Discipline): AwardRow | null => {
     const m = members.get(tally.memberId);
     if (!m) return null;
     return {
@@ -278,10 +297,16 @@ export async function getTournamentAwards(
       teamName: m.teamName,
       teamColor: m.teamColor,
       rating,
-      totalPoints: tally.totalPoints,
+      // The points the rating is computed from, so the two agree. Showing
+      // an all-round total beside a batting-only rating invites the reader
+      // to divide one by the other and get a number that means nothing.
+      totalPoints:
+        discipline === "bat" ? tally.battingPoints
+        : discipline === "bowl" ? tally.bowlingPoints
+        : tally.totalPoints,
       matches: tally.matches,
       qualified: tally.qualified,
-      summary: summariseTally(t.sport, tally),
+      summary: summariseTally(t.sport, tally, discipline),
     };
   };
   const perMatch = (v: number, m: number) => (m > 0 ? Math.round((v / m) * 100) / 100 : 0);
@@ -291,12 +316,12 @@ export async function getTournamentAwards(
     minMatches: MVP_MIN_MATCHES,
     scoredMatches,
     totalMatches: matchIds.length,
-    mvp: mvp.slice(0, take).flatMap((t2) => toRow(t2, t2.rating) ?? []),
+    mvp: mvp.slice(0, take).flatMap((t2) => toRow(t2, t2.rating, "all") ?? []),
     bestBatters: bestBatters
       .slice(0, take)
-      .flatMap((t2) => toRow(t2, perMatch(t2.battingPoints, t2.matches)) ?? []),
+      .flatMap((t2) => toRow(t2, perMatch(t2.battingPoints, t2.matches), "bat") ?? []),
     bestBowlers: bestBowlers
       .slice(0, take)
-      .flatMap((t2) => toRow(t2, perMatch(t2.bowlingPoints, t2.matches)) ?? []),
+      .flatMap((t2) => toRow(t2, perMatch(t2.bowlingPoints, t2.matches), "bowl") ?? []),
   };
 }
