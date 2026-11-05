@@ -1744,6 +1744,15 @@ the real rendered copy and correctly declined free slots on a night with none.
   cannot name different winners. Deliberately stores nothing: a cached trophy can
   contradict the log the moment a scorer undoes a ball. An admin's manual
   `playerOfMatchId` still wins over the computed one and is labelled as such.
+- **The Leaders tab and the match-centre award cards exist TWICE** —
+  `app/tournaments/[slug]/tournament-center.tsx` + `.../match/[matchId]/match-centre.tsx`
+  and their mobile twins in `apps/mobile/src/screens/tournaments/`. Both read the
+  same payload, so the numbers cannot disagree, but the *presentation* silently
+  diverged on first build: the app scaled its bars against every row while web
+  scaled against the ranked ones, which left the actual leader's bar a third
+  full whenever an unqualified one-match player out-rated them. Nothing catches
+  this class — there is no payload to parity-test — so when you change one, open
+  the other.
 - `lib/tournament-scorecard.ts` — `foldScorecard` was extracted out of
   `getMatchCentre` so it can be tested without a database, and so the awards fold
   can be checked against it. Keep it pure.
