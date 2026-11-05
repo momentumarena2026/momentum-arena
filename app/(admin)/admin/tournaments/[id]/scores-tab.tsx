@@ -7,6 +7,7 @@ import {
   enterMatchResult,
   reopenMatch,
   getMatchRosters,
+  suggestMatchAwards,
 } from "@/actions/admin-tournament-scores";
 import type { MatchRow } from "./fixtures-tab";
 
@@ -35,6 +36,11 @@ export function ScoresTab({
   const router = useRouter();
   const [openFor, setOpenFor] = useState<string | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
+  // Advisory only — the engine's pick, shown so the organiser can accept
+  // it or deliberately choose someone else. Null when the match has no
+  // player-tagged ball-by-ball log, which is the norm for a result typed
+  // straight into this form.
+  const [suggestion, setSuggestion] = useState<Awaited<ReturnType<typeof suggestMatchAwards>>>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -82,8 +88,13 @@ export function ScoresTab({
     });
     setStatValues({});
     setRoster(null);
+    setSuggestion(null);
     const r = await getMatchRosters(m.id);
     setRoster((r as Roster) || null);
+    suggestMatchAwards(m.id)
+      .then(setSuggestion)
+      // A suggestion is a convenience; never let it block score entry.
+      .catch(() => setSuggestion(null));
   };
 
   // Bracket -> Scores hand-off. Keyed on the id so re-selecting the same
@@ -358,6 +369,27 @@ export function ScoresTab({
                           ))}
                         </optgroup>
                       </select>
+                    </div>
+                  )}
+
+                  {suggestion?.playerOfMatch && (
+                    <div className="flex items-center gap-2 text-xs text-zinc-400">
+                      <span>
+                        Suggested:{" "}
+                        <strong className="text-zinc-200">{suggestion.playerOfMatch.name}</strong>{" "}
+                        <span className="text-zinc-500">({suggestion.playerOfMatch.summary})</span>
+                      </span>
+                      {form.playerOfMatchId !== suggestion.playerOfMatch.memberId && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setForm((f) => ({ ...f, playerOfMatchId: suggestion.playerOfMatch!.memberId }))
+                          }
+                          className="rounded-md border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                        >
+                          Use
+                        </button>
+                      )}
                     </div>
                   )}
                   <input
