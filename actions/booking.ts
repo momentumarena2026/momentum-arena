@@ -11,7 +11,7 @@ import {
   lockCourtHours,
   findSlotClashes,
 } from "@/lib/slot-hold";
-import { OCCUPYING_BOOKING_STATUSES } from "@/lib/availability";
+import { SALE_BLOCKING_BOOKING_STATUSES } from "@/lib/availability";
 import { getSlotPricesForDate } from "@/lib/pricing";
 import { getTodayIST, getCurrentHourIST } from "@/lib/ist-date";
 import {
@@ -1288,7 +1288,7 @@ export async function createBookingFromHold(
       const rivals = await tx.booking.findMany({
         where: {
           date: hold.date,
-          status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+          status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
           courtConfig: { zones: { hasSome: hold.courtConfig.zones } },
         },
         include: { slots: true },
@@ -1331,10 +1331,10 @@ export async function createBookingFromHold(
 
       const conflictingBookings = await tx.booking.findMany({
         where: {
-          // COMPLETED / ABSENT still occupy their slot — only CANCELLED
-          // frees it. Omitting them let an admin close a booking out and
-          // silently reopen its zones to a second booking.
-          status: { in: ["CONFIRMED", "PENDING", "COMPLETED", "ABSENT"] },
+          // COMPLETED still occupies its slot — only CANCELLED and a
+          // no-show free it. Omitting COMPLETED let an admin close a
+          // booking out and silently reopen its zones to a second booking.
+          status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
           date: hold.date,
           courtConfig: {
             zones: { hasSome: config.zones as CourtZone[] },
@@ -1378,9 +1378,9 @@ export async function createBookingFromHold(
       if (!config) throw new Error("Court config not found");
       const conflictingBookings = await tx.booking.findMany({
         where: {
-          // COMPLETED / ABSENT still occupy their slot — only CANCELLED
-          // frees it.
-          status: { in: ["CONFIRMED", "PENDING", "COMPLETED", "ABSENT"] },
+          // COMPLETED still occupies its slot — only CANCELLED and a
+          // no-show free it.
+          status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
           date: hold.date,
           courtConfig: {
             zones: { hasSome: config.zones as CourtZone[] },

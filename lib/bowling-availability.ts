@@ -1,6 +1,6 @@
 import { BookingCategory, CourtZone, DayType } from "@prisma/client";
 import { db } from "./db";
-import { OCCUPYING_BOOKING_STATUSES, type LockKind } from "./availability";
+import { SALE_BLOCKING_BOOKING_STATUSES, type LockKind } from "./availability";
 import {
   getCurrentHourIST,
   getCurrentMinuteIST,
@@ -125,7 +125,7 @@ export async function getBowlingMachineAvailability(
   const conflictingBookings = await db.booking.findMany({
     where: {
       date: dateOnly,
-      status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+      status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
       courtConfig: {
         zones: { hasSome: config.zones as CourtZone[] },
       },
@@ -391,7 +391,7 @@ export async function verifyBowlingHoldStillBookable(
   const conflictingBookings = await db.booking.findMany({
     where: {
       date: dateOnly,
-      status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+      status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
       courtConfig: {
         zones: { hasSome: config.zones as CourtZone[] },
       },

@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 // Type-only — the runtime helper stays behind the existing dynamic
 // import()s at the bowling call sites.
 import type { BowlingSlot } from "@/lib/bowling-availability";
+import { SALE_BLOCKING_BOOKING_STATUSES } from "@/lib/availability";
 import { completePassTopup } from "@/lib/pass-topup";
 import { qrStatus } from "@/lib/phonepe-dqr";
 import { confirmDqrBooking, confirmDqrCafe } from "@/lib/dqr-confirm";
@@ -62,27 +63,17 @@ async function requireAdmin() {
 }
 
 // Which bookings block an hour from being SOLD at the admin counter.
-// PENDING/CONFIRMED are obvious; COMPLETED is included because the front
-// desk often closes a session out while it is still running, and dropping
-// it would put an occupied court back on sale.
 //
-// ABSENT is deliberately NOT here, and this list therefore does NOT match
-// its namesakes in lib/availability.ts (customer-facing sale) or
-// actions/admin-calendar.ts (cell rendering) — do not "align" them. A
-// no-show's court is empty, and the counter must be able to re-sell it;
-// the only alternative is cancelling the booking, which would also throw
-// away the forfeited advance the venue is entitled to keep. The calendar
-// still renders the ABSENT pill, so the double-booked cell is explained.
-//
-// The bowling machine's 30-min grid doesn't query bookings here — it
-// goes through lib/bowling-availability.ts, which uses the customer
-// rule. reopenNoShowBowlingSlots below re-applies this one on top of
-// that result so both admin surfaces re-sell no-shows the same way.
-const OCCUPYING_BOOKING_STATUSES = [
-  "CONFIRMED",
-  "PENDING",
-  "COMPLETED",
-] as const;
+// This used to be a local list that deliberately diverged from the
+// customer-facing one, because the counter could re-sell a no-show's
+// court and the customer picker could not. That divergence WAS the bug:
+// a two-hour booking marked ABSENT mid-session kept its remaining hour
+// off sale to every customer on the website and the app, while the
+// front desk could still sell it. There is one rule now, in
+// lib/availability.ts, and the counter and the customer see the same
+// court. The calendar keeps its own (ON_THE_BOOKS) list so a no-show
+// still draws its pill.
+const OCCUPYING_BOOKING_STATUSES = SALE_BLOCKING_BOOKING_STATUSES;
 
 // Same idea for the money: a closed-out booking keeps the advance as
 // earnings, so it must stay in the revenue/count KPIs it was in while
@@ -1861,108 +1852,6 @@ export async function createCustomerForBooking(
 }
 
 // ---------------------------------------------------------------------------
-// reopenNoShowBowlingSlots
-// ---------------------------------------------------------------------------
-// The 30-min grid comes from `getBowlingMachineAvailability`, which uses
-// the CUSTOMER-facing occupancy rule in lib/availability.ts — and that
-// one counts ABSENT, so a no-show holds its bowling slot off the admin
-// grid forever. The hourly admin paths in this file query bookings
-// directly with the narrower OCCUPYING_BOOKING_STATUSES above and can
-// already re-sell a no-show's court; this brings the bowling paths in
-// line without widening the shared helper (the customer picker feeds
-// off the same call and must keep treating ABSENT as sold).
-//
-// Only "booked" flips, and only when an ABSENT booking is the SOLE
-// occupier of that key: a live booking, an in-flight SlotHold or an
-// admin SlotBlock on the same key all keep the slot shut. "blocked"
-// already outranks "booked" in the helper, so slot blocks need no
-// re-check here; holds do, because a key that is both hold-locked and
-// ABSENT-booked surfaces as "booked".
-async function reopenNoShowBowlingSlots(
-  courtConfigId: string,
-  dateOnly: Date,
-  slots: BowlingSlot[],
-  excludeBookingId?: string,
-): Promise<BowlingSlot[]> {
-  if (!slots.some((s) => s.status === "booked")) return slots;
-
-  const config = await db.courtConfig.findUnique({
-    where: { id: courtConfigId },
-    select: { zones: true },
-  });
-  if (!config) return slots;
-
-  const keyOf = (h: number, m: number) => `${h}:${m}`;
-  const zoneOverlap = { zones: { hasSome: config.zones as CourtZone[] } };
-
-  const [bookings, holds] = await Promise.all([
-    db.booking.findMany({
-      where: {
-        date: dateOnly,
-        status: { in: ["ABSENT", ...OCCUPYING_BOOKING_STATUSES] },
-        courtConfig: zoneOverlap,
-        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
-      },
-      select: {
-        status: true,
-        slots: {
-          select: {
-            startHour: true,
-            startMinute: true,
-            durationMinutes: true,
-          },
-        },
-      },
-    }),
-    db.slotHold.findMany({
-      where: {
-        date: dateOnly,
-        expiresAt: { gt: new Date() },
-        courtConfig: zoneOverlap,
-      },
-      select: { hours: true, startMinutes: true },
-    }),
-  ]);
-
-  const absentKeys = new Set<string>();
-  const stillOccupied = new Set<string>();
-  for (const booking of bookings) {
-    const into = booking.status === "ABSENT" ? absentKeys : stillOccupied;
-    for (const slot of booking.slots) {
-      // An hour-granular turf booking on the overlapping zones takes
-      // BOTH halves of its hour — same expansion the helper does.
-      if (slot.durationMinutes === 30) {
-        into.add(keyOf(slot.startHour, slot.startMinute));
-      } else {
-        into.add(keyOf(slot.startHour, 0));
-        into.add(keyOf(slot.startHour, 30));
-      }
-    }
-  }
-  for (const hold of holds) {
-    for (let i = 0; i < hold.hours.length; i++) {
-      const h = hold.hours[i];
-      // Empty startMinutes = a legacy 60-min hold blocking both halves.
-      if (hold.startMinutes.length === 0) {
-        stillOccupied.add(keyOf(h, 0));
-        stillOccupied.add(keyOf(h, 30));
-      } else {
-        stillOccupied.add(keyOf(h, hold.startMinutes[i] ?? 0));
-      }
-    }
-  }
-
-  return slots.map((slot) => {
-    const key = keyOf(slot.hour, slot.minute);
-    return slot.status === "booked" &&
-      absentKeys.has(key) &&
-      !stillOccupied.has(key)
-      ? { ...slot, status: "available" as const }
-      : slot;
-  });
-}
-
-// ---------------------------------------------------------------------------
 // getAvailableBowlingSlots
 // ---------------------------------------------------------------------------
 // Wraps the half-hour `getBowlingMachineAvailability` helper for the
@@ -1987,13 +1876,11 @@ export async function getAvailableBowlingSlots(
     // of the day, not just the customer-facing window. Conflicts /
     // holds / admin slot blocks stay enforced — they protect real
     // physical resources and matter from the admin side too.
-    const raw = await reopenNoShowBowlingSlots(
+    const raw = await getBowlingMachineAvailability(
       courtConfigId,
       dateOnly,
-      await getBowlingMachineAvailability(courtConfigId, dateOnly, excludeBookingId, {
-        adminOverride: true,
-      }),
       excludeBookingId,
+      { adminOverride: true },
     );
     const slots = raw.map((s) => ({
       hour: s.hour,
@@ -2343,13 +2230,9 @@ export async function adminCreateBooking(data: {
       const { getBowlingMachineAvailability } = await import(
         "@/lib/bowling-availability"
       );
-      const avail = await reopenNoShowBowlingSlots(
-        config.id,
-        dateOnly,
-        await getBowlingMachineAvailability(config.id, dateOnly, undefined, {
-          adminOverride: true,
-        }),
-      );
+      const avail = await getBowlingMachineAvailability(config.id, dateOnly, undefined, {
+        adminOverride: true,
+      });
       const keyOf = (h: number, m: number) => `${h}:${m}`;
       const lookup = new Map(
         avail.map((s) => [keyOf(s.hour, s.minute), s] as const),
@@ -3200,14 +3083,9 @@ export async function adminEditBookingSlots(
       const { getBowlingMachineAvailability } = await import(
         "@/lib/bowling-availability"
       );
-      const avail = await reopenNoShowBowlingSlots(
-        config.id,
-        dateOnly,
-        await getBowlingMachineAvailability(config.id, dateOnly, bookingId, {
-          adminOverride: true,
-        }),
-        bookingId,
-      );
+      const avail = await getBowlingMachineAvailability(config.id, dateOnly, bookingId, {
+        adminOverride: true,
+      });
       const keyOf = (h: number, m: number) => `${h}:${m}`;
       const lookup = new Map(
         avail.map((s) => [keyOf(s.hour, s.minute), s] as const),
