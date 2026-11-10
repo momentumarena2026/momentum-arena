@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-11-05 · accurate as of `development` = `093ac63b`. **New: the AWARDS engine** — Player of the Match, Best Batter and Best Bowler per match, plus tournament MVP / Best Batter / Best Bowler, across all four sports (`lib/tournament-awards.ts` + `-query.ts`, §8). Derived from the event log with no new tables and nothing cached, because a stored trophy can contradict an undone ball. Building it turned up **gotcha 28**: a match can be scored ball-by-ball with no players tagged, which is what "no MVP" almost always means; a rating can be negative, so bar widths must clamp; and TABLE_TENNIS was deriving no player stats at all. Previously, 2026-10-30 (app 1.0.8, `183cb4b7`). **New: the DIWALI BUMPER run** — cricket and football at a flat ₹1500/hour on play dates 1–11 Nov, plus a twelve-day 7 PM push campaign (a teaser on 31 Oct, then one dated line a day). It needed a new discount type, `TARGET_PRICE`, because neither percentage nor flat can express "one price" across a ₹2000 peak and a ₹1600 off-peak band — see **gotcha 27** for that, for why the per-slot floor does the court filtering for free, and for why the validator takes a `holdId` rather than the prices. `DailyPushSettings.sendHourIST` moved 15 → 19. Campaign constants live in `lib/diwali-2026.ts`, shared by both seeders so the copy cannot outlive the discount it quotes — the same discipline `lib/navratri-2026.ts` installed. Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
+**Last substantive update:** 2026-11-10 · **a no-show's remaining hours are sellable again** — one booking, two hours, marked ABSENT mid-session, and the second hour stayed off sale to every customer while the counter could still sell it (**gotcha 29**: occupancy was one constant answering two different questions). Previously 2026-11-05 · accurate as of `development` = `093ac63b`. **New: the AWARDS engine** — Player of the Match, Best Batter and Best Bowler per match, plus tournament MVP / Best Batter / Best Bowler, across all four sports (`lib/tournament-awards.ts` + `-query.ts`, §8). Derived from the event log with no new tables and nothing cached, because a stored trophy can contradict an undone ball. Building it turned up **gotcha 28**: a match can be scored ball-by-ball with no players tagged, which is what "no MVP" almost always means; a rating can be negative, so bar widths must clamp; and TABLE_TENNIS was deriving no player stats at all. Previously, 2026-10-30 (app 1.0.8, `183cb4b7`). **New: the DIWALI BUMPER run** — cricket and football at a flat ₹1500/hour on play dates 1–11 Nov, plus a twelve-day 7 PM push campaign (a teaser on 31 Oct, then one dated line a day). It needed a new discount type, `TARGET_PRICE`, because neither percentage nor flat can express "one price" across a ₹2000 peak and a ₹1600 off-peak band — see **gotcha 27** for that, for why the per-slot floor does the court filtering for free, and for why the validator takes a `holdId` rather than the prices. `DailyPushSettings.sendHourIST` moved 15 → 19. Campaign constants live in `lib/diwali-2026.ts`, shared by both seeders so the copy cannot outlive the discount it quotes — the same discipline `lib/navratri-2026.ts` installed. Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -657,6 +657,47 @@ Anything else means main has drifted — stop and investigate, do not push.
     fixed. When a sport is added, the fold is not the only place that
     branches on it (see gotchas 22–24 for the same lesson).
 
+
+
+29. **"Does this booking hold the court?" and "does this booking still
+    exist?" are two questions, and one constant was answering both.**
+    Reported from the desk: a single booking covering 4–6pm, customer
+    never turned up, marked ABSENT at half past four — and the 5–6pm hour
+    stayed off sale to every customer on the website and the app. The
+    court was empty, the advance was already forfeit and kept, and the
+    second hour simply could not be sold.
+
+    The cause was a divergence that read like a decision. 9ca11a42 fixed
+    a real defect — closing a booking out put its slot back on sale
+    *while the party was still on the court* — by adding both terminal
+    statuses to every occupancy query. COMPLETED belonged there; ABSENT
+    got swept along with it. The counter was then carved out with a
+    private narrower list in `actions/admin-booking.ts`, so the front
+    desk could re-sell a no-show and nobody else could, and three
+    comments told the next reader "do not align them".
+
+    There are now two exported rules in `lib/availability.ts`:
+    **`SALE_BLOCKING_BOOKING_STATUSES`** (CONFIRMED, PENDING, COMPLETED)
+    answers "may this hour be SOLD", and every sale-deciding path uses
+    it — the customer grid, the bowling grid, all three write-time
+    conflict guards, recurring series and equipment. **`OCCUPYING_BOOKING_STATUSES`**
+    keeps ABSENT and answers "is there a booking to DRAW and to COUNT" —
+    the admin calendar and the money tiles, which must keep the no-show's
+    pill and its forfeited advance. The counter's private copy is gone;
+    it aliases the shared rule.
+
+    Two things worth carrying forward. **The grid and the write-time
+    guard must answer the same question** — a slot shown free that
+    checkout then refuses is worse than one never offered, which is why
+    the fix had to touch five files and not one. And **the bug survived
+    the shared constant** because `actions/booking.ts` and
+    `actions/equipment.ts` had hardcoded their own
+    `["CONFIRMED","PENDING","COMPLETED","ABSENT"]` inline; fixing the
+    constant alone would have missed them. `tests/booking-occupancy.test.ts`
+    greps the sale-deciding files for an inline ABSENT list for that
+    reason. `reopenNoShowBowlingSlots`, 102 lines that existed only to
+    undo the ABSENT block on the bowling grid, is deleted — the grid no
+    longer applies it.
 
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo

@@ -6,7 +6,7 @@ import { checkSlotsAvailable } from "@/lib/availability";
 import { getSlotPricesForDate, formatBookingDate } from "@/lib/pricing";
 import { restorePassForBooking } from "@/lib/passes";
 import { lockCourtHours, findSlotClashes } from "@/lib/slot-hold";
-import { OCCUPYING_BOOKING_STATUSES } from "@/lib/availability";
+import { SALE_BLOCKING_BOOKING_STATUSES } from "@/lib/availability";
 
 const MAX_WEEKS_AHEAD = 4; // Initial bookings created upfront
 const MAX_TOTAL_MONTHS = 3; // Maximum recurrence window
@@ -180,7 +180,7 @@ export async function createRecurringBooking(data: {
       const rivals = await tx.booking.findMany({
         where: {
           date: check.date,
-          status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+          status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
           courtConfig: { zones: { hasSome: zonesForSeries } },
         },
         include: { slots: true },

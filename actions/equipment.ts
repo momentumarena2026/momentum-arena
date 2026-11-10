@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Sport } from "@prisma/client";
+import { SALE_BLOCKING_BOOKING_STATUSES } from "@/lib/availability";
 
 export async function getAvailableEquipment(
   sport: Sport | null,
@@ -36,10 +37,12 @@ export async function getAvailableEquipment(
         where: {
           booking: {
             date: { gte: bookingDate, lt: bookingDateEnd },
-            // COMPLETED / ABSENT bookings still hold their gear for their
-            // window — only CANCELLED releases it. Leaving them out let the
-            // same units be rented twice once a booking was closed out.
-            status: { in: ["PENDING", "CONFIRMED", "COMPLETED", "ABSENT"] },
+            // A COMPLETED booking still holds its gear for its window —
+            // leaving it out let the same units be rented twice once a
+            // booking was closed out. A no-show never collected the gear,
+            // so it is released along with the court; otherwise the
+            // re-sold hour could be booked but not equipped.
+            status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
           },
         },
         include: {
@@ -141,9 +144,9 @@ export async function addEquipmentToBooking(
         where: {
           booking: {
             date: { gte: bookingDate, lt: bookingDateEnd },
-            // See getAvailableEquipment — closed-out bookings still hold
-            // their gear.
-            status: { in: ["PENDING", "CONFIRMED", "COMPLETED", "ABSENT"] },
+            // See getAvailableEquipment — a COMPLETED booking still holds
+            // its gear; a no-show releases it.
+            status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
             id: { not: bookingId },
           },
         },

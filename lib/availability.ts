@@ -94,12 +94,36 @@ export interface SlotAvailability {
 }
 
 /**
- * A booking occupies its slot in every state except CANCELLED. The
- * terminal closeouts (COMPLETED / ABSENT) are sessions that HAPPENED,
- * so leaving them out of an occupancy check puts the slot back on sale
- * while the customer is still on the court. Shared by the hold and
- * bowling-grid paths so one rule governs every occupancy query.
+ * Two different questions, and conflating them is what put a no-show's
+ * court beyond reach of every customer.
+ *
+ * SALE_BLOCKING — "does this booking still hold the court against a NEW
+ * sale?" COMPLETED does: the front desk routinely closes a session out
+ * while the party is still playing, and dropping it would put an
+ * occupied court back on sale (the defect 9ca11a42 fixed). ABSENT does
+ * NOT: nobody turned up, nobody is coming, and the remaining hours of a
+ * two-hour no-show are an empty court that the venue should be able to
+ * sell. The advance is already forfeit and kept, so holding the slot
+ * shut earns nothing — it only loses the second sale.
+ *
+ * ON_THE_BOOKS — "does this booking still exist and need drawing or
+ * counting?" Everything except CANCELLED, ABSENT included. The admin
+ * calendar must keep rendering a no-show's pill or the re-sold cell
+ * looks double-booked for no reason, and the money tiles must keep
+ * counting it because the venue kept the advance.
+ *
+ * EVERY sale-deciding query must use SALE_BLOCKING, and they must agree
+ * with each other: the customer grid, the hold conflict guard and the
+ * final write-time check all answer the same question, and a slot shown
+ * as free that the write then refuses is worse than one never offered.
  */
+export const SALE_BLOCKING_BOOKING_STATUSES = [
+  "CONFIRMED",
+  "PENDING",
+  "COMPLETED",
+] as const;
+
+/** @see SALE_BLOCKING_BOOKING_STATUSES — this is the rendering/counting half. */
 export const OCCUPYING_BOOKING_STATUSES = [
   "CONFIRMED",
   "PENDING",
@@ -175,13 +199,14 @@ export async function getSlotAvailability(
     prices,
     allHours,
   ] = await Promise.all([
-    // 1. Bookings that reserve the slot: anything not CANCELLED — CONFIRMED
-    //    (paid), PENDING (awaiting admin verification) and the closed-out
-    //    COMPLETED / ABSENT sessions (see OCCUPYING_BOOKING_STATUSES)
+    // 1. Bookings that hold the slot against a sale: CONFIRMED (paid),
+    //    PENDING (awaiting verification) and COMPLETED (closed out, often
+    //    while the party is still on the court). A no-show does NOT —
+    //    see SALE_BLOCKING_BOOKING_STATUSES.
     client.booking.findMany({
       where: {
         date: dateOnly,
-        status: { in: [...OCCUPYING_BOOKING_STATUSES] },
+        status: { in: [...SALE_BLOCKING_BOOKING_STATUSES] },
         courtConfig: { zones: { hasSome: config.zones as CourtZone[] } },
       },
       include: { courtConfig: true, slots: true },
