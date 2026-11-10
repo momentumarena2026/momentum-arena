@@ -42,6 +42,34 @@ test("recognises each sport and its slang", () => {
   assert.equal(parseBookingText("footy tonight", NOW).sport, "FOOTBALL");
   assert.equal(parseBookingText("pickleball", NOW).sport, "PICKLEBALL");
   assert.equal(parseBookingText("pickle ball court", NOW).sport, "PICKLEBALL");
+  // Table tennis shipped as the fourth sport months after this parser was
+  // written, and nothing here failed when it was left out: "table tennis
+  // tomorrow 7pm" simply parsed to sport=null, the bot asked which sport,
+  // and offered three chips that did not include it.
+  assert.equal(parseBookingText("table tennis", NOW).sport, "TABLE_TENNIS");
+  assert.equal(parseBookingText("tabletennis at 7pm", NOW).sport, "TABLE_TENNIS");
+  assert.equal(parseBookingText("tt tomorrow", NOW).sport, "TABLE_TENNIS");
+  assert.equal(parseBookingText("ping pong tonight", NOW).sport, "TABLE_TENNIS");
+});
+
+test("the venue sells table tennis, not tennis", () => {
+  // "table tennis" must not be reached by matching a bare "tennis", or a
+  // customer asking for a sport the arena does not have gets quietly
+  // booked onto the TT table.
+  assert.equal(parseBookingText("tennis tomorrow 7pm", NOW).sport, null);
+  assert.equal(parseBookingText("lawn tennis", NOW).sport, null);
+});
+
+test("every sport the venue sells is offered as a chip the parser can read", () => {
+  // The chips are sent back verbatim as the customer's next message, so a
+  // chip the parser cannot read is a dead end — and a sport with NO chip
+  // is unreachable for anyone who did not name it themselves.
+  for (const label of ["Cricket", "Football", "Pickleball", "Table Tennis"]) {
+    assert.ok(
+      parseBookingText(label, NOW).sport !== null,
+      `the chip "${label}" must parse back to a sport`,
+    );
+  }
 });
 
 test("no sport mentioned is reported as missing, never guessed", () => {

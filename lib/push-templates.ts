@@ -425,7 +425,7 @@ export const PUSH_TEMPLATES = [
       "Daily push: they have had the app a while and have never made a booking. Gentlest of the four; this is a stranger.",
     defaultTitle: "Your first game at Momentum Arena",
     defaultBody:
-      "Cricket, football and pickleball courts, booked by the hour. Pick a time and we'll see you there.",
+      "Cricket, football, pickleball and table tennis courts, booked by the hour. Pick a time and we'll see you there.",
     variables: [],
   },
   {

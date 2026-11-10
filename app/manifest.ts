@@ -15,7 +15,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Momentum Arena — Mathura's Multi-Sport Arena",
     short_name: "Momentum Arena",
     description:
-      "Book cricket, football and pickleball courts at Momentum Arena Mathura. Passes, cafe orders, tournaments, camps and live scores.",
+      "Book cricket, football, pickleball and table tennis courts at Momentum Arena Mathura. Passes, cafe orders, tournaments, camps and live scores.",
     start_url: "/",
     display: "standalone",
     background_color: "#0a0a0a",

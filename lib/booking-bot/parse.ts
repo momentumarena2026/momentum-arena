@@ -111,6 +111,12 @@ const SPORT_WORDS: [RegExp, Sport][] = [
   [/\b(box\s*cricket|cricket|kricket)\b/i, Sport.CRICKET],
   [/\b(football|foot\s*ball|soccer|footy|futsal)\b/i, Sport.FOOTBALL],
   [/\b(pickle\s*ball|pickle|pickel\s*ball)\b/i, Sport.PICKLEBALL],
+  // Table tennis launched as the fourth sport and this list was never
+  // widened, so "table tennis tomorrow 7pm" parsed to sport=null and the
+  // bot asked "which sport?" — then offered three chips that did not
+  // include it. `\s*` covers "tabletennis"; "tennis" alone is NOT matched
+  // because the venue does not have a tennis court to sell.
+  [/\b(table\s*tennis|ping\s*pong|tt)\b/i, Sport.TABLE_TENNIS],
 ];
 
 const WEEKDAYS: Record<string, number> = {
@@ -163,6 +169,9 @@ export const VOCABULARY: VocabEntry[] = (() => {
     ["cricket", "kricket"],
     ["football", "soccer", "footy", "futsal"],
     ["pickleball", "pickle"],
+    // Canonical must be a form the regex above reads: "tabletennis"
+    // matches via `table\s*tennis`.
+    ["tabletennis", "tt", "pingpong"],
     ["today", "tonight", "aaj"],
     ["tomorrow", "tmrw", "kal"],
     ["yesterday"],

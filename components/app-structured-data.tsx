@@ -31,7 +31,7 @@ export function AppStructuredData() {
     applicationCategory: "SportsApplication",
     applicationSubCategory: "Sports venue booking",
     description:
-      "Book cricket, football and pickleball courts at Momentum Arena Mathura. Manage passes, order from the cafe, join tournaments and camps, and follow live match scores.",
+      "Book cricket, football, pickleball and table tennis courts at Momentum Arena Mathura. Manage passes, order from the cafe, join tournaments and camps, and follow live match scores.",
     publisher: {
       "@type": "Organization",
       name: "Momentum Arena",
