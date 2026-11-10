@@ -191,7 +191,7 @@ function buildNote(p: {
  * suggestion, over and over.
  */
 const CONCRETE_CHIPS: Record<"sport" | "date" | "time", string[]> = {
-  sport: ["Cricket", "Football", "Pickleball"],
+  sport: ["Cricket", "Football", "Pickleball", "Table Tennis"],
   date: ["today", "tomorrow", "saturday"],
   time: ["6-7 pm", "7-8 pm", "8-9 pm"],
 };
@@ -288,8 +288,8 @@ export async function POST(request: NextRequest) {
       kind: "needs",
       missing: [],
       message:
-        "The bowling machine is booked from its own screen — Book a Court → Bowling Machine. Here I can take cricket, football and pickleball.",
-      chips: ["Cricket", "Football", "Pickleball"],
+        "The bowling machine is booked from its own screen — Book a Court → Bowling Machine. Here I can take cricket, football, pickleball and table tennis.",
+      chips: ["Cricket", "Football", "Pickleball", "Table Tennis"],
       parsed: ruleParsed,
       logId: bowlingLog,
       note: null,
