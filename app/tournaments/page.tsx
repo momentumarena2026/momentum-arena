@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Tournaments | Momentum Arena",
-  description: "Compete in cricket, football and pickleball tournaments at Momentum Arena.",
+  description: "Compete in cricket, football, pickleball and table tennis tournaments at Momentum Arena.",
 };
 
 const SPORT_EMOJI: Record<string, string> = {

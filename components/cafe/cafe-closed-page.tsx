@@ -71,7 +71,7 @@ export function CafeClosedPage() {
               Book a court while you wait
             </p>
             <p className="mt-0.5 text-xs text-zinc-400">
-              Cricket, football and pickleball turfs are open — reserve a
+              Cricket, football, pickleball and table tennis are open — reserve a
               slot in under a minute.
             </p>
           </div>

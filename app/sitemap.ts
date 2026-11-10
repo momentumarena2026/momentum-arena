@@ -53,6 +53,37 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     })),
 
+    // ── Customer sections that are public and worth crawling ────
+    // Each was shipped after this file was written and none was added,
+    // which is the same silent failure the sports list note above warns
+    // about: the page is live, linked and indexable, but never offered
+    // to a crawler. Google found /passes on its own; there is no reason
+    // to make it guess.
+    {
+      url: `${base}/passes`,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    {
+      url: `${base}/tournaments`,
+      lastModified: now,
+      changeFrequency: "daily",
+      priority: 0.8,
+    },
+    {
+      url: `${base}/camps`,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.7,
+    },
+    {
+      url: `${base}/shop`,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.6,
+    },
+
     // ── Cafe / loyalty / promotions ─────────────────────────────
     {
       url: `${base}/cafe`,

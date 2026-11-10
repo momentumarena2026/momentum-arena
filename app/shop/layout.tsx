@@ -1,4 +1,12 @@
+import type { Metadata } from "next";
 import { SiteHeader } from "@/components/site-header";
+
+/** See app/passes/layout.tsx — this subtree inherited the root metadata too. */
+export const metadata: Metadata = {
+  title: "Shop | Momentum Arena Mathura",
+  description:
+    "Sports gear and Momentum Arena merchandise, collected at the venue in Mathura.",
+};
 
 /**
  * Shared layout for the customer-facing shop pages (catalog, cart,
