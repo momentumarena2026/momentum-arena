@@ -135,6 +135,11 @@ export type TournamentPublic = {
   }[];
   pools: Pool[];
   teams: TeamLite[];
+  /** How many have entered, or null while the venue is withholding it.
+   *  Separate from `teams`, which stays empty until the roster opens —
+   *  a tournament can advertise "10/12 entered" without naming the
+   *  field. Null rather than 0, so this never renders "0/12". */
+  confirmedTeams: number | null;
   standings: { poolId: string | null; poolName: string | null; rows: StandRow[] }[];
   matches: MatchLite[];
   leaderboards: LeaderBoard[];

@@ -4,6 +4,7 @@ import { Trophy, Users, IndianRupee, CalendarDays, Radio, ChevronRight, Calendar
 import { getMyTournamentTeam, getPublicTournamentBySlug } from "@/lib/tournaments";
 import { onlinePayable, parsePrizes, STATUS_LABELS,
   rosterIsPublic,
+  entrantCountIsPublic,
 } from "@/lib/tournament-config";
 import { auth } from "@/lib/auth";
 import { looksLikeRichText } from "@/lib/rich-text";
@@ -48,6 +49,10 @@ export default async function TournamentPublicPage({
   // gate has to be applied again here or the names leak from the server
   // component while the API hides them.
   const rosterPublic = rosterIsPublic(t.status);
+  // The COUNT is a separate question from WHO — a draw filling well
+  // wants to say so without naming the field. Admin opt-in per
+  // tournament; automatic once registration closes.
+  const countPublic = entrantCountIsPublic(t.status, t.showEntrantCount);
   const payable = onlinePayable(t.entryFee, t.feeMode, t.advancePct);
   const thirdParty = t.host === "THIRD_PARTY";
   const prizes = parsePrizes(t.prizes);
@@ -104,8 +109,9 @@ export default async function TournamentPublicPage({
             {/* The entrant count, and "spots left" with it. The second is
                 the first inverted — totalTeams minus spots left is the
                 number of teams in — so hiding one and keeping the other
-                would hide nothing. */}
-            {rosterPublic && (
+                would hide nothing. Gated on the COUNT rule, not the
+                roster one: the names below stay shut either way. */}
+            {countPublic && (
               <span className="flex items-center gap-1.5">
                 <Users className="h-4 w-4 text-zinc-500" /> {confirmed.length}
                 {!thirdParty && <>/{t.totalTeams}</>} teams

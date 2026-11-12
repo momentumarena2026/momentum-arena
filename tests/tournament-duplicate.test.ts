@@ -76,11 +76,20 @@ function cup(over: Partial<DuplicableTournament> = {}): DuplicableTournament {
         },
       },
     ],
+    showEntrantCount: true,
     liveScoringEnabled: true,
     liveScreenPlatform: "BOTH",
     ...over,
   };
 }
+
+test("the copy keeps the entrant-count choice", () => {
+  // It is a presentation decision about this cup, and the next edition
+  // of the same cup almost always wants it. Losing it silently means an
+  // organiser who chose to show the count finds it hidden again.
+  assert.equal(duplicateWizardInput(cup({ showEntrantCount: true })).showEntrantCount, true);
+  assert.equal(duplicateWizardInput(cup({ showEntrantCount: false })).showEntrantCount, false);
+});
 
 test("a duplicate satisfies the real create schema", () => {
   const parsed = wizardSchema.safeParse(duplicateWizardInput(cup()));

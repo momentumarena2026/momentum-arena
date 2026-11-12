@@ -132,6 +132,7 @@ export type AdminTournament = {
   statFields: { key: string; label: string }[] | null;
   prizePool: number | null;
   prizes: { place: string; label: string }[] | null;
+  showEntrantCount: boolean;
   liveScoringEnabled: boolean;
   liveScreenPlatform: "BOTH" | "APP_ONLY" | "WEB_ONLY" | "OFF";
   scorerCode: string | null;
@@ -467,6 +468,7 @@ export function TournamentManage({
     statFields: t.statFields || [],
     prizePool: t.prizePool,
     prizes: t.prizes || [],
+    showEntrantCount: t.showEntrantCount,
     liveScoringEnabled: t.liveScoringEnabled,
     liveScreenPlatform: t.liveScreenPlatform,
   };

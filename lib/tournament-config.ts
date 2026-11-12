@@ -229,3 +229,24 @@ export const ROSTER_PUBLIC_STATUSES = [
 export function rosterIsPublic(status: string): boolean {
   return (ROSTER_PUBLIC_STATUSES as readonly string[]).includes(status);
 }
+
+/**
+ * Is the registered-team COUNT public — "9/12 teams", and the spots
+ * left that follow from it?
+ *
+ * A third gate, and the split is the point. Hiding the count and hiding
+ * the entrant LIST were one rule because they were shut for one reason
+ * ("rival captains must not see the field, or how full it is"), but
+ * they are not one question. A draw that is filling well wants to say
+ * so — the scarcity is the pitch — without naming who is in it.
+ *
+ * `showEntrantCount` is the per-tournament opt-in. Once registration
+ * closes the count is public regardless: the fixtures are about to name
+ * everybody, so there is nothing left to withhold.
+ */
+export function entrantCountIsPublic(
+  status: string,
+  showEntrantCount: boolean | null | undefined,
+): boolean {
+  return showEntrantCount === true || rosterIsPublic(status);
+}

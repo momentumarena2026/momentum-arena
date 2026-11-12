@@ -5,7 +5,7 @@ import { getTournamentLeaderboards } from "@/lib/tournament-leaderboards";
 import { getTournamentAwards } from "@/lib/tournament-awards-query";
 import { areTournamentsEnabled, applyScheduledTransitions } from "@/lib/tournaments";
 import { parsePrizes } from "@/lib/tournament-config";
-import { poolMatchesArePublic, rosterIsPublic } from "@/lib/tournament-config";
+import { poolMatchesArePublic, rosterIsPublic, entrantCountIsPublic } from "@/lib/tournament-config";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +80,11 @@ export async function GET(
   // Who has entered becomes public when registration CLOSES; which pool
   // they landed in waits for the reveal. Two questions, two gates.
   const rosterPublic = rosterIsPublic(t.status);
+  // Separate from the roster gate on purpose. The app's detail screen
+  // used to derive its team count from `teams.length`, so a tournament
+  // that wanted to advertise "10/12 entered" without naming the field
+  // had no way to say it — the array is empty until the roster opens.
+  const countPublic = entrantCountIsPublic(t.status, t.showEntrantCount);
   const teamNames = new Map(t.teams.map((x) => [x.id, x.name]));
   const isCricket = t.sport === "CRICKET";
   const cfg = standingsConfig(t);
@@ -216,6 +221,12 @@ export async function GET(
     //
     // After the reveal the names are public by necessity: the pools, the
     // fixtures and the points table are all made of them.
+    // Null, never 0 — see the note on PublicTournamentRow.confirmedTeams:
+    // zeroing it renders "0/12" on a draw that is filling up, which is
+    // worse than the leak it was meant to fix.
+    // `t.teams` is already `where: { status: "CONFIRMED" }`, so its
+    // length IS the confirmed count.
+    confirmedTeams: countPublic ? t.teams.length : null,
     teams: rosterPublic
       ? t.teams.map((x) => ({
           id: x.id,
