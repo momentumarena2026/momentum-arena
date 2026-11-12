@@ -3680,6 +3680,21 @@ model Tournament {
   prizes    Json?
 
   // Live scoring (optional per tournament)
+  /// Show the registered-team count ("9/12 teams", and the spots left
+  /// that follow from it) WHILE REGISTRATION IS OPEN.
+  ///
+  /// Off by default, because the venue asked for the number to be
+  /// hidden and was right to: a public count on a 12-team draw is a
+  /// running scoreboard of how badly the tournament is selling, and
+  /// "11 spots left" is an argument against entering. But a draw that
+  /// is filling well has the opposite problem — the scarcity is the
+  /// pitch — so this is per-tournament rather than a venue-wide rule.
+  ///
+  /// It governs the COUNT only. Which teams have entered stays hidden
+  /// until registration closes (ROSTER_PUBLIC_STATUSES); rival captains
+  /// learning the field is the other half of why this was shut, and
+  /// "10/12 teams" gives that away to nobody.
+  showEntrantCount   Boolean            @default(false)
   liveScoringEnabled Boolean            @default(false)
   liveScreenPlatform LiveScreenPlatform @default(BOTH)
   scorerCode         String?            @unique // field-scorer console access

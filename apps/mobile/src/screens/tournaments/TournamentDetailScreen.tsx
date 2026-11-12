@@ -739,14 +739,19 @@ export function TournamentDetailScreen() {
         {/* Hero */}
         <View style={styles.hero}>
           <Text style={styles.title}>{t.name}</Text>
-          {/* The entrant count is gone from the hero. The API sends an
-              empty team list until the draw, so this rendered "0/16
-              teams" on a tournament filling up nicely — and the count is
-              exactly what the venue asked to withhold. The format still
-              tells a captain what they are entering. */}
+          {/* The count used to be derived from the team list, which is
+              empty until the roster opens — so it rendered "0/16 teams"
+              on a tournament filling up nicely. The server now sends the
+              number itself, or null when the venue is withholding it, so
+              the hero can show "9/16 teams" when the organiser has opted
+              in and fall back to the capacity alone when not. */}
           <Text style={styles.subtitle}>
             {t.sport} · {t.format === "POOLS_KNOCKOUT" ? "Pools → Knockout" : t.format}
-            {isThirdParty ? "" : ` · ${t.totalTeams} teams`}
+            {isThirdParty
+              ? ""
+              : data.confirmedTeams !== null
+                ? ` · ${data.confirmedTeams}/${t.totalTeams} teams`
+                : ` · ${t.totalTeams} teams`}
           </Text>
           {t.prizePool ? (
             <View style={styles.prizeRow}>

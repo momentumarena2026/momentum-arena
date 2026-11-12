@@ -126,6 +126,7 @@ export function defaultWizardState(): TournamentWizardInput {
       { place: "Winner", label: "" },
       { place: "Runner-up", label: "" },
     ],
+    showEntrantCount: false,
     liveScoringEnabled: false,
     liveScreenPlatform: "BOTH",
   };
@@ -779,6 +780,28 @@ export function TournamentWizard({ initial }: { initial?: WizardInitial }) {
             })}
           </div>
         </div>
+      </div>
+
+      {/* 6b · Entrant visibility */}
+      <div className={sectionCls}>
+        <h3 className="font-medium text-white">Entrant visibility</h3>
+        <label className="flex items-start gap-2 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 accent-emerald-500"
+            checked={form.showEntrantCount}
+            onChange={(e) => set("showEntrantCount", e.target.checked)}
+          />
+          <span>
+            Show how many teams have registered while registration is open
+            <span className="mt-0.5 block text-xs text-zinc-500">
+              Off by default: on a draw that is filling slowly, &ldquo;11 spots left&rdquo;
+              is an argument against entering. Turn it on for one that is selling
+              well and the scarcity does the work. Either way the team NAMES stay
+              hidden until registration closes, and the count becomes public then.
+            </span>
+          </span>
+        </label>
       </div>
 
       {/* 7 · Live scoring */}

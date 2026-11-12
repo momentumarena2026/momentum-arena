@@ -18,7 +18,7 @@ export const DUPLICABLE_FIELDS = {
   entryFee: true, feeMode: true, advancePct: true,
   allowCoupons: true, allowRewardPoints: true, waitlistEnabled: true,
   pointsWin: true, pointsDraw: true, pointsLoss: true, tiebreakers: true,
-  statFields: true, prizePool: true, prizes: true,
+  statFields: true, prizePool: true, prizes: true, showEntrantCount: true,
   liveScoringEnabled: true, liveScreenPlatform: true,
 } as const;
 
@@ -60,6 +60,7 @@ export type DuplicableTournament = {
   statFields: unknown;
   prizePool: number | null;
   prizes: unknown;
+  showEntrantCount: boolean;
   liveScoringEnabled: boolean;
   liveScreenPlatform: string;
 };

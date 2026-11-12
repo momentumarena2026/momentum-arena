@@ -100,6 +100,7 @@ function wizardData(d: TournamentWizardInput) {
     statFields: d.statFields,
     prizePool: d.prizePool,
     prizes: d.prizes,
+    showEntrantCount: d.showEntrantCount,
     liveScoringEnabled: d.liveScoringEnabled,
     liveScreenPlatform: d.liveScreenPlatform,
   };

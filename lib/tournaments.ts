@@ -6,7 +6,7 @@ import { validateCoupon } from "@/actions/coupon-validation";
 import { redeemForTournament, refundRedemption } from "@/lib/rewards/redeem";
 import { awardTournamentPoints } from "@/lib/rewards/earn";
 import { onlinePayable,
-  rosterIsPublic,
+  entrantCountIsPublic,
 } from "@/lib/tournament-config";
 import { notifyUser } from "@/lib/user-notifications";
 
@@ -93,6 +93,9 @@ export async function listPublicTournaments() {
       regOpenAt: true,
       regCloseAt: true,
       liveScoringEnabled: true,
+      // Read only to decide the gate below; stripped from the returned
+      // shape like `_count`, so no caller can reach past it.
+      showEntrantCount: true,
       _count: {
         select: { teams: { where: { status: "CONFIRMED", archivedAt: null } } },
       },
@@ -118,9 +121,11 @@ export async function listPublicTournaments() {
   // listings were missed, and then a second mapper in the mobile route
   // reached past the gated field straight back to `t._count.teams`.
   // Removing it makes that a type error instead of a silent leak.
-  return rows.map(({ _count, ...row }) => ({
+  return rows.map(({ _count, showEntrantCount, ...row }) => ({
     ...row,
-    confirmedTeams: rosterIsPublic(row.status) ? _count.teams : null,
+    confirmedTeams: entrantCountIsPublic(row.status, showEntrantCount)
+      ? _count.teams
+      : null,
   }));
 }
 
@@ -227,6 +232,8 @@ export async function listPublicTournamentsPage(opts: {
     (Omit<PublicTournamentRow, "group" | "confirmedTeams"> & {
       grp: number;
       confirmedTeams: bigint;
+      // Gate input only — never forwarded onto PublicTournamentRow.
+      showEntrantCount: boolean;
     })[]
   >(Prisma.sql`
     WITH grouped AS (
@@ -248,7 +255,7 @@ export async function listPublicTournamentsPage(opts: {
            g."bannerImageUrl", g."totalTeams", g."entryFee",
            g."feeMode"::text AS "feeMode",
            g."prizePool", g."startDate", g."regOpenAt", g."regCloseAt",
-           g."liveScoringEnabled", g.grp,
+           g."liveScoringEnabled", g."showEntrantCount", g.grp,
            (SELECT COUNT(*) FROM "TournamentTeam" tt
              WHERE tt."tournamentId" = g.id
                AND tt.status = 'CONFIRMED'
@@ -290,7 +297,12 @@ export async function listPublicTournamentsPage(opts: {
     rows.push({
       ...r,
       status,
-      confirmedTeams: rosterIsPublic(r.status) ? Number(r.confirmedTeams) : null,
+      // `status`, not `r.status`: the lazy transition above may have just
+      // moved this row to REG_CLOSED, and gating on the stale value
+      // returned a row that said REG_CLOSED with the count still null.
+      confirmedTeams: entrantCountIsPublic(status, r.showEntrantCount)
+        ? Number(r.confirmedTeams)
+        : null,
       group: rankToGroup[r.grp] ?? "UPCOMING",
     });
   }

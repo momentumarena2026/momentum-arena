@@ -107,6 +107,7 @@ export const wizardSchema = z.object({
   prizePool: z.number().int().min(0).max(1_00_00_000).nullable(),
   prizes: z.array(prizeSchema).max(12),
 
+  showEntrantCount: z.boolean(),
   liveScoringEnabled: z.boolean(),
   liveScreenPlatform: z.enum(["BOTH", "APP_ONLY", "WEB_ONLY", "OFF"]),
 });
