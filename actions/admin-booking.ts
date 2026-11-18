@@ -18,6 +18,11 @@ import {
   venueCollected,
 } from "@/lib/payment-split";
 import {
+  reallocateSettlements,
+  settlementAmount,
+  settlementMethod,
+} from "@/lib/booking-settlement";
+import {
   restorePassForBooking,
   passMinutesValue,
   getPassOfferForHold,
@@ -466,6 +471,68 @@ export async function markRemainderCollected(
         )}${stillOwed > 0 ? ` — Rs.${stillOwed} still due` : ""}`,
       },
     });
+    // Self-heal before appending. A booking part-collected BEFORE this
+    // ledger existed carries its earlier money on Payment with no row
+    // to show it, and `getCollections` reads the ROWS for any booking
+    // that has one — so writing only this instalment would make that
+    // earlier money vanish from the report, and the seed backfill would
+    // not repair it either (it reconciles against the Payment totals,
+    // which this instalment is about to move). None exist on production
+    // today; the window is the minutes between `prisma db push` in the
+    // Vercel build and the path-filtered seed workflow that follows it.
+    // Carried over dated from its own collection event, never today.
+    if (priorCash + priorUpi + priorDiscount > 0) {
+      const alreadyLedgered = await tx.bookingSettlement.count({
+        where: { bookingId },
+      });
+      if (alreadyLedgered === 0) {
+        const priorEvent = await tx.bookingEditHistory.findFirst({
+          where: { bookingId, editType: "REMAINDER_COLLECTED" },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        });
+        const prior = {
+          cashAmount: priorCash,
+          upiAmount: priorUpi,
+          discountAmount: priorDiscount,
+        };
+        await tx.bookingSettlement.create({
+          data: {
+            bookingId,
+            ...prior,
+            amount: settlementAmount(prior),
+            method: settlementMethod(prior),
+            receivedAt:
+              priorEvent?.createdAt ??
+              booking.payment!.confirmedAt ??
+              new Date(),
+            note: `${describeSplit(
+              priorCash,
+              priorUpi,
+              priorDiscount,
+            )} (carried over from a collection recorded before instalments were)`,
+            recordedBy: adminId,
+          },
+        });
+      }
+    }
+    // The ledger row for this instalment. The Payment columns above are
+    // running totals with no date on them, and the history row above is
+    // an audit log whose amounts live inside an English sentence — so
+    // neither can answer "how much cash came in on the 14th". This can.
+    // See BookingSettlement in the schema for the full reasoning.
+    await tx.bookingSettlement.create({
+      data: {
+        bookingId,
+        amount: collectedAtVenue,
+        cashAmount,
+        upiAmount,
+        discountAmount,
+        method: settlementMethod({ cashAmount, upiAmount, discountAmount }),
+        note: describeSplit(cashAmount, upiAmount, discountAmount),
+        recordedBy: adminId,
+      },
+    });
     if (discountAmount > 0) {
       await tx.booking.update({
         where: { id: bookingId },
@@ -518,7 +585,12 @@ export async function updateRemainderSplit(
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
-    include: { payment: true },
+    include: {
+      payment: true,
+      // Oldest first: `reallocateSettlements` spreads a corrected total
+      // in this order and lets the NEWEST row absorb the rounding.
+      settlements: { orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }] },
+    },
   });
   if (!booking) return { success: false, error: "Booking not found" };
   if (!booking.payment) return { success: false, error: "No payment on this booking" };
@@ -633,6 +705,52 @@ export async function updateRemainderSplit(
         )} to ${describeSplit(cashAmount, upiAmount, discountAmount)}`,
       },
     });
+    // Keep the instalment ledger in step with the corrected totals.
+    // This is a CORRECTION, not a new instalment, so nothing is
+    // appended: the figures are spread back over the rows the money
+    // actually arrived in and every `receivedAt` stays put. Appending a
+    // row dated today would move last Tuesday's cash onto the day
+    // someone spotted the typo — the exact failure these rows exist to
+    // stop. See lib/booking-settlement.ts.
+    const target = { cashAmount, upiAmount, discountAmount };
+    if (booking.settlements.length === 0) {
+      // Collected before this ledger existed. Date it from the
+      // collection event, never from today — the same date the
+      // collections report has been inferring all along.
+      const event = await tx.bookingEditHistory.findFirst({
+        where: { bookingId, editType: "REMAINDER_COLLECTED" },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      await tx.bookingSettlement.create({
+        data: {
+          bookingId,
+          ...target,
+          amount: settlementAmount(target),
+          method: settlementMethod(target),
+          receivedAt:
+            event?.createdAt ?? booking.payment!.confirmedAt ?? new Date(),
+          note: `${describeSplit(
+            cashAmount,
+            upiAmount,
+            discountAmount,
+          )} (reconstructed by a split correction)`,
+          recordedBy: adminId,
+        },
+      });
+    } else {
+      const next = reallocateSettlements(booking.settlements, target);
+      for (let i = 0; i < next.length; i++) {
+        await tx.bookingSettlement.update({
+          where: { id: booking.settlements[i].id },
+          data: {
+            ...next[i],
+            amount: settlementAmount(next[i]),
+            method: settlementMethod(next[i]),
+          },
+        });
+      }
+    }
     if (discountDelta !== 0) {
       await tx.booking.update({
         where: { id: bookingId },

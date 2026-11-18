@@ -166,6 +166,143 @@ async function main() {
       `Seeded ExpenseOption.isVenture on ${toFlag.length} payer option(s)`,
     );
   }
+
+  // ── BookingSettlement backfill / reconcile ─────────────────────────
+  //
+  // Venue-side booking money now lives in BookingSettlement, one row
+  // per instalment with a real `receivedAt`. Everything collected
+  // before that ledger existed has no rows, so this reconstructs them
+  // from what was recorded at the time: the AMOUNTS from the
+  // Payment.remainder* columns (structured, trustworthy) and the DATE
+  // from the last REMAINDER_COLLECTED audit row — precisely what the
+  // collections report used to infer on every page load. The numbers on
+  // screen therefore do not move; what changes is where they come from.
+  // Checked against production before shipping: 667 bookings, ₹7,17,701
+  // across 344 day/channel cells, zero cells different either way.
+  //
+  // It reconciles rather than skips. Any booking whose settlement rows
+  // fall SHORT of its Payment totals gets one row for the difference,
+  // so this repairs a partial ledger as well as an empty one and is
+  // idempotent — a second run finds no shortfall and writes nothing.
+  // A booking whose rows are in SURPLUS on any leg is left alone and
+  // counted: that should be impossible (both writers move the rows and
+  // the columns in one transaction) and guessing at it would turn a
+  // visible anomaly into a quiet wrong number.
+  //
+  // A booking collected over two visits before the ledger gets ONE row
+  // dated to the later visit, because the per-visit amounts only ever
+  // existed inside a generated sentence. The note says so rather than
+  // letting a tidy row imply precision it does not have, and the
+  // collections screen keeps counting these separately.
+  const withRemainder = await prisma.payment.findMany({
+    where: {
+      OR: [
+        { remainderCashAmount: { gt: 0 } },
+        { remainderUpiAmount: { gt: 0 } },
+      ],
+    },
+    select: {
+      bookingId: true,
+      confirmedAt: true,
+      remainderCashAmount: true,
+      remainderUpiAmount: true,
+      remainderDiscountAmount: true,
+    },
+  });
+  if (withRemainder.length > 0) {
+    // Grouped queries rather than a lookup per booking — this runs
+    // against production inside a deploy, not on a laptop.
+    const [events, ledgered] = await Promise.all([
+      prisma.bookingEditHistory.groupBy({
+        by: ["bookingId"],
+        where: { editType: "REMAINDER_COLLECTED" },
+        _max: { createdAt: true },
+        _count: { _all: true },
+      }),
+      prisma.bookingSettlement.groupBy({
+        by: ["bookingId"],
+        _sum: { cashAmount: true, upiAmount: true, discountAmount: true },
+      }),
+    ]);
+    const eventMap = new Map(
+      events.map((e) => [
+        e.bookingId,
+        { at: e._max.createdAt, count: e._count._all },
+      ]),
+    );
+    const ledgerMap = new Map(
+      ledgered.map((l) => [
+        l.bookingId,
+        {
+          cash: l._sum.cashAmount ?? 0,
+          upi: l._sum.upiAmount ?? 0,
+          discount: l._sum.discountAmount ?? 0,
+        },
+      ]),
+    );
+
+    const rows: {
+      bookingId: string;
+      amount: number;
+      cashAmount: number;
+      upiAmount: number;
+      discountAmount: number;
+      method: "CASH" | "UPI_QR";
+      receivedAt: Date;
+      note: string;
+    }[] = [];
+    let undateable = 0;
+    let surplus = 0;
+    for (const p of withRemainder) {
+      const have = ledgerMap.get(p.bookingId) ?? {
+        cash: 0,
+        upi: 0,
+        discount: 0,
+      };
+      const cashAmount = (p.remainderCashAmount ?? 0) - have.cash;
+      const upiAmount = (p.remainderUpiAmount ?? 0) - have.upi;
+      const discountAmount = (p.remainderDiscountAmount ?? 0) - have.discount;
+      if (cashAmount < 0 || upiAmount < 0 || discountAmount < 0) {
+        surplus++;
+        continue;
+      }
+      if (cashAmount + upiAmount + discountAmount === 0) continue; // in step
+
+      const ev = eventMap.get(p.bookingId);
+      // No audit row and no confirmed advance leaves nothing honest to
+      // date the money with. Skipped and counted rather than stamped
+      // with today, which would drop it into the current month.
+      const receivedAt = ev?.at ?? p.confirmedAt;
+      if (!receivedAt) {
+        undateable++;
+        continue;
+      }
+      const visits = ev?.count ?? 0;
+      rows.push({
+        bookingId: p.bookingId,
+        amount: cashAmount + upiAmount,
+        cashAmount,
+        upiAmount,
+        discountAmount,
+        method: upiAmount > cashAmount ? "UPI_QR" : "CASH",
+        receivedAt,
+        note:
+          visits > 1
+            ? `Backfilled from ${visits} collection events — the per-visit amounts were never recorded, so the whole balance sits on the last one`
+            : "Backfilled from the recorded collection",
+      });
+    }
+    if (rows.length > 0) {
+      await prisma.bookingSettlement.createMany({ data: rows });
+    }
+    console.log(
+      `BookingSettlement: wrote ${rows.length} row(s) for ${withRemainder.length} booking(s) with venue-side money` +
+        (undateable > 0 ? `; skipped ${undateable} with no usable date` : "") +
+        (surplus > 0
+          ? `; LEFT ALONE ${surplus} whose rows exceed their Payment totals — investigate`
+          : ""),
+    );
+  }
 }
 
 main()
