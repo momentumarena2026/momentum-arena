@@ -32,6 +32,91 @@ function cellClass(kind: RowKind, value: number | null): string {
   return "text-zinc-300";
 }
 
+/**
+ * One statement row.
+ *
+ * Module scope on purpose. Declared inside PnlTable it was a NEW
+ * component type on every render, which resets the state of anything
+ * it holds and is what `react/no-create-component-during-render`
+ * objects to — thirteen times over, once per row. It closes over
+ * nothing from the component: `label` and `num` are constant class
+ * strings, so they came out with it.
+ */
+// Sticky first column + horizontally scrolling period columns. The row
+// label has to stay visible or a 14-month table is unreadable.
+const label = "sticky left-0 z-10 bg-zinc-900 py-2.5 pr-4 text-left";
+const num = "whitespace-nowrap px-3 py-2.5 text-right tabular-nums";
+
+const Row = ({
+  name,
+  values,
+  kind,
+  indent = false,
+  suffix = "",
+  bold = false,
+  onToggle,
+  open,
+  flags,
+}: {
+  name: string;
+  values: (number | null)[];
+  kind: RowKind;
+  indent?: boolean;
+  suffix?: string;
+  bold?: boolean;
+  onToggle?: () => void;
+  open?: boolean;
+  /** Per-column "this figure has no expenses behind it" marker. */
+  flags?: boolean[];
+}) => (
+  <tr className={bold ? "border-t border-zinc-700" : "border-t border-zinc-800/50"}>
+    <th
+      scope="row"
+      className={`${label} text-sm font-normal ${
+        bold ? "font-semibold text-white" : indent ? "pl-6 text-zinc-400" : "text-zinc-300"
+      }`}
+    >
+      {onToggle ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-1 hover:text-emerald-400"
+        >
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+          {name}
+        </button>
+      ) : (
+        name
+      )}
+    </th>
+    {values.map((v, i) => {
+      // A flagged column is greyed rather than coloured: an unearned
+      // 100% margin should not read as a good month.
+      const flagged = flags?.[i] ?? false;
+      return (
+        <td
+          key={i}
+          className={`${num} text-sm ${bold ? "font-semibold" : ""} ${
+            flagged ? "text-zinc-500" : cellClass(kind, v)
+          }`}
+          title={
+            flagged
+              ? "No running expenses entered for this period yet — margin is provisional"
+              : undefined
+          }
+        >
+          {v === null ? "—" : `${compact(v)}${suffix}`}
+          {flagged && <span className="ml-0.5 text-amber-500">*</span>}
+        </td>
+      );
+    })}
+  </tr>
+);
+
 export function PnlTable({ initial }: { initial: PnlResult }) {
   const [granularity, setGranularity] = useState<PnlGranularity>("month");
   const [data, setData] = useState<PnlResult>(initial);
@@ -61,82 +146,6 @@ export function PnlTable({ initial }: { initial: PnlResult }) {
       </p>
     );
   }
-
-  // Sticky first column + horizontally scrolling period columns. The row
-  // label has to stay visible or a 14-month table is unreadable.
-  const label = "sticky left-0 z-10 bg-zinc-900 py-2.5 pr-4 text-left";
-  const num = "whitespace-nowrap px-3 py-2.5 text-right tabular-nums";
-
-  const Row = ({
-    name,
-    values,
-    kind,
-    indent = false,
-    suffix = "",
-    bold = false,
-    onToggle,
-    open,
-    flags,
-  }: {
-    name: string;
-    values: (number | null)[];
-    kind: RowKind;
-    indent?: boolean;
-    suffix?: string;
-    bold?: boolean;
-    onToggle?: () => void;
-    open?: boolean;
-    /** Per-column "this figure has no expenses behind it" marker. */
-    flags?: boolean[];
-  }) => (
-    <tr className={bold ? "border-t border-zinc-700" : "border-t border-zinc-800/50"}>
-      <th
-        scope="row"
-        className={`${label} text-sm font-normal ${
-          bold ? "font-semibold text-white" : indent ? "pl-6 text-zinc-400" : "text-zinc-300"
-        }`}
-      >
-        {onToggle ? (
-          <button
-            type="button"
-            onClick={onToggle}
-            className="flex items-center gap-1 hover:text-emerald-400"
-          >
-            {open ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-            {name}
-          </button>
-        ) : (
-          name
-        )}
-      </th>
-      {values.map((v, i) => {
-        // A flagged column is greyed rather than coloured: an unearned
-        // 100% margin should not read as a good month.
-        const flagged = flags?.[i] ?? false;
-        return (
-          <td
-            key={i}
-            className={`${num} text-sm ${bold ? "font-semibold" : ""} ${
-              flagged ? "text-zinc-500" : cellClass(kind, v)
-            }`}
-            title={
-              flagged
-                ? "No running expenses entered for this period yet — margin is provisional"
-                : undefined
-            }
-          >
-            {v === null ? "—" : `${compact(v)}${suffix}`}
-            {flagged && <span className="ml-0.5 text-amber-500">*</span>}
-          </td>
-        );
-      })}
-    </tr>
-  );
-
   return (
     <div className="space-y-6">
       {/* Granularity toggle — monthly is the default view */}
