@@ -10,6 +10,7 @@ import {
   type AliasRow,
   type ReviewRow,
 } from "@/actions/admin-cafe-register";
+import { getTodayIST } from "@/lib/ist-date";
 
 type MenuOption = { id: string; name: string; price: number };
 
@@ -43,6 +44,11 @@ export function CafeRegisterClient({
   // because it is about the EDIT, not the value — and it decides what
   // gets learned as a deliberate correction rather than a lucky match.
   const [corrected, setCorrected] = useState<Set<number>>(new Set());
+  // One date for the whole page. A page of the paper register IS a day,
+  // and that is almost never the day someone gets round to photographing
+  // it — which is the entire reason this field exists.
+  const todayKey = getTodayIST();
+  const [pageDate, setPageDate] = useState(todayKey);
   const [done, setDone] = useState<string | null>(null);
 
   const byId = new Map(menu.map((m) => [m.id, m]));
@@ -83,6 +89,7 @@ export function CafeRegisterClient({
     startTransition(async () => {
       const res = await confirmRegisterOrders({
         uploadId: result?.uploadId ?? null,
+        orderDate: pageDate !== todayKey ? pageDate : undefined,
         rows: rows
           .map((r, i) => ({ r, i }))
           .filter(({ r }) => r.cafeItemId && r.payment)
@@ -105,6 +112,7 @@ export function CafeRegisterClient({
       );
       setRows([]);
       setResult(null);
+      setPageDate(todayKey);
       router.refresh();
     });
   }
@@ -280,6 +288,43 @@ export function CafeRegisterClient({
             </table>
           </div>
 
+          {/* Which day this page is. Sits directly above the create
+              button because it applies to every row below it, and
+              because getting it wrong files a day's takings on the
+              wrong day. */}
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <div>
+              <label
+                htmlFor="register-page-date"
+                className="block text-xs font-medium text-zinc-400"
+              >
+                Date on this register page
+              </label>
+              <input
+                id="register-page-date"
+                type="date"
+                value={pageDate}
+                onChange={(e) => setPageDate(e.target.value || todayKey)}
+                className="mt-1 rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-sm text-white"
+              />
+            </div>
+            <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-zinc-500">
+              {pageDate === todayKey ? (
+                <>
+                  All {ready.length} order{ready.length === 1 ? "" : "s"} will be
+                  filed under today. Change this if you are entering an older
+                  page.
+                </>
+              ) : (
+                <span className="text-amber-200/90">
+                  All {ready.length} order{ready.length === 1 ? "" : "s"} will be
+                  filed under {prettyDate(pageDate)}, and count toward that
+                  day&apos;s takings — not today&apos;s.
+                </span>
+              )}
+            </p>
+          </div>
+
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={create}
@@ -381,4 +426,16 @@ async function shrinkToDataUrl(file: File): Promise<string> {
   // JPEG at 0.85: handwriting survives it, and PNG would triple the size
   // for no legibility a model can use.
   return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+/** "Tue, 10 Nov 2026" — the chosen day as an admin in Mathura reads it. */
+function prettyDate(dateKey: string): string {
+  // Midday UTC so the IST rendering can never fall back a day.
+  return new Date(`${dateKey}T12:00:00Z`).toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
 }

@@ -62,6 +62,8 @@ export async function confirmRegister(input: {
     payment: "CASH" | "UPI_QR";
     corrected: boolean;
   }[];
+  /** IST day this register page covers, "YYYY-MM-DD". Omit for today. */
+  orderDate?: string;
 }): Promise<{
   success: boolean;
   created: number;

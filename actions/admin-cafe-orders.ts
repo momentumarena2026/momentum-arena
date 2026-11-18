@@ -2,6 +2,8 @@
 
 import { after } from "next/server";
 import { db } from "@/lib/db";
+import { istDateKey } from "@/lib/ist";
+import { resolveOrderDate } from "@/lib/cafe-order-date";
 import { requireAdmin } from "@/lib/admin-auth";
 import { CafeOrderStatus, PaymentMethod } from "@prisma/client";
 import { normalizeIndianPhone } from "@/lib/phone";
@@ -360,6 +362,18 @@ export async function adminCreateCafeOrder(data: {
   // paid, and that some is nothing — and puts the order in front of
   // the admin everywhere a part-paid one already appears.
   collectLater?: boolean;
+  // The calendar day the sale happened, "YYYY-MM-DD", read as IST.
+  // Omitted (or today) = business as usual. Any other day records a
+  // sale that happened then: the order's createdAt and the payment's
+  // confirmedAt both carry it, which is what moves it in the analytics
+  // (bucketed on createdAt) and on the invoice (confirmedAt). Past and
+  // future are both allowed.
+  //
+  // Two consequences are deliberate. A dated-elsewhere order is always
+  // COMPLETED, never a kitchen ticket — see the status routing below.
+  // And stock still moves NOW, because the shelf is being corrected at
+  // the moment the admin types it, whatever day the sale is filed on.
+  orderDate?: string;
   note?: string;
 }) {
   // Resolves the acting admin from the web session or the mobile bearer
@@ -370,6 +384,11 @@ export async function adminCreateCafeOrder(data: {
     if (!data.items || data.items.length === 0) {
       return { success: false, error: "At least one item is required" };
     }
+
+    const todayKey = istDateKey(new Date());
+    const dateRes = resolveOrderDate(data.orderDate, todayKey);
+    if (!dateRes.ok) return { success: false, error: dateRes.error };
+    const { at: orderedAt, isToday: isTodayOrder, dateKey: orderDateKey } = dateRes;
 
     // Validate items exist and are available
     const cafeItemIds = data.items.map((i) => i.cafeItemId);
@@ -520,9 +539,17 @@ export async function adminCreateCafeOrder(data: {
     const allReady = data.items.every(
       (line) => itemMap.get(line.cafeItemId)?.quantity != null,
     );
-    const orderStatus: "PENDING" | "COMPLETED" = allReady
-      ? "COMPLETED"
-      : "PENDING";
+    // An order dated to any day but today is a bookkeeping entry, not a
+    // ticket, so it completes on arrival whatever it contains.
+    //
+    // This is load-bearing, not tidiness. getLiveCafeOrders() selects
+    // every PENDING/PREPARING/READY order with no date filter at all and
+    // sorts createdAt ASC, so a backdated order holding one kitchen item
+    // would pin itself to the TOP of the live kitchen board and stay
+    // there until someone noticed and cancelled it. A future-dated one
+    // would show up on the board today, days before the food is wanted.
+    const orderStatus: "PENDING" | "COMPLETED" =
+      allReady || !isTodayOrder ? "COMPLETED" : "PENDING";
 
     // Phone-first customer resolution. When customerPhone is sent,
     // we look up a user by normalised phone first; on miss we
@@ -595,6 +622,10 @@ export async function adminCreateCafeOrder(data: {
           originalAmount,
           discountAmount,
           note: data.note?.trim() || null,
+          // Overriding the @default(now()). This is the column cafe
+          // analytics buckets on, so it is what actually files the sale
+          // under the chosen day.
+          createdAt: orderedAt,
           createdByAdminId: admin.id,
           items: {
             create: orderItems,
@@ -623,11 +654,15 @@ export async function adminCreateCafeOrder(data: {
               // cash-basis on this date, so it must be stamped. The one
               // PARTIAL that isn't: a pay-later order, where nothing was
               // handed over. Stamping it would date a receipt for ₹0.
+              // orderedAt, not now(): this is the receipt date the
+              // invoice prints (app/api/cafe-invoice reads confirmedAt
+              // first), so a sale filed under the 10th must not hand the
+              // customer a bill dated the 18th.
               confirmedAt:
                 !collectLater &&
                 (resolvedPaymentStatus === "COMPLETED" ||
                   resolvedPaymentStatus === "PARTIAL")
-                  ? new Date()
+                  ? orderedAt
                   : null,
               confirmedBy: resolvedPaymentStatus === "COMPLETED" ? admin.id : null,
             },
@@ -640,6 +675,9 @@ export async function adminCreateCafeOrder(data: {
               newAmount: totalAmount,
               note: [
                 `Order created by ${admin.username}`,
+                !isTodayOrder
+                  ? `recorded for ${orderDateKey}, entered ${todayKey}`
+                  : null,
                 allReady
                   ? "all items ready-to-serve, handed over at counter (status: COMPLETED)"
                   : null,
@@ -715,6 +753,70 @@ export async function adminCreateCafeOrder(data: {
     console.error("Failed to create cafe order:", error);
     return { success: false, error: "Failed to create order" };
   }
+}
+
+/**
+ * Edit the note on an existing cafe order.
+ *
+ * The note is the only free-text field on an order and it is the one
+ * thing an admin reliably gets wrong in the rush at the counter — a
+ * table number typed into the wrong order, a "no onion" that arrived
+ * after the ticket was rung up. Everything else on the order already
+ * had a correction path (items, quantities, payment, status); this was
+ * the gap.
+ *
+ * Deliberately unrestricted by order status. A COMPLETED or CANCELLED
+ * order is exactly the one whose note someone later needs to annotate,
+ * and the note carries no money — nothing downstream computes from it,
+ * so there is no total to keep in step and no reason to lock it.
+ *
+ * Every edit lands in the order's edit history with the old text, so
+ * the note is correctable without being quietly rewritable.
+ */
+export async function updateCafeOrderNote(
+  orderId: string,
+  rawNote: string,
+): Promise<{ success: true; note: string | null } | { success: false; error: string }> {
+  const admin = await requireCafeAdminWithDetails();
+
+  // Empty clears the note. Trimmed so a box of spaces does not read as
+  // a note that exists but shows nothing.
+  const next = rawNote.trim() || null;
+  if (next && next.length > 500) {
+    return { success: false, error: "Note is too long (500 characters max)" };
+  }
+
+  const order = await db.cafeOrder.findUnique({
+    where: { id: orderId },
+    select: { id: true, note: true },
+  });
+  if (!order) return { success: false, error: "Order not found" };
+
+  // Nothing changed — say so rather than writing a history row that
+  // records an edit that did not happen.
+  if ((order.note ?? null) === next) return { success: true, note: next };
+
+  await db.$transaction(async (tx) => {
+    await tx.cafeOrder.update({
+      where: { id: orderId },
+      data: { note: next },
+    });
+    await tx.cafeOrderEditHistory.create({
+      data: {
+        orderId,
+        adminId: admin.id,
+        adminUsername: admin.username,
+        editType: "NOTE_EDITED",
+        // The old text is the point of the entry: without it the
+        // history says a note changed but not what it used to say.
+        note: order.note
+          ? `Note changed from "${order.note}" to ${next ? `"${next}"` : "(cleared)"}`
+          : `Note added: "${next}"`,
+      },
+    });
+  });
+
+  return { success: true, note: next };
 }
 
 export async function cancelCafeOrder(

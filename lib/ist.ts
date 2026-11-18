@@ -64,6 +64,21 @@ export function istDayEndUtc(dateKey: string): Date {
 }
 
 /**
+ * Midday of an IST calendar day, as UTC. "2026-11-10" -> 10th 06:30Z.
+ *
+ * The instant to stamp on a record an admin dated but did not time — a
+ * cafe sale rung up days after it happened, say. Midday is deliberate
+ * on two counts. It is the furthest point from either IST midnight, so
+ * no later ±5:30 slip can push the row into the neighbouring day, which
+ * is exactly the class of bug this whole file exists to prevent. And it
+ * sits inside trading hours, so the hour-of-day charts are not dragged
+ * toward a 00:00 that never served a customer.
+ */
+export function istNoonUtc(dateKey: string): Date {
+  return new Date(Date.parse(`${dateKey}T12:00:00.000Z`) - IST_OFFSET_MS);
+}
+
+/**
  * The UTC instants bounding a range of IST calendar days, inclusive.
  * IST midnight is 18:30 UTC on the previous day, hence the subtraction.
  */

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { formatPrice } from "@/lib/pricing";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { getTodayIST } from "@/lib/ist-date";
 
 interface MenuItem {
   id: string;
@@ -118,6 +119,11 @@ export function CreateCafeOrderForm({
   const [splitCash, setSplitCash] = useState("");
   const [splitUpi, setSplitUpi] = useState("");
 
+  // The day the sale happened, IST. Defaults to today, so the common
+  // case is untouched; an admin catching up on yesterday's counter
+  // slips moves it back, and a pre-order moves it forward.
+  const todayKey = getTodayIST();
+  const [orderDate, setOrderDate] = useState(todayKey);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -283,6 +289,9 @@ export function CreateCafeOrderForm({
           : (paymentChoice as PaymentMethod),
       split: splitPayload,
       collectLater: paymentChoice === "DUE" || undefined,
+      // Only sent when it differs — an unchanged field should not make
+      // the server take the backdating path for an ordinary sale.
+      orderDate: orderDate !== todayKey ? orderDate : undefined,
       note: note || undefined,
     });
 
@@ -307,6 +316,7 @@ export function CreateCafeOrderForm({
             onClick={() => {
               setSuccessOrder(null);
               setCart([]);
+              setOrderDate(todayKey);
               setNote("");
               setCustomerPhone("");
               setCustomerName("");
@@ -806,6 +816,32 @@ export function CreateCafeOrderForm({
             ) : null}
           </div>
 
+          {/* Order date — only for a sale that did not happen today. */}
+          <div className="border-t border-zinc-800 pt-3">
+            <label
+              htmlFor="order-date"
+              className="block text-xs font-medium text-zinc-400"
+            >
+              Order date
+            </label>
+            <input
+              id="order-date"
+              type="date"
+              value={orderDate}
+              onChange={(e) => setOrderDate(e.target.value || todayKey)}
+              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 p-2 text-sm text-white"
+            />
+            {orderDate !== todayKey ? (
+              <p className="mt-1 text-[11px] text-amber-200/80">
+                Filed under {prettyDate(orderDate)}
+                {orderDate < todayKey ? " (past)" : " (future)"} — it counts
+                toward that day&apos;s takings and the bill prints that date.
+                The order completes immediately instead of going to the
+                kitchen.
+              </p>
+            ) : null}
+          </div>
+
           {/* Note */}
           <div className="border-t border-zinc-800 pt-3">
             <input
@@ -844,4 +880,16 @@ export function CreateCafeOrderForm({
       </div>
     </div>
   );
+}
+
+/** "Tue, 10 Nov 2026" — the chosen day as an admin in Mathura reads it. */
+function prettyDate(dateKey: string): string {
+  // Parsed at midday UTC so the IST rendering can never fall back a day.
+  return new Date(`${dateKey}T12:00:00Z`).toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
 }
