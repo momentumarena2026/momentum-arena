@@ -27,6 +27,7 @@ import {
   Receipt,
   Search,
   Trash2,
+  Users,
   X,
 } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
@@ -37,6 +38,7 @@ import { colors, radius, spacing } from "../../theme";
 import {
   adminExpensesApi,
   type AdminExpense,
+  type AdminExpenseContributions,
 } from "../../lib/admin-expenses";
 import { AdminApiError } from "../../lib/admin-api";
 import { formatRupees } from "../../lib/format";
@@ -83,6 +85,23 @@ export function AdminExpensesListScreen() {
         pageSize: 50,
         module: moduleParam,
       }),
+    refetchOnWindowFocus: false,
+  });
+
+  // Who fronted the money, and what the venture owes them. Running only:
+  // the General module is read-only and nobody is reimbursed out of it.
+  const contributions = useQuery({
+    queryKey: [
+      "admin-expense-contributions",
+      moduleParam ?? "GENERAL",
+      search.trim(),
+    ],
+    queryFn: () =>
+      adminExpensesApi.contributions({
+        module: moduleParam,
+        search: search.trim() || undefined,
+      }),
+    enabled: isRunning,
     refetchOnWindowFocus: false,
   });
 
@@ -162,6 +181,11 @@ export function AdminExpensesListScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Who paid out of pocket — the figure the venture transfers. */}
+        {isRunning && contributions.data ? (
+          <ContributionsCard data={contributions.data} />
+        ) : null}
 
         {/* Quick actions */}
         <View style={styles.actionRow}>
@@ -492,7 +516,123 @@ function confirmDelete(e: AdminExpense, onConfirm: () => void) {
   );
 }
 
+/**
+ * Compact version of the web Running Expenses contributions panel.
+ *
+ * Per person over the current filter, then per month. Spend the venture
+ * paid from its own account is listed apart and never folded into an
+ * amount-to-transfer: it is already settled, and including it would
+ * propose paying the company back to itself.
+ *
+ * The figures are the server's, computed over every matching row — not
+ * summed from the 50 the list is showing, which would silently
+ * under-report any month that spills onto a second page.
+ */
+function ContributionsCard({ data }: { data: AdminExpenseContributions }) {
+  const [open, setOpen] = useState(false);
+  if (data.entryCount === 0) return null;
+
+  // Newest month first from the server; that is the one being settled.
+  const shown = open ? data.months : data.months.slice(0, 1);
+
+  return (
+    <View style={styles.contribCard}>
+      <View style={styles.contribHead}>
+        <Users size={14} color={colors.emerald400} />
+        <Text variant="small" color={colors.zinc300}>
+          To reimburse
+        </Text>
+        <View style={{ flex: 1 }} />
+        <Text variant="bodyStrong" color={colors.emerald400}>
+          {formatRupees(data.reimbursableTotal)}
+        </Text>
+      </View>
+
+      {data.byPerson.length === 0 ? (
+        <Text variant="small" color={colors.zinc500}>
+          Everything here was paid by the venture directly — nothing to
+          transfer.
+        </Text>
+      ) : (
+        <View style={styles.contribPeople}>
+          {data.byPerson.map((p) => (
+            <View key={p.person} style={styles.contribPerson}>
+              <Text variant="small" color={colors.zinc400}>
+                {p.person}
+              </Text>
+              <Text variant="bodyStrong" color={colors.foreground}>
+                {formatRupees(p.amount)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {data.venture.length > 0 ? (
+        <Text variant="small" color={colors.zinc600}>
+          {formatRupees(data.ventureTotal)} paid directly by{" "}
+          {data.venture.map((v) => v.person).join(", ")} — owed to nobody.
+        </Text>
+      ) : null}
+
+      {data.months.length > 0 ? (
+        <View style={styles.contribMonths}>
+          {shown.map((m) => (
+            <View key={m.month} style={styles.contribMonthRow}>
+              <Text variant="small" color={colors.zinc400}>
+                {monthKeyLabel(m.month)}
+              </Text>
+              <View style={{ flex: 1 }} />
+              <Text variant="small" color={colors.emerald400}>
+                {formatRupees(m.reimbursable)}
+              </Text>
+            </View>
+          ))}
+          {data.months.length > 1 ? (
+            <Pressable onPress={() => setOpen((o) => !o)} hitSlop={6}>
+              <Text variant="small" color={colors.zinc500}>
+                {open ? "Show less" : `Show all ${data.months.length} months`}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** "October 2026" from a "2026-10" key. */
+function monthKeyLabel(key: string): string {
+  const [y, m] = key.split("-");
+  return new Date(Date.UTC(Number(y), Number(m) - 1, 1)).toLocaleDateString(
+    "en-IN",
+    { month: "long", year: "numeric", timeZone: "UTC" },
+  );
+}
+
 const styles = StyleSheet.create({
+  contribCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
+    padding: spacing["3"],
+    gap: spacing["2"],
+  },
+  contribHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  contribPeople: { gap: 4 },
+  contribPerson: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  contribMonths: {
+    gap: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingTop: spacing["2"],
+  },
+  contribMonthRow: { flexDirection: "row", alignItems: "center" },
   scroll: {
     paddingHorizontal: spacing["5"],
     paddingTop: spacing["3"],
