@@ -129,6 +129,17 @@ export type PnlColumn = {
   tournaments: number;
   camps: number;
   cafe: number;
+  /**
+   * The shop (ProductOrder). Added 2026-11-18; it had been missing since
+   * this statement was written, so every figure before that date
+   * understated income by whatever the shop took — ₹150 in all, one cash
+   * sale in May 2026, which is why nobody noticed.
+   *
+   * Stored in PAISE at source, unlike every other money column in this
+   * codebase. Converted in the query, so this field is rupees like its
+   * neighbours.
+   */
+  shop: number;
   totalIncome: number;
   /** spentType → rupees, only categories with spend in the window. */
   expenseByCategory: Record<string, number>;

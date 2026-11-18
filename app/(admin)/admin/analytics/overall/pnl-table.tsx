@@ -204,6 +204,7 @@ export function PnlTable({ initial }: { initial: PnlResult }) {
                   <Row name="Tournaments" kind="income" indent values={columns.map((c) => c.tournaments)} />
                   <Row name="Camps" kind="income" indent values={columns.map((c) => c.camps)} />
                   <Row name="Cafe" kind="income" indent values={columns.map((c) => c.cafe)} />
+                  <Row name="Shop" kind="income" indent values={columns.map((c) => c.shop)} />
                 </>
               )}
 

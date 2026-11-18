@@ -792,13 +792,26 @@ Anything else means main has drifted — stop and investigate, do not push.
     five the P&L counts. The sixth is the **shop** — `ProductOrder` /
     `ProductOrderPayment` — which the P&L omits and which is nearly
     dormant (one completed sale, ₹150 cash, May 2026). It is in the
-    collections report, because a dormant source that starts being used
-    would otherwise go missing with nothing to say so. **Its amounts are
-    in PAISE** (`ProductOrderPayment.amount`, `ProductOrder.totalPaise`)
-    — the only money columns in this codebase that are, so anything
-    summing across sources must divide at that boundary. Whether the
-    P&L should also count the shop is an open question; ₹150 is not
-    worth a change on its own, but the gap is real.
+    collections report AND, since 2026-11-18, in the P&L — a dormant
+    source that starts being used would otherwise go missing from both
+    with nothing to say so. Note what that means for history: every P&L
+    figure produced before that date understated income by the shop's
+    take, which is ₹150 in all, one cash sale in May 2026, which is
+    exactly why nobody noticed.
+
+    **Its amounts are in PAISE** (`ProductOrderPayment.amount`,
+    `ProductOrder.totalPaise`) — the only money columns in this codebase
+    that are, so anything summing across sources must divide at that
+    boundary. Both call sites do it in SQL, at the source, rather than
+    downstream where a reader would have to remember.
+
+    Adding an income stream touches five places and **the compiler
+    catches only three of them**: `PnlColumn` in `lib/pnl-math.ts`, the
+    query and its destructure, `blank()`, `addStream`, and the
+    `totalIncome` sum are all type-checked — but the ROW in
+    `pnl-table.tsx` is not. Miss that one and the money is in the total
+    with no line explaining it. Grep the table for the stream name
+    before believing a green typecheck.
 
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo
