@@ -218,6 +218,17 @@ export const adminCafeApi = {
     });
   },
 
+  /** Edit (or clear, with "") the free-text note on an order. */
+  setOrderNote(
+    id: string,
+    note: string,
+  ): Promise<{ ok: true; note: string | null }> {
+    return request(`/api/mobile/admin/cafe/orders/${id}/note`, {
+      method: "POST",
+      body: { note },
+    });
+  },
+
   cancelOrder(id: string, reason: string): Promise<{ ok: true }> {
     return request(`/api/mobile/admin/cafe/orders/${id}/cancel`, {
       method: "POST",

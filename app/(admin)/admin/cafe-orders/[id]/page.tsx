@@ -5,6 +5,7 @@ import { formatPrice } from "@/lib/pricing";
 import { CafeOrderActions } from "./cafe-order-actions";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
+import { EditCafeNote } from "@/components/admin/cafe/edit-cafe-note";
 
 export default async function CafeOrderDetailPage({
   params,
@@ -165,11 +166,9 @@ export default async function CafeOrderDetailPage({
             {formatPrice(order.totalAmount)}
           </span>
         </div>
-        {order.note && (
-          <p className="mt-2 text-xs text-zinc-400 italic">
-            Note: {order.note}
-          </p>
-        )}
+        {/* Editable. Renders whether or not a note exists — adding one
+            after the fact is at least as common as fixing one. */}
+        <EditCafeNote orderId={order.id} note={order.note} />
       </div>
 
       {/* Actions component */}

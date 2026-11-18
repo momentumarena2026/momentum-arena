@@ -57,6 +57,8 @@ export function AdminCafeOrderDetailScreen() {
   const [history, setHistory] = useState<CafeOrderEdit[]>([]);
   const [menu, setMenu] = useState<{ id: string; name: string; price: number }[]>([]);
   const [editing, setEditing] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
   const [collecting, setCollecting] = useState(false);
   const [cash, setCash] = useState("");
   const [upi, setUpi] = useState("");
@@ -103,6 +105,23 @@ export function AdminCafeOrderDetailScreen() {
   }, [order.id]);
 
   const next = STATUS_FLOW[order.status] ?? null;
+
+  async function saveNote() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await adminCafeApi.setOrderNote(order.id, noteDraft);
+      // Take the server's version back rather than the draft: it is the
+      // one that has been trimmed, and "" comes back as null.
+      setOrder((o) => ({ ...o, note: res.note }));
+      setEditingNote(false);
+      void loadHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save the note");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function advance() {
     if (!next) return;
@@ -183,11 +202,59 @@ export function AdminCafeOrderDetailScreen() {
             timeZone: "Asia/Kolkata",
           })}
         </Text>
-        {order.note ? (
-          <Text variant="small" color={colors.yellow400} style={{ marginTop: 6 }}>
-            📝 {order.note}
-          </Text>
-        ) : null}
+        {/* Note — editable. Shown even when empty, because adding one
+            after the fact is at least as common as fixing one. */}
+        {editingNote ? (
+          <View style={{ marginTop: 8, gap: spacing["2"] }}>
+            <TextInput
+              style={[styles.input, { minHeight: 64, textAlignVertical: "top" }]}
+              placeholder="Table number, allergy, anything worth recording"
+              placeholderTextColor={colors.zinc600}
+              value={noteDraft}
+              onChangeText={setNoteDraft}
+              multiline
+              maxLength={500}
+            />
+            <View style={styles.row}>
+              <Pressable disabled={busy} onPress={saveNote} style={styles.btn}>
+                <Text variant="small" color={colors.emerald400}>
+                  Save note
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => setEditingNote(false)} style={styles.btn}>
+                <Text variant="small" color={colors.zinc400}>
+                  Cancel
+                </Text>
+              </Pressable>
+              {order.note ? (
+                <Pressable onPress={() => setNoteDraft("")} style={styles.btn}>
+                  <Text variant="small" color={colors.zinc500}>
+                    Clear
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => {
+              setNoteDraft(order.note ?? "");
+              setEditingNote(true);
+            }}
+            style={{ marginTop: 6 }}
+            hitSlop={6}
+          >
+            <Text
+              variant="small"
+              color={order.note ? colors.yellow400 : colors.zinc600}
+            >
+              {order.note ? `📝 ${order.note}` : "📝 Add a note"}
+              <Text variant="small" color={colors.zinc600}>
+                {"  ·  tap to edit"}
+              </Text>
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       {/* CUSTOMER — its own section on web, so its own card here. */}

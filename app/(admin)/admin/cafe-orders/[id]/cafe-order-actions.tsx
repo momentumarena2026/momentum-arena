@@ -84,6 +84,7 @@ const EDIT_TYPE_CONFIG: Record<string, { color: string; label: string }> = {
   PAYMENT_EDITED: { color: "text-fuchsia-400", label: "Payment Edited" },
   PAYMENT_COLLECTED: { color: "text-emerald-400", label: "Payment Collected" },
   PAYMENT_SPLIT_UPDATED: { color: "text-sky-400", label: "Split Re-attributed" },
+  NOTE_EDITED: { color: "text-indigo-400", label: "Note Edited" },
 };
 
 export interface PaymentInfo {

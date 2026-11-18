@@ -799,6 +799,70 @@ export async function adminCreateCafeOrder(data: {
   }
 }
 
+/**
+ * Edit the note on an existing cafe order.
+ *
+ * The note is the only free-text field on an order and it is the one
+ * thing an admin reliably gets wrong in the rush at the counter — a
+ * table number typed into the wrong order, a "no onion" that arrived
+ * after the ticket was rung up. Everything else on the order already
+ * had a correction path (items, quantities, payment, status); this was
+ * the gap.
+ *
+ * Deliberately unrestricted by order status. A COMPLETED or CANCELLED
+ * order is exactly the one whose note someone later needs to annotate,
+ * and the note carries no money — nothing downstream computes from it,
+ * so there is no total to keep in step and no reason to lock it.
+ *
+ * Every edit lands in the order's edit history with the old text, so
+ * the note is correctable without being quietly rewritable.
+ */
+export async function updateCafeOrderNote(
+  orderId: string,
+  rawNote: string,
+): Promise<{ success: true; note: string | null } | { success: false; error: string }> {
+  const admin = await requireCafeAdminWithDetails();
+
+  // Empty clears the note. Trimmed so a box of spaces does not read as
+  // a note that exists but shows nothing.
+  const next = rawNote.trim() || null;
+  if (next && next.length > 500) {
+    return { success: false, error: "Note is too long (500 characters max)" };
+  }
+
+  const order = await db.cafeOrder.findUnique({
+    where: { id: orderId },
+    select: { id: true, note: true },
+  });
+  if (!order) return { success: false, error: "Order not found" };
+
+  // Nothing changed — say so rather than writing a history row that
+  // records an edit that did not happen.
+  if ((order.note ?? null) === next) return { success: true, note: next };
+
+  await db.$transaction(async (tx) => {
+    await tx.cafeOrder.update({
+      where: { id: orderId },
+      data: { note: next },
+    });
+    await tx.cafeOrderEditHistory.create({
+      data: {
+        orderId,
+        adminId: admin.id,
+        adminUsername: admin.username,
+        editType: "NOTE_EDITED",
+        // The old text is the point of the entry: without it the
+        // history says a note changed but not what it used to say.
+        note: order.note
+          ? `Note changed from "${order.note}" to ${next ? `"${next}"` : "(cleared)"}`
+          : `Note added: "${next}"`,
+      },
+    });
+  });
+
+  return { success: true, note: next };
+}
+
 export async function cancelCafeOrder(
   orderId: string,
   reason: string,
