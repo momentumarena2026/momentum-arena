@@ -129,6 +129,43 @@ async function main() {
     });
     console.log("Seeded promo banner: Pickleball Launch Offer (create-only)");
   }
+
+  // ── ExpenseOption.isVenture backfill ───────────────────────────────
+  //
+  // The flag marks a payer as the venture's own account rather than a
+  // person owed their money back, and it drives the "to reimburse"
+  // figures on Running Expenses.
+  //
+  // It arrives as a new column defaulting to FALSE, which would make the
+  // venture look like a person owed six figures the moment the column
+  // lands. This sets it for the payer that has always been treated that
+  // way, so the numbers do not change under anyone.
+  //
+  // Idempotent and one-directional: it only ever turns the flag ON for
+  // these exact labels, so an admin who later switches one OFF in
+  // Dropdowns does not get overruled by the next deploy.
+  // Matched in JS rather than with a `label: { in: [...], mode:
+  // "insensitive" }` filter: Prisma's insensitive mode is documented
+  // for equals/contains/startsWith/endsWith, and relying on it applying
+  // to `in` would be a filter that typechecks and might quietly match
+  // nothing. Comparing here is unambiguous.
+  const VENTURE_PAYER_SEED = new Set(["sportive ventures", "sportive venture"]);
+  const payerOptions = await prisma.expenseOption.findMany({
+    where: { field: "DONE_BY", isVenture: false },
+    select: { id: true, label: true },
+  });
+  const toFlag = payerOptions
+    .filter((o) => VENTURE_PAYER_SEED.has(o.label.trim().toLowerCase()))
+    .map((o) => o.id);
+  if (toFlag.length > 0) {
+    await prisma.expenseOption.updateMany({
+      where: { id: { in: toFlag } },
+      data: { isVenture: true },
+    });
+    console.log(
+      `Seeded ExpenseOption.isVenture on ${toFlag.length} payer option(s)`,
+    );
+  }
 }
 
 main()

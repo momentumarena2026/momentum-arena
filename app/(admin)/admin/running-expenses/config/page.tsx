@@ -18,6 +18,7 @@ export default async function RunningExpenseConfigPage() {
       label: string;
       isActive: boolean;
       sortOrder: number;
+      isVenture: boolean;
     }[]
   > = {
     PAYMENT_TYPE: [],
@@ -33,6 +34,7 @@ export default async function RunningExpenseConfigPage() {
       label: o.label,
       isActive: o.isActive,
       sortOrder: o.sortOrder,
+      isVenture: o.isVenture,
     });
   }
 

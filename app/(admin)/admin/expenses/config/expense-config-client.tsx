@@ -28,6 +28,8 @@ interface OptionRow {
   label: string;
   isActive: boolean;
   sortOrder: number;
+  /** DONE_BY only: this payer is the venture, not someone to reimburse. */
+  isVenture: boolean;
 }
 
 interface Props {
@@ -115,6 +117,16 @@ export function ExpenseConfigClient({
       setEditingId(null);
       setEditLabel("");
       router.refresh();
+    });
+  }
+
+  function toggleVenture(row: OptionRow) {
+    startTransition(async () => {
+      const res = await updateExpenseOption(row.id, {
+        isVenture: !row.isVenture,
+      });
+      if (res.success) router.refresh();
+      else setError(res.error || "Couldn't change that");
     });
   }
 
@@ -276,6 +288,33 @@ export function ExpenseConfigClient({
                     <span className="text-[10px] uppercase tracking-wide rounded-md bg-zinc-800 px-2 py-0.5 text-zinc-400">
                       Hidden
                     </span>
+                  )}
+
+                  {/* Payer field only. A flagged payer is the venture's own
+                      account, so its spend is already settled and is kept
+                      out of the "to reimburse" figures on Running
+                      Expenses. Rendered as a real checkbox + label so it
+                      is reachable by keyboard and reads for itself. */}
+                  {row.field === "DONE_BY" && (
+                    <label
+                      className="flex flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1"
+                      title="Spend by this payer is the venture's own money — never counted as owed back to a person."
+                    >
+                      <input
+                        type="checkbox"
+                        checked={row.isVenture}
+                        disabled={pending}
+                        onChange={() => toggleVenture(row)}
+                        className="h-3.5 w-3.5 accent-emerald-500"
+                      />
+                      <span
+                        className={`text-[10px] uppercase tracking-wide ${
+                          row.isVenture ? "text-emerald-400" : "text-zinc-500"
+                        }`}
+                      >
+                        Venture
+                      </span>
+                    </label>
                   )}
 
                   <div className="flex items-center gap-1">
