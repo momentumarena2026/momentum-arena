@@ -84,6 +84,26 @@ export interface AdminExpenseInput {
   note?: string | null;
 }
 
+/** Who fronted the money, and what the venture owes them. */
+export interface AdminExpenseContributions {
+  /** Reimbursable people, biggest first. Excludes the venture itself. */
+  people: string[];
+  byPerson: { person: string; amount: number; count: number }[];
+  /** Spend the venture paid directly — already settled, owed to nobody. */
+  venture: { person: string; amount: number; count: number }[];
+  ventureTotal: number;
+  reimbursableTotal: number;
+  months: {
+    month: string;
+    total: number;
+    reimbursable: number;
+    ventureAmount: number;
+    byPerson: Record<string, number>;
+  }[];
+  grandTotal: number;
+  entryCount: number;
+}
+
 export const adminExpensesApi = {
   list(
     filters: {
@@ -105,6 +125,21 @@ export const adminExpensesApi = {
     const qs = sp.toString();
     return request(
       `/api/mobile/admin/expenses${qs ? `?${qs}` : ""}`,
+      { method: "GET" },
+    );
+  },
+
+  contributions(
+    filters: { module?: ExpenseModule; from?: string; to?: string; search?: string } = {},
+  ): Promise<AdminExpenseContributions> {
+    const sp = new URLSearchParams();
+    if (filters.module) sp.set("module", filters.module);
+    if (filters.from) sp.set("from", filters.from);
+    if (filters.to) sp.set("to", filters.to);
+    if (filters.search) sp.set("search", filters.search);
+    const qs = sp.toString();
+    return request(
+      `/api/mobile/admin/expenses/contributions${qs ? `?${qs}` : ""}`,
       { method: "GET" },
     );
   },

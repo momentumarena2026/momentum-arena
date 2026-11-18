@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { Prisma, ExpenseOptionField } from "@prisma/client";
 import { db } from "@/lib/db";
+import { isVenturePayer } from "@/lib/expenses";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 
 /**
@@ -152,15 +153,16 @@ export interface ListExpensesFilters {
   pageSize?: number;
 }
 
-export async function listExpenses(
-  filters: ListExpensesFilters = {},
-) {
-  await requireExpenseAdmin();
-
-  const page = Math.max(1, filters.page ?? 1);
-  const pageSize = Math.min(200, Math.max(10, filters.pageSize ?? 50));
-  const skip = (page - 1) * pageSize;
-
+/**
+ * The WHERE for a filtered expense query, in one place.
+ *
+ * Shared by listExpenses and getExpenseContributions. They must agree
+ * exactly: the contributions panel sits above the list and says what
+ * the venture owes each person, so a panel computed over a different
+ * set of rows than the list shows is worse than no panel at all —
+ * someone transfers a number that nothing on screen adds up to.
+ */
+function buildExpenseWhere(filters: ListExpensesFilters): Prisma.ExpenseWhereInput {
   const where: Prisma.ExpenseWhereInput = { module: filters.module ?? "GENERAL" };
   if (filters.from || filters.to) {
     where.date = {};
@@ -178,6 +180,19 @@ export async function listExpenses(
       { note: { contains: filters.search, mode: "insensitive" } },
     ];
   }
+  return where;
+}
+
+export async function listExpenses(
+  filters: ListExpensesFilters = {},
+) {
+  await requireExpenseAdmin();
+
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.min(200, Math.max(10, filters.pageSize ?? 50));
+  const skip = (page - 1) * pageSize;
+
+  const where = buildExpenseWhere(filters);
 
   const [rows, total, totalAmountAgg] = await Promise.all([
     db.expense.findMany({
@@ -197,6 +212,131 @@ export async function listExpenses(
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
     totalAmount: totalAmountAgg._sum.amount ?? 0,
+  };
+}
+
+/**
+ * Who paid, and how much — per person, and per person per month.
+ *
+ * The venture reimburses whoever fronted the money, monthly. Working
+ * that out previously meant filtering the list to one person, reading
+ * the rows off the screen and adding them up by hand, once per person.
+ *
+ * Two things this must get right, both of which rule out doing the sum
+ * in the browser from the rows already on the page:
+ *
+ *  - **The list is paginated** (50 a page). A month with more than 50
+ *    entries is split across pages, so a total added up from the
+ *    visible rows is short by however much fell onto page 2 — and it
+ *    would look perfectly plausible. These sums are aggregated over
+ *    every matching row, whatever page you happen to be on.
+ *  - **It must match the filter exactly.** Same buildExpenseWhere the
+ *    list itself uses, so the panel can never describe a different set
+ *    of rows than the table below it.
+ *
+ * Months come from the `date` column (what was typed on the slip), not
+ * createdAt (when someone got round to entering it). That column is a
+ * bare Postgres DATE with no time part, so there is no timezone here to
+ * get wrong — unlike nearly every other date in this codebase.
+ */
+export interface ExpenseContributions {
+  /** Reimbursable people only, biggest contributor first. */
+  people: string[];
+  byPerson: { person: string; amount: number; count: number }[];
+  /** What the venture paid straight from its own account — owed to nobody. */
+  venture: { person: string; amount: number; count: number }[];
+  ventureTotal: number;
+  /** The sum that actually gets transferred out: people, not the venture. */
+  reimbursableTotal: number;
+  /** Newest month first, which is the one being settled. */
+  months: {
+    month: string; // "2026-10"
+    total: number;
+    /** Reimbursable only — this is the row you read a transfer off. */
+    reimbursable: number;
+    ventureAmount: number;
+    byPerson: Record<string, number>;
+  }[];
+  grandTotal: number;
+  entryCount: number;
+}
+
+export async function getExpenseContributions(
+  filters: ListExpensesFilters = {},
+): Promise<ExpenseContributions> {
+  await requireExpenseAdmin();
+
+  const rows = await db.expense.findMany({
+    where: buildExpenseWhere(filters),
+    select: { date: true, doneBy: true, amount: true },
+  });
+
+  const perPerson = new Map<string, { amount: number; count: number }>();
+  const perMonth = new Map<string, Map<string, number>>();
+  let grandTotal = 0;
+
+  for (const r of rows) {
+    // "Unattributed" rather than silently dropping the row: money that
+    // left the account with no name against it is exactly the thing
+    // somebody needs to notice and fix, not hide.
+    const person = r.doneBy?.trim() || "Unattributed";
+    const month = r.date.toISOString().slice(0, 7);
+
+    const p = perPerson.get(person) ?? { amount: 0, count: 0 };
+    p.amount += r.amount;
+    p.count += 1;
+    perPerson.set(person, p);
+
+    const m = perMonth.get(month) ?? new Map<string, number>();
+    m.set(person, (m.get(person) ?? 0) + r.amount);
+    perMonth.set(month, m);
+
+    grandTotal += r.amount;
+  }
+
+  const allPayers = Array.from(perPerson.entries())
+    .map(([person, v]) => ({ person, amount: v.amount, count: v.count }))
+    .sort((a, b) => b.amount - a.amount || a.person.localeCompare(b.person));
+
+  // Split before anything is totalled. The venture's own spend is
+  // already settled; folding it into the reimbursable figure would
+  // propose a transfer from the company to itself.
+  const byPerson = allPayers.filter((p) => !isVenturePayer(p.person));
+  const venture = allPayers.filter((p) => isVenturePayer(p.person));
+  const ventureTotal = venture.reduce((sum, v) => sum + v.amount, 0);
+  const reimbursableTotal = byPerson.reduce((sum, p) => sum + p.amount, 0);
+
+  // One column order for every month row, so a person stays in the same
+  // column as the eye travels down the table.
+  const people = byPerson.map((p) => p.person);
+
+  const months = Array.from(perMonth.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([month, m]) => {
+      let reimbursable = 0;
+      let ventureAmount = 0;
+      for (const [person, amount] of m) {
+        if (isVenturePayer(person)) ventureAmount += amount;
+        else reimbursable += amount;
+      }
+      return {
+        month,
+        total: reimbursable + ventureAmount,
+        reimbursable,
+        ventureAmount,
+        byPerson: Object.fromEntries(m),
+      };
+    });
+
+  return {
+    people,
+    byPerson,
+    venture,
+    ventureTotal,
+    reimbursableTotal,
+    months,
+    grandTotal,
+    entryCount: rows.length,
   };
 }
 

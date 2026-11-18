@@ -9,11 +9,13 @@ import {
 import {
   listExpenses,
   listActiveExpenseOptionsByField,
+  getExpenseContributions,
 } from "@/actions/admin-expenses";
 import { formatExpenseAmount } from "@/lib/expenses";
 import { ExpenseFilters } from "../expenses/expense-filters";
 import { RunningExpenseTable } from "./running-expense-table";
 import { NewRunningExpenseButton } from "./new-running-expense-button";
+import { ContributionsPanel } from "./contributions-panel";
 
 // Admin list page for RUNNING expenses — a structural clone of the
 // GENERAL expenses list, but the table groups rows by calendar month
@@ -36,7 +38,20 @@ export default async function AdminRunningExpensesPage({
   const params = await searchParams;
   const page = parseInt(params.page || "1", 10) || 1;
 
-  const [list, options] = await Promise.all([
+  // Same filter object for both, so the panel can never describe a
+  // different set of rows than the table underneath it.
+  const filters = {
+    module: "RUNNING" as const,
+    from: params.from,
+    to: params.to,
+    spentType: params.spentType,
+    doneBy: params.doneBy,
+    paymentType: params.paymentType,
+    vendor: params.vendor,
+    search: params.search,
+  };
+
+  const [list, options, contributions] = await Promise.all([
     listExpenses({
       module: "RUNNING",
       from: params.from,
@@ -50,7 +65,18 @@ export default async function AdminRunningExpensesPage({
       pageSize: 50,
     }),
     listActiveExpenseOptionsByField("RUNNING"),
+    getExpenseContributions(filters),
   ]);
+
+  const anyFilter = Boolean(
+    params.from ||
+      params.to ||
+      params.spentType ||
+      params.doneBy ||
+      params.paymentType ||
+      params.vendor ||
+      params.search,
+  );
 
   function buildUrl(overrides: Record<string, string | undefined>) {
     const base: Record<string, string> = {
@@ -132,6 +158,9 @@ export default async function AdminRunningExpensesPage({
           </div>
         </div>
       </div>
+
+      {/* Who paid what — the figure the venture reimburses. */}
+      <ContributionsPanel data={contributions} filtered={anyFilter} />
 
       {/* Filters */}
       <ExpenseFilters
