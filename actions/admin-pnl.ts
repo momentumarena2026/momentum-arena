@@ -31,7 +31,7 @@ import {
  * CASH BASIS, matching the rest of the money story. Income is money
  * received in the period; expenses are money spent in the period.
  *
- *  income  = bookings + passes + tournaments + camps + cafe   (all GROSS)
+ *  income  = bookings + passes + tournaments + camps + cafe + shop  (GROSS)
  *  expense = Expense(module=RUNNING) only
  *  operating profit = income − expense
  *  interest = simple interest on the founder loan (CapitalContribution)
@@ -137,6 +137,7 @@ export async function getProfitAndLoss(
       tournamentRows,
       campRows,
       cafeRows,
+      shopRows,
       expenseRows,
       refundRows,
       contributions,
@@ -204,6 +205,23 @@ export async function getProfitAndLoss(
         WHERE co.status IN (${CAFE_STATUSES_SQL})
         GROUP BY key
       `),
+      // The shop. Keyed on the payment's confirmedAt, which is the day
+      // the money was taken — there is no separate "shop revenue date"
+      // to argue about.
+      //
+      // ProductOrderPayment.amount is in PAISE. It is the only money
+      // column in this codebase that is, so it is divided here, at the
+      // boundary, rather than anywhere downstream where a reader would
+      // have to remember. Getting this wrong inflates shop income 100x.
+      db.$queryRaw<Bucket[]>(Prisma.sql`
+        SELECT to_char(pop."confirmedAt" + ${IST_SHIFT}, 'YYYY-MM') AS key,
+               ROUND(SUM(pop.amount) / 100.0)::bigint AS amount
+        FROM "ProductOrderPayment" pop
+        WHERE pop.status IN ('COMPLETED','PARTIAL')
+          AND pop."confirmedAt" IS NOT NULL
+          AND pop.amount > 0
+        GROUP BY key
+      `),
       // RUNNING only, refunds excluded — see trap 3 in the header. The
       // label is matched case-insensitively because spentType is a free
       // ExpenseOption string an admin can rename; if the option is ever
@@ -246,6 +264,7 @@ export async function getProfitAndLoss(
       ...tournamentRows,
       ...campRows,
       ...cafeRows,
+      ...shopRows,
     ]) {
       if (r.key) allMonthKeys.add(r.key);
     }
@@ -293,6 +312,7 @@ export async function getProfitAndLoss(
       tournaments: 0,
       camps: 0,
       cafe: 0,
+      shop: 0,
       totalIncome: 0,
       expenseByCategory: {},
       totalExpenses: 0,
@@ -320,6 +340,7 @@ export async function getProfitAndLoss(
     addStream(tournamentRows, "tournaments");
     addStream(campRows, "camps");
     addStream(cafeRows, "cafe");
+    addStream(shopRows, "shop");
     // Memo only — never added to totalExpenses or the profit lines.
     addStream(refundRows, "refunds");
 
@@ -361,7 +382,7 @@ export async function getProfitAndLoss(
     const columns = periodKeys.map((k) => {
       const c = cols.get(k)!;
       c.totalIncome =
-        c.bookings + c.passes + c.tournaments + c.camps + c.cafe;
+        c.bookings + c.passes + c.tournaments + c.camps + c.cafe + c.shop;
       c.operatingProfit = c.totalIncome - c.totalExpenses;
       c.opmPct = operatingMarginPct(c.totalIncome, c.operatingProfit);
       c.interest = Math.round(c.interest);
