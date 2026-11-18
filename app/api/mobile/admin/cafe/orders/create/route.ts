@@ -41,6 +41,9 @@ export async function POST(request: NextRequest) {
     paymentMethod: (body.paymentMethod ?? "CASH") as PaymentMethod,
     split: body.split,
     collectLater: body.collectLater === true,
+    // "YYYY-MM-DD" IST, or absent for today. The action validates the
+    // shape and rejects anything that is not a real date.
+    orderDate: typeof body.orderDate === "string" ? body.orderDate : undefined,
     note: body.note,
   });
 

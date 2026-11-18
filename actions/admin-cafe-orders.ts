@@ -2,6 +2,7 @@
 
 import { after } from "next/server";
 import { db } from "@/lib/db";
+import { istDateKey, istNoonUtc } from "@/lib/ist";
 import { requireAdmin } from "@/lib/admin-auth";
 import { CafeOrderStatus, PaymentMethod } from "@prisma/client";
 import { normalizeIndianPhone } from "@/lib/phone";
@@ -319,6 +320,51 @@ export async function findCafeCustomerByPhone(rawPhone: string) {
   return { customer };
 }
 
+/**
+ * Resolve the admin-chosen order date into the instant to stamp.
+ *
+ * The admin picks a bare calendar day; the columns want a timestamp.
+ * Two things make that conversion worth its own function:
+ *
+ *  - It must land on the chosen day *in IST*. `new Date("2026-11-10")`
+ *    is midnight UTC, which is 05:30 IST — right day by luck, and the
+ *    wrong one the moment anybody shifts it. See lib/ist.ts for the
+ *    incident this rule comes from.
+ *  - Today must stay exactly as it was. When the chosen day IS today we
+ *    return the real clock, so an ordinary counter sale keeps its true
+ *    minute and the hour-of-day chart stays honest. Only a date the
+ *    admin deliberately moved gets the synthetic midday stamp.
+ */
+function resolveOrderDate(
+  raw: string | undefined,
+  todayKey: string,
+):
+  | { ok: true; dateKey: string; at: Date; isToday: boolean }
+  | { ok: false; error: string } {
+  const key = raw?.trim();
+  if (!key) return { ok: true, dateKey: todayKey, at: new Date(), isToday: true };
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+    return { ok: false, error: "Order date must look like 2026-11-10" };
+  }
+  // Round-trip guard. Date.parse accepts "2026-02-31" and quietly rolls
+  // it to 3 March, which would file the sale on a day nobody chose.
+  const parsed = new Date(`${key}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== key) {
+    return { ok: false, error: `${key} is not a real date` };
+  }
+  // Not a policy on how far back or forward a sale may be dated — the
+  // admin is trusted on that. This only catches the date field emitting
+  // a four-digit year from a mistyped keystroke (0202, 20226).
+  const year = Number(key.slice(0, 4));
+  if (year < 2020 || year > 2100) {
+    return { ok: false, error: `Check the year on ${key}` };
+  }
+
+  const isToday = key === todayKey;
+  return { ok: true, dateKey: key, at: isToday ? new Date() : istNoonUtc(key), isToday };
+}
+
 export async function adminCreateCafeOrder(data: {
   items: { cafeItemId: string; quantity: number }[];
   userId?: string;
@@ -360,6 +406,18 @@ export async function adminCreateCafeOrder(data: {
   // paid, and that some is nothing — and puts the order in front of
   // the admin everywhere a part-paid one already appears.
   collectLater?: boolean;
+  // The calendar day the sale happened, "YYYY-MM-DD", read as IST.
+  // Omitted (or today) = business as usual. Any other day records a
+  // sale that happened then: the order's createdAt and the payment's
+  // confirmedAt both carry it, which is what moves it in the analytics
+  // (bucketed on createdAt) and on the invoice (confirmedAt). Past and
+  // future are both allowed.
+  //
+  // Two consequences are deliberate. A dated-elsewhere order is always
+  // COMPLETED, never a kitchen ticket — see the status routing below.
+  // And stock still moves NOW, because the shelf is being corrected at
+  // the moment the admin types it, whatever day the sale is filed on.
+  orderDate?: string;
   note?: string;
 }) {
   // Resolves the acting admin from the web session or the mobile bearer
@@ -370,6 +428,11 @@ export async function adminCreateCafeOrder(data: {
     if (!data.items || data.items.length === 0) {
       return { success: false, error: "At least one item is required" };
     }
+
+    const todayKey = istDateKey(new Date());
+    const dateRes = resolveOrderDate(data.orderDate, todayKey);
+    if (!dateRes.ok) return { success: false, error: dateRes.error };
+    const { at: orderedAt, isToday: isTodayOrder, dateKey: orderDateKey } = dateRes;
 
     // Validate items exist and are available
     const cafeItemIds = data.items.map((i) => i.cafeItemId);
@@ -520,9 +583,17 @@ export async function adminCreateCafeOrder(data: {
     const allReady = data.items.every(
       (line) => itemMap.get(line.cafeItemId)?.quantity != null,
     );
-    const orderStatus: "PENDING" | "COMPLETED" = allReady
-      ? "COMPLETED"
-      : "PENDING";
+    // An order dated to any day but today is a bookkeeping entry, not a
+    // ticket, so it completes on arrival whatever it contains.
+    //
+    // This is load-bearing, not tidiness. getLiveCafeOrders() selects
+    // every PENDING/PREPARING/READY order with no date filter at all and
+    // sorts createdAt ASC, so a backdated order holding one kitchen item
+    // would pin itself to the TOP of the live kitchen board and stay
+    // there until someone noticed and cancelled it. A future-dated one
+    // would show up on the board today, days before the food is wanted.
+    const orderStatus: "PENDING" | "COMPLETED" =
+      allReady || !isTodayOrder ? "COMPLETED" : "PENDING";
 
     // Phone-first customer resolution. When customerPhone is sent,
     // we look up a user by normalised phone first; on miss we
@@ -595,6 +666,10 @@ export async function adminCreateCafeOrder(data: {
           originalAmount,
           discountAmount,
           note: data.note?.trim() || null,
+          // Overriding the @default(now()). This is the column cafe
+          // analytics buckets on, so it is what actually files the sale
+          // under the chosen day.
+          createdAt: orderedAt,
           createdByAdminId: admin.id,
           items: {
             create: orderItems,
@@ -623,11 +698,15 @@ export async function adminCreateCafeOrder(data: {
               // cash-basis on this date, so it must be stamped. The one
               // PARTIAL that isn't: a pay-later order, where nothing was
               // handed over. Stamping it would date a receipt for ₹0.
+              // orderedAt, not now(): this is the receipt date the
+              // invoice prints (app/api/cafe-invoice reads confirmedAt
+              // first), so a sale filed under the 10th must not hand the
+              // customer a bill dated the 18th.
               confirmedAt:
                 !collectLater &&
                 (resolvedPaymentStatus === "COMPLETED" ||
                   resolvedPaymentStatus === "PARTIAL")
-                  ? new Date()
+                  ? orderedAt
                   : null,
               confirmedBy: resolvedPaymentStatus === "COMPLETED" ? admin.id : null,
             },
@@ -640,6 +719,9 @@ export async function adminCreateCafeOrder(data: {
               newAmount: totalAmount,
               note: [
                 `Order created by ${admin.username}`,
+                !isTodayOrder
+                  ? `recorded for ${orderDateKey}, entered ${todayKey}`
+                  : null,
                 allReady
                   ? "all items ready-to-serve, handed over at counter (status: COMPLETED)"
                   : null,

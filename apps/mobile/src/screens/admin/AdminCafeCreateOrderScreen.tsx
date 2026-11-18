@@ -9,7 +9,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Minus, Plus } from "lucide-react-native";
+import { CalendarDays, Minus, Plus } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { CafeThumb } from "../../components/admin/CafeThumb";
@@ -21,6 +21,7 @@ import { colors, radius, spacing } from "../../theme";
 import { adminCafeApi } from "../../lib/admin-cafe";
 import { AdminApiError } from "../../lib/admin-api";
 import { formatRupees } from "../../lib/format";
+import { getTodayIST } from "../../lib/ist-date";
 import type { CafeItem } from "../../lib/admin-cafe";
 import type { AdminCafeStackParamList } from "../../navigation/types";
 
@@ -55,6 +56,11 @@ export function AdminCafeCreateOrderScreen() {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [discount, setDiscount] = useState("");
+  // The IST day the sale happened. Today by default, so the ordinary
+  // counter sale is unaffected; move it to record one that already
+  // happened, or one being taken in advance.
+  const todayKey = getTodayIST();
+  const [orderDate, setOrderDate] = useState(todayKey);
   const [note, setNote] = useState("");
   const [payMode, setPayMode] = useState<PayMode>("CASH");
   const [splitCash, setSplitCash] = useState("");
@@ -82,6 +88,15 @@ export function AdminCafeCreateOrderScreen() {
   const discountNum = Math.max(0, Number(discount) || 0);
   const total = Math.max(0, subtotal - discountNum);
   const lineCount = Object.values(cart).reduce((a, b) => a + b, 0);
+
+  function shiftDay(offset: number) {
+    // Stepped in UTC on a date-only string, which has no timezone to
+    // get wrong — the string IS the IST calendar day throughout.
+    const d = new Date(`${orderDate}T00:00:00Z`);
+    if (Number.isNaN(d.getTime())) return setOrderDate(todayKey);
+    d.setUTCDate(d.getUTCDate() + offset);
+    setOrderDate(d.toISOString().slice(0, 10));
+  }
 
   function setQty(item: CafeItem, qty: number) {
     setCart((prev) => {
@@ -131,6 +146,9 @@ export function AdminCafeCreateOrderScreen() {
           payMode === "SPLIT" || payMode === "DUE" ? "CASH" : payMode,
         split,
         collectLater: payMode === "DUE" || undefined,
+        // Only when moved — an untouched field must not push an
+        // ordinary sale down the backdating path.
+        orderDate: orderDate !== todayKey ? orderDate : undefined,
         note: note.trim() || undefined,
       });
     },
@@ -236,6 +254,50 @@ export function AdminCafeCreateOrderScreen() {
           <View style={{ flex: 1 }}>
             <Input placeholder="Name" value={name} onChangeText={setName} />
           </View>
+        </View>
+
+        {/* Order date. Same stepper-plus-typed-field shape as the admin
+            create-booking screen, so the two read alike. */}
+        <View style={styles.dateBlock}>
+          <Text variant="tiny" color={colors.zinc500}>
+            ORDER DATE
+          </Text>
+          <View style={styles.dateRow}>
+            <Pressable onPress={() => shiftDay(-1)} style={styles.dateBtn} hitSlop={8}>
+              <Text variant="small" color={colors.zinc300}>
+                ◀
+              </Text>
+            </Pressable>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text variant="bodyStrong">
+                <CalendarDays size={14} color={colors.yellow400} />{" "}
+                {prettyDate(orderDate)}
+              </Text>
+            </View>
+            <Pressable onPress={() => shiftDay(1)} style={styles.dateBtn} hitSlop={8}>
+              <Text variant="small" color={colors.zinc300}>
+                ▶
+              </Text>
+            </Pressable>
+          </View>
+          <Input
+            placeholder="YYYY-MM-DD"
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={orderDate}
+            onChangeText={setOrderDate}
+          />
+          {orderDate !== todayKey ? (
+            <View style={styles.dueNote}>
+              <Text variant="small" color={colors.zinc300}>
+                Filed under {prettyDate(orderDate)}
+                {orderDate < todayKey ? " (past)" : " (future)"}. It counts
+                toward that day's takings and the bill prints that date,
+                and the order completes immediately instead of going to the
+                kitchen.
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         {/* Discount + note */}
@@ -429,6 +491,22 @@ const styles = StyleSheet.create({
     borderColor: colors.warning,
     backgroundColor: colors.warningSoft,
   },
+  dateBlock: { gap: spacing["2"] },
+  dateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing["2"],
+  },
+  dateBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.zinc800,
+    backgroundColor: colors.background,
+  },
   dueNote: {
     borderWidth: 1,
     borderColor: colors.warning,
@@ -451,3 +529,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
 });
+
+/** "Tue, 10 Nov 2026" — the chosen day as an admin in Mathura reads it. */
+function prettyDate(dateKey: string): string {
+  // Midday UTC so the IST rendering can never fall back a day. A
+  // half-typed date in the text field is shown back verbatim rather
+  // than as "Invalid Date".
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return dateKey;
+  return d.toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+}

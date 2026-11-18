@@ -237,6 +237,13 @@ export const adminCafeApi = {
     split?: { cashAmount: number; upiAmount: number };
     /** Nothing collected at the counter; the whole bill is due. */
     collectLater?: boolean;
+    /**
+     * The IST day the sale happened, "YYYY-MM-DD". Omit for today.
+     * Any past or future day is accepted; the order is then filed
+     * under that day for takings and on the bill, and completes
+     * immediately rather than joining the kitchen queue.
+     */
+    orderDate?: string;
     note?: string;
   }): Promise<{ ok: true; orderId: string; orderNumber: string }> {
     return request("/api/mobile/admin/cafe/orders/create", {
