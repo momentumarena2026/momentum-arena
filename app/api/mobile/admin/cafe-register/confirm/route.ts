@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
   const gate = await requireMobileAdmin(request, "MANAGE_CAFE_ORDERS");
   if ("error" in gate) return gate.error;
 
-  let body: { uploadId?: string | null; rows?: unknown };
+  let body: { uploadId?: string | null; rows?: unknown; orderDate?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -29,6 +29,10 @@ export async function POST(request: NextRequest) {
   const res = await confirmRegisterOrders({
     uploadId: body.uploadId ?? null,
     rows: body.rows as never,
+    // The IST day the photographed page covers. The action validates
+    // it once, before creating anything, and reports a bad date as one
+    // error rather than one per row.
+    orderDate: typeof body.orderDate === "string" ? body.orderDate : undefined,
   });
   return NextResponse.json(res);
 }

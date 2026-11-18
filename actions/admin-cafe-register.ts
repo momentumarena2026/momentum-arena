@@ -13,6 +13,8 @@ import {
   type MenuItem,
 } from "@/lib/cafe-register/match";
 import { adminCreateCafeOrder } from "@/actions/admin-cafe-orders";
+import { resolveOrderDate } from "@/lib/cafe-order-date";
+import { istDateKey } from "@/lib/ist";
 
 /**
  * Photograph of the register in, reviewed orders out.
@@ -166,6 +168,21 @@ export interface ConfirmRow {
 export async function confirmRegisterOrders(input: {
   uploadId: string | null;
   rows: ConfirmRow[];
+  /**
+   * The IST day this register page covers, "YYYY-MM-DD". Omitted =
+   * today, which is what every page created before this argument
+   * existed assumed.
+   *
+   * One date for the whole upload, not one per row, because a page of
+   * the paper register IS a day — that is the unit the book is kept in.
+   *
+   * Deliberately NOT derived from the rows' `time` column. That column
+   * is the customer's booking slot, not the moment of sale (see the
+   * note above about why rows are never grouped by it), so reading a
+   * sale time out of it would be inventing one. The orders therefore
+   * all land at midday IST on the chosen day; see istNoonUtc.
+   */
+  orderDate?: string;
 }): Promise<{
   success: boolean;
   created: number;
@@ -179,6 +196,14 @@ export async function confirmRegisterOrders(input: {
     return { success: false, created: 0, failed: 0, learned: 0, error: "Nothing to create." };
   }
 
+  // Up front, once. adminCreateCafeOrder validates it too, but it is
+  // called once PER ROW — a bad date would otherwise come back as
+  // twelve identical row failures and no usable message.
+  const dateCheck = resolveOrderDate(input.orderDate, istDateKey(new Date()));
+  if (!dateCheck.ok) {
+    return { success: false, created: 0, failed: 0, learned: 0, error: dateCheck.error };
+  }
+
   let created = 0;
   let failed = 0;
   const orderIds: string[] = [];
@@ -188,6 +213,11 @@ export async function confirmRegisterOrders(input: {
       const res = await adminCreateCafeOrder({
         items: [{ cafeItemId: row.cafeItemId, quantity: row.qty }],
         paymentMethod: row.payment,
+        // Validated there, once, rather than re-checked per row here.
+        // A page dated to anything but today also completes on arrival
+        // instead of queueing at the kitchen — these sales were served
+        // hours or days ago.
+        orderDate: input.orderDate,
       });
       // Each row is its own order, created one at a time on purpose: a
       // page of twelve sales must not become all-or-nothing, and a single

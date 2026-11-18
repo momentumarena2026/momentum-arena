@@ -9,10 +9,11 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useQuery } from "@tanstack/react-query";
-import { Camera, Check, X, AlertTriangle, Trash2 } from "lucide-react-native";
+import { Camera, Check, X, AlertTriangle, Trash2, CalendarDays } from "lucide-react-native";
 import { Screen } from "../../components/ui/Screen";
 import { Text } from "../../components/ui/Text";
 import { colors, radius, spacing } from "../../theme";
+import { getTodayIST } from "../../lib/ist-date";
 import {
   confirmRegister,
   extractRegister,
@@ -46,6 +47,10 @@ export function AdminCafeRegisterScreen() {
   // deliberate correction rather than a lucky match.
   const [corrected, setCorrected] = useState<Record<number, true>>({});
   const [picking, setPicking] = useState<number | null>(null);
+  // One date for the whole page. A page of the paper register IS a day,
+  // and that is rarely the day somebody gets round to photographing it.
+  const todayKey = getTodayIST();
+  const [pageDate, setPageDate] = useState(todayKey);
 
   const setup = useQuery({
     queryKey: ["admin", "cafe-register", "setup"],
@@ -105,12 +110,22 @@ export function AdminCafeRegisterScreen() {
   const ready = rows.filter((r) => r.cafeItemId && r.payment);
   const blocked = rows.length - ready.length;
 
+  function shiftDay(offset: number) {
+    // Stepped in UTC on a date-only string: the string IS the IST
+    // calendar day, so there is no timezone here to get wrong.
+    const d = new Date(`${pageDate}T00:00:00Z`);
+    if (Number.isNaN(d.getTime())) return setPageDate(todayKey);
+    d.setUTCDate(d.getUTCDate() + offset);
+    setPageDate(d.toISOString().slice(0, 10));
+  }
+
   const create = useCallback(async () => {
     setSending(true);
     setError(null);
     try {
       const res = await confirmRegister({
         uploadId,
+        orderDate: pageDate !== todayKey ? pageDate : undefined,
         rows: rows
           .map((r, i) => ({ r, i }))
           .filter(({ r }) => r.cafeItemId && r.payment)
@@ -133,13 +148,14 @@ export function AdminCafeRegisterScreen() {
       );
       setRows([]);
       setUploadId(null);
+      setPageDate(todayKey);
       void setup.refetch();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't create the orders.");
     } finally {
       setSending(false);
     }
-  }, [rows, corrected, uploadId, setup]);
+  }, [rows, corrected, uploadId, setup, pageDate, todayKey]);
 
   return (
     <Screen>
@@ -290,6 +306,44 @@ export function AdminCafeRegisterScreen() {
               );
             })}
 
+            {/* Which day this page is. Directly above the button because
+                it applies to every row above it. */}
+            <View style={styles.dateBox}>
+              <Text variant="small" color={colors.zinc400}>
+                <CalendarDays size={13} color={colors.yellow400} /> Date on this
+                register page
+              </Text>
+              <View style={styles.dateRow}>
+                <Pressable onPress={() => shiftDay(-1)} style={styles.dateBtn} hitSlop={8}>
+                  <Text variant="small" color={colors.zinc300}>
+                    ◀
+                  </Text>
+                </Pressable>
+                <TextInput
+                  style={styles.dateInput}
+                  value={pageDate}
+                  onChangeText={setPageDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.zinc600}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <Pressable onPress={() => shiftDay(1)} style={styles.dateBtn} hitSlop={8}>
+                  <Text variant="small" color={colors.zinc300}>
+                    ▶
+                  </Text>
+                </Pressable>
+              </View>
+              <Text
+                variant="small"
+                color={pageDate === todayKey ? colors.zinc500 : colors.yellow400}
+              >
+                {pageDate === todayKey
+                  ? `All ${ready.length} order${ready.length === 1 ? "" : "s"} will be filed under today.`
+                  : `All ${ready.length} order${ready.length === 1 ? "" : "s"} will count toward ${prettyDate(pageDate)} — not today.`}
+              </Text>
+            </View>
+
             <Pressable
               onPress={() => void create()}
               disabled={sending || ready.length === 0}
@@ -419,6 +473,35 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     fontSize: 13,
   },
+  dateBox: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 10,
+    gap: 8,
+    backgroundColor: colors.card,
+  },
+  dateRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  dateBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  dateInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: colors.foreground,
+    fontSize: 13,
+    textAlign: "center",
+  },
   payBtn: {
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -451,3 +534,16 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
 });
+
+/** "Tue, 10 Nov 2026" — the chosen day as an admin in Mathura reads it. */
+function prettyDate(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return dateKey;
+  return d.toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+}
