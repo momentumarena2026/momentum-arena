@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Banknote, Landmark, HelpCircle, Wallet } from "lucide-react";
 import type { CollectionsResult } from "@/actions/admin-collections";
+import { CollectionsDayTable } from "./collections-day-table";
 
 /**
  * Cash vs online, day by day — the till-and-bank tally.
@@ -158,101 +159,13 @@ export function CollectionsPanel({
         </p>
       ) : null}
 
-      {/* Day by day. */}
-      <div className="overflow-x-auto rounded-xl border border-zinc-800">
-        <table className="w-full min-w-[34rem] text-sm">
-          <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900/60 text-[11px] uppercase tracking-wide text-zinc-500">
-              <th scope="col" className="px-4 py-2 text-left font-medium">
-                Day
-              </th>
-              <th scope="col" className="px-4 py-2 text-right font-medium">
-                Cash
-              </th>
-              <th scope="col" className="px-4 py-2 text-right font-medium">
-                Online
-              </th>
-              {showUnattributed ? (
-                <th scope="col" className="px-4 py-2 text-right font-medium">
-                  Unattributed
-                </th>
-              ) : null}
-              <th scope="col" className="px-4 py-2 text-right font-medium">
-                Total
-              </th>
-            </tr>
-          </thead>
-          <tbody className="tabular-nums">
-            {days.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={showUnattributed ? 5 : 4}
-                  className="px-4 py-6 text-center text-sm text-zinc-500"
-                >
-                  Nothing was collected in this range.
-                </td>
-              </tr>
-            ) : (
-              days.map((d) => (
-                <tr
-                  key={d.date}
-                  className="border-b border-zinc-800/60 last:border-0"
-                >
-                  <th
-                    scope="row"
-                    className="whitespace-nowrap px-4 py-2 text-left font-medium text-zinc-300"
-                  >
-                    {dayLabel(d.date)}
-                  </th>
-                  <td
-                    className={`px-4 py-2 text-right ${d.cash > 0 ? "text-amber-300" : "text-zinc-700"}`}
-                  >
-                    {d.cash > 0 ? inr(d.cash) : "—"}
-                  </td>
-                  <td
-                    className={`px-4 py-2 text-right ${d.online > 0 ? "text-sky-300" : "text-zinc-700"}`}
-                  >
-                    {d.online > 0 ? inr(d.online) : "—"}
-                  </td>
-                  {showUnattributed ? (
-                    <td
-                      className={`px-4 py-2 text-right ${d.unattributed > 0 ? "text-amber-200/70" : "text-zinc-700"}`}
-                    >
-                      {d.unattributed > 0 ? inr(d.unattributed) : "—"}
-                    </td>
-                  ) : null}
-                  <td className="px-4 py-2 text-right font-semibold text-white">
-                    {inr(d.total)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-          {days.length > 0 ? (
-            <tfoot>
-              <tr className="border-t border-zinc-700 bg-zinc-900/60 tabular-nums">
-                <th scope="row" className="px-4 py-2 text-left text-zinc-300">
-                  Range total
-                </th>
-                <td className="px-4 py-2 text-right font-semibold text-amber-300">
-                  {inr(totals.cash)}
-                </td>
-                <td className="px-4 py-2 text-right font-semibold text-sky-300">
-                  {inr(totals.online)}
-                </td>
-                {showUnattributed ? (
-                  <td className="px-4 py-2 text-right font-semibold text-amber-200/70">
-                    {inr(totals.unattributed)}
-                  </td>
-                ) : null}
-                <td className="px-4 py-2 text-right font-bold text-white">
-                  {inr(totals.total)}
-                </td>
-              </tr>
-            </tfoot>
-          ) : null}
-        </table>
-      </div>
+      {/* Day by day — each row opens into where that day's money came
+          from, which is the question a till check actually asks. */}
+      <CollectionsDayTable
+        days={days}
+        totals={totals}
+        showUnattributed={showUnattributed}
+      />
 
       {/* Where it came from, so a figure that looks wrong can be traced. */}
       {bySource.length > 0 ? (
@@ -261,7 +174,7 @@ export function CollectionsPanel({
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-900/60 text-[11px] uppercase tracking-wide text-zinc-500">
                 <th scope="col" className="px-4 py-2 text-left font-medium">
-                  Where it came from
+                  Where it came from (whole range)
                 </th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">
                   Cash

@@ -787,6 +787,19 @@ Anything else means main has drifted — stop and investigate, do not push.
     booking on the PLAY date, the collections panel on the day the money
     moved. They are not supposed to agree.
 
+    **The income sources are six, not five.** Bookings, Cafe, Passes,
+    Tournaments (team fees AND organiser venue hire) and Camps are the
+    five the P&L counts. The sixth is the **shop** — `ProductOrder` /
+    `ProductOrderPayment` — which the P&L omits and which is nearly
+    dormant (one completed sale, ₹150 cash, May 2026). It is in the
+    collections report, because a dormant source that starts being used
+    would otherwise go missing with nothing to say so. **Its amounts are
+    in PAISE** (`ProductOrderPayment.amount`, `ProductOrder.totalPaise`)
+    — the only money columns in this codebase that are, so anything
+    summing across sources must divide at that boundary. Whether the
+    P&L should also count the shop is an open question; ₹150 is not
+    worth a change on its own, but the gap is real.
+
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo
     is affected, and the schedule in the file is not what happens. Measured

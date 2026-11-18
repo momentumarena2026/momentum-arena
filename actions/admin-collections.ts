@@ -90,13 +90,23 @@ function channelCase(col: Prisma.Sql): Prisma.Sql {
     END`;
 }
 
-export interface CollectionsDay {
-  /** IST calendar day, "YYYY-MM-DD". */
-  date: string;
+export interface CollectionsSplit {
   cash: number;
   online: number;
   unattributed: number;
   total: number;
+}
+
+export interface CollectionsDay extends CollectionsSplit {
+  /** IST calendar day, "YYYY-MM-DD". */
+  date: string;
+  /**
+   * The same day broken down by where the money came from, biggest
+   * first — "₹1,000 cash yesterday" being ₹700 bookings and ₹300 cafe.
+   * Carried per day rather than derived in the browser so the expanded
+   * rows cannot disagree with the day totals above them.
+   */
+  sources: (CollectionsSplit & { source: string })[];
 }
 
 export interface CollectionsResult {
@@ -255,6 +265,23 @@ export async function getCollections(input: {
         AND cp.amount > 0
 
       UNION ALL
+      -- The shop (ProductOrder). Nearly dormant — one completed sale,
+      -- ₹150 cash in May 2026 — but a real till source, and leaving it
+      -- out would under-report silently the day it starts being used.
+      --
+      -- ProductOrderPayment.amount is the ONE money column in this
+      -- codebase stored in PAISE ("Total captured in PAISE" on the
+      -- model). Everything else here is rupees, so it is divided at the
+      -- boundary rather than anywhere a later reader could miss it.
+      SELECT to_char(pop."confirmedAt" + ${IST_SHIFT}, 'YYYY-MM-DD'),
+             ${channelCase(Prisma.sql`pop.method::text`)},
+             'Shop', ROUND(pop.amount / 100.0)::bigint
+      FROM "ProductOrderPayment" pop
+      WHERE pop.status IN ('COMPLETED','PARTIAL')
+        AND pop."confirmedAt" IS NOT NULL
+        AND pop.amount > 0
+
+      UNION ALL
       -- Cafe balances settled after the fact, on the day they arrived.
       SELECT to_char(cs."receivedAt" + ${IST_SHIFT}, 'YYYY-MM-DD'),
              'CASH', 'Cafe', ROUND(cs."cashAmount")::bigint
@@ -284,7 +311,7 @@ export async function getCollections(input: {
   `);
 
   const dayMap = new Map<string, CollectionsDay>();
-  const srcMap = new Map<string, CollectionsDay & { source: string }>();
+  const srcMap = new Map<string, CollectionsSplit & { source: string }>();
   const totals = { cash: 0, online: 0, unattributed: 0, total: 0 };
 
   for (const r of rows) {
@@ -298,21 +325,28 @@ export async function getCollections(input: {
 
     const d =
       dayMap.get(r.day) ??
-      { date: r.day, cash: 0, online: 0, unattributed: 0, total: 0 };
-    d[key] += amount;
-    d.total += amount;
-    dayMap.set(r.day, d);
-
-    const s =
-      srcMap.get(r.source) ??
       {
-        source: r.source,
-        date: "",
+        date: r.day,
         cash: 0,
         online: 0,
         unattributed: 0,
         total: 0,
+        sources: [],
       };
+    d[key] += amount;
+    d.total += amount;
+    let ds = d.sources.find((x) => x.source === r.source);
+    if (!ds) {
+      ds = { source: r.source, cash: 0, online: 0, unattributed: 0, total: 0 };
+      d.sources.push(ds);
+    }
+    ds[key] += amount;
+    ds.total += amount;
+    dayMap.set(r.day, d);
+
+    const s =
+      srcMap.get(r.source) ??
+      { source: r.source, cash: 0, online: 0, unattributed: 0, total: 0 };
     s[key] += amount;
     s.total += amount;
     srcMap.set(r.source, s);
@@ -324,9 +358,12 @@ export async function getCollections(input: {
   return {
     success: true,
     data: {
-      days: Array.from(dayMap.values()).sort((a, b) =>
-        b.date.localeCompare(a.date),
-      ),
+      days: Array.from(dayMap.values())
+        .map((d) => ({
+          ...d,
+          sources: d.sources.sort((a, b) => b.total - a.total),
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date)),
       totals,
       bySource: Array.from(srcMap.values())
         .map(({ source, cash, online, unattributed, total }) => ({
