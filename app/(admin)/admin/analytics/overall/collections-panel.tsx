@@ -217,11 +217,12 @@ export function CollectionsPanel({
 
       {data.splitRemainders > 0 ? (
         <p className="text-[11px] leading-relaxed text-zinc-600">
-          Venue-side balances are dated from the collection recorded against
-          the booking, not from when the advance was taken — that is where
-          most counter cash comes from. {data.splitRemainders} bookings were
-          collected over two visits; their whole balance is dated to the later
-          one, because the per-visit amounts exist only inside the note text.
+          Venue-side balances are dated from the instalment they arrived
+          in, not from when the advance was taken — that is where most
+          counter cash comes from. {data.splitRemainders} older bookings
+          were collected over more than one visit before each instalment
+          was recorded separately; their whole balance sits on the later
+          date. New collections are dated per visit.
         </p>
       ) : null}
     </section>

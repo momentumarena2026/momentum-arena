@@ -9,7 +9,7 @@ touching anything. It carries the rules, the deployment model, and the non-obvio
 that are expensive to rediscover. Then verify before acting — anything naming a file, flag,
 or function was true when written, so confirm it still exists before relying on it.
 
-**Last substantive update:** 2026-11-18 · **a cash-vs-online collections tally** on Analytics → Overall (day by day, quick ranges, reconciles the till against the bank) — it books money on the day it MOVED, unlike the P&L above it which books on the play date, and finding that out produced **gotcha 31**: 74% of booking cash is the venue-side remainder, whose date exists only on a `REMAINDER_COLLECTED` edit-history row. Also **ExpenseOption.isVenture**, a toggle in Dropdowns replacing the hardcoded "Sportive Ventures" match, seeded so the reimbursement figures do not move. Earlier today · **a cafe order can now be dated** — the admin POS (web and app) picks the day the sale happened, past or future, and the order's `createdAt` *and* its payment's `confirmedAt` both carry it, because the takings read one and the invoice reads the other. Doing it turned up **gotcha 30**: the live kitchen board has no date filter, so an order that is not "now" has to be born COMPLETED or it pins itself to the top of the board forever. The register import carries it too — one date per upload, validated once before any row is created. An order's note is editable now as well, with the old text kept in the order's history. Previously 2026-11-12 · **the registered-team count is now a per-tournament admin toggle** (`showEntrantCount`, off by default): the count and the entrant NAMES were one gate and are now two, so a draw that is filling well can show "10/12 entered" without naming the field. Also **table tennis reached Quick Book**, which had been told in as many words that only three sports exist. Previously 2026-11-10 · **a no-show's remaining hours are sellable again** — one booking, two hours, marked ABSENT mid-session, and the second hour stayed off sale to every customer while the counter could still sell it (**gotcha 29**: occupancy was one constant answering two different questions). Previously 2026-11-05 · accurate as of `development` = `093ac63b`. **New: the AWARDS engine** — Player of the Match, Best Batter and Best Bowler per match, plus tournament MVP / Best Batter / Best Bowler, across all four sports (`lib/tournament-awards.ts` + `-query.ts`, §8). Derived from the event log with no new tables and nothing cached, because a stored trophy can contradict an undone ball. Building it turned up **gotcha 28**: a match can be scored ball-by-ball with no players tagged, which is what "no MVP" almost always means; a rating can be negative, so bar widths must clamp; and TABLE_TENNIS was deriving no player stats at all. Previously, 2026-10-30 (app 1.0.8, `183cb4b7`). **New: the DIWALI BUMPER run** — cricket and football at a flat ₹1500/hour on play dates 1–11 Nov, plus a twelve-day 7 PM push campaign (a teaser on 31 Oct, then one dated line a day). It needed a new discount type, `TARGET_PRICE`, because neither percentage nor flat can express "one price" across a ₹2000 peak and a ₹1600 off-peak band — see **gotcha 27** for that, for why the per-slot floor does the court filtering for free, and for why the validator takes a `holdId` rather than the prices. `DailyPushSettings.sendHourIST` moved 15 → 19. Campaign constants live in `lib/diwali-2026.ts`, shared by both seeders so the copy cannot outlive the discount it quotes — the same discipline `lib/navratri-2026.ts` installed. Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
+**Last substantive update:** 2026-11-18 · **`BookingSettlement`** — venue-side booking money now has a ledger: one row per instalment with a real `receivedAt`, the shape the cafe already had. It closes the open end of **gotcha 31** (a money screen was deriving its dates from an audit log) and produced **gotcha 32**, which is the rule that a split correction moves money between columns and never between dates, plus the test-design lesson that caught it. Verified against production both ways — table empty and table backfilled — at ₹7,17,701 across 344 cells with 0 differences. Earlier today · **a cash-vs-online collections tally** on Analytics → Overall (day by day, quick ranges, reconciles the till against the bank) — it books money on the day it MOVED, unlike the P&L above it which books on the play date, and finding that out produced **gotcha 31**: 74% of booking cash is the venue-side remainder. Also **ExpenseOption.isVenture**, a toggle in Dropdowns replacing the hardcoded "Sportive Ventures" match, seeded so the reimbursement figures do not move. Earlier today · **a cafe order can now be dated** — the admin POS (web and app) picks the day the sale happened, past or future, and the order's `createdAt` *and* its payment's `confirmedAt` both carry it, because the takings read one and the invoice reads the other. Doing it turned up **gotcha 30**: the live kitchen board has no date filter, so an order that is not "now" has to be born COMPLETED or it pins itself to the top of the board forever. The register import carries it too — one date per upload, validated once before any row is created. An order's note is editable now as well, with the old text kept in the order's history. Previously 2026-11-12 · **the registered-team count is now a per-tournament admin toggle** (`showEntrantCount`, off by default): the count and the entrant NAMES were one gate and are now two, so a draw that is filling well can show "10/12 entered" without naming the field. Also **table tennis reached Quick Book**, which had been told in as many words that only three sports exist. Previously 2026-11-10 · **a no-show's remaining hours are sellable again** — one booking, two hours, marked ABSENT mid-session, and the second hour stayed off sale to every customer while the counter could still sell it (**gotcha 29**: occupancy was one constant answering two different questions). Previously 2026-11-05 · accurate as of `development` = `093ac63b`. **New: the AWARDS engine** — Player of the Match, Best Batter and Best Bowler per match, plus tournament MVP / Best Batter / Best Bowler, across all four sports (`lib/tournament-awards.ts` + `-query.ts`, §8). Derived from the event log with no new tables and nothing cached, because a stored trophy can contradict an undone ball. Building it turned up **gotcha 28**: a match can be scored ball-by-ball with no players tagged, which is what "no MVP" almost always means; a rating can be negative, so bar widths must clamp; and TABLE_TENNIS was deriving no player stats at all. Previously, 2026-10-30 (app 1.0.8, `183cb4b7`). **New: the DIWALI BUMPER run** — cricket and football at a flat ₹1500/hour on play dates 1–11 Nov, plus a twelve-day 7 PM push campaign (a teaser on 31 Oct, then one dated line a day). It needed a new discount type, `TARGET_PRICE`, because neither percentage nor flat can express "one price" across a ₹2000 peak and a ₹1600 off-peak band — see **gotcha 27** for that, for why the per-slot floor does the court filtering for free, and for why the validator takes a `holdId` rather than the prices. `DailyPushSettings.sendHourIST` moved 15 → 19. Campaign constants live in `lib/diwali-2026.ts`, shared by both seeders so the copy cannot outlive the discount it quotes — the same discipline `lib/navratri-2026.ts` installed. Since the 09-27 entry: tournament entrant lists and counts are now private until registrations close (`rosterIsPublic` in `lib/tournament-config.ts`, a *second* gate distinct from the draw gate `poolMatchesArePublic` — a LEAGUE tournament never reaches `POOLS_REVEALED`, so gating entrants on the draw hid them forever); the daily push's rotation was fixed after production showed 50 of 59 people getting the identical line seven days running (per-rule monthly caps, and the diagnostic now says *why* a message repeats); loser-pays shipped in Challenges as a pure signal between captains with the payment structure untouched. **New: TABLE TENNIS as a fourth sport** (live, with passes, SEO and a launch push run) — see gotchas **22–24**, and **25–26** for the two cache classes the launch week turned up: a 401 that is permanent for a session, and an admin toggle that reaches web and app by different roads (what the compiler does and does not find when a sport is added; why two sports on one floor must share a zone; why the URL slug is hyphenated). Also **`NAVRATRI25`** (live on production, 25% off cricket + football played 11–19 Oct, bowling machine excluded) — it produced **two** gotchas worth carrying forward. **20**: a festival coupon's dates belong in its `BOOKING_DATE` condition, not in `validFrom`, or every advance booking is silently refused. **21**: an admin date picker's `YYYY-MM-DD` parsed by `new Date()` is 05:30 IST, which shortened this coupon's last day by 18.5 hours after a hand-edit — now fixed at all fourteen write sites plus the reads that render them. Still-live facts from 09-27: **gotcha 19** (an IST "day" is two values and a `@db.Date` takes the wrong one), Vercel crons are UTC so an hourly cron fires at half past every IST hour, and the daily push is now **enabled on production** (15:00 IST, `maxSameRulePerMonth: 2`, all four rules on) — note `maxPerUserPerWeek: 7` and `maxPushesPerDay: 10` are still at their shipped defaults and are worth revisiting now that the copy actually varies.
 
 **New here?** Read `docs/HANDOVER.md` first — it is the entry point for a
 session inheriting this project with no conversation history, and points at
@@ -758,17 +758,38 @@ Anything else means main has drifted — stop and investigate, do not push.
     The collection event IS timestamped, as a `REMAINDER_COLLECTED` row
     in `BookingEditHistory` — but its amounts live only inside a
     generated sentence ("Rs.200 Cash + Rs.500 UPI QR"); `previousAmount`
-    and `newAmount` are null on those rows. So `getCollections` takes the
-    **date** from the history row and the **amounts** from the structured
-    `remainderCashAmount` / `remainderUpiAmount` columns. No string
-    parsing, so rewording the note cannot silently break a money report.
-    652 bookings were collected in one visit and 19 in two; the latter
-    have their whole balance dated to the later visit, and the count is
-    surfaced on screen rather than hidden.
+    and `newAmount` are null on those rows. For a few hours this report
+    therefore took the **date** from the history row and the **amounts**
+    from the structured columns, which worked but meant a money screen
+    was reading an audit log on every page load.
 
-    The durable fix, if this is ever touched again, is the shape the cafe
-    already has: `CafeOrderSettlement` rows with a real `receivedAt`.
-    Bookings want the same instead of three columns on `Payment`.
+    **FIXED, 2026-11-18: `BookingSettlement`.** One row per instalment
+    with a real `receivedAt`, same shape as `CafeOrderSettlement` on
+    purpose. `Payment.remainder*` stays the source of truth for TOTALS
+    (the P&L, the CA report and the booking detail all still read it);
+    the rows add the WHEN and the per-visit split. The invariant both
+    writers hold, and `tests/booking-settlement.test.ts` pins, is
+    `SUM(settlement legs) = Payment.remainder* columns` — one rupee of
+    drift and two screens disagree about one booking with no way to tell
+    which is right.
+
+    Two parts of this are load-bearing and look removable:
+
+    - **The legacy fallback in `getCollections` stays.** `prisma db push`
+      runs inside the Vercel build; the seed that backfills runs in its
+      own path-filtered workflow afterwards. Without the fallback, every
+      venue-side rupee vanishes from the screen in the window between
+      them. It matches nothing once the backfill has run. Verified
+      against production both ways before shipping: ₹7,17,701 across 344
+      day/channel cells, **0 cells differ**, with the table empty AND
+      with it backfilled.
+    - **`splitRemainders` now compares settlement rows to collection
+      events** rather than counting multi-visit bookings. The 19
+      historical two-visit bookings were backfilled as ONE row dated to
+      the later visit, because the per-visit amounts never existed
+      anywhere, so they are still approximate and still counted. A
+      booking collected over two visits *since* the ledger landed has
+      two rows and two events and drops out on its own.
 
     Three more things that pass went and checked rather than assumed, all
     of which contradict something written down. **Every money column in
@@ -812,6 +833,32 @@ Anything else means main has drifted — stop and investigate, do not push.
     `pnl-table.tsx` is not. Miss that one and the money is in the total
     with no line explaining it. Grep the table for the stream name
     before believing a green typecheck.
+
+32. **Correcting a payment's split must move money between COLUMNS, never
+    between DATES.** The rule that governs `updateRemainderSplit` and
+    `lib/booking-settlement.ts`, and the one a reasonable implementation
+    gets wrong.
+
+    A split correction says "that was UPI, not cash" about money that
+    already arrived. So it must not append a settlement row dated today
+    — that would move last Tuesday's cash onto the day someone noticed
+    the typo, which is the exact failure the ledger exists to prevent.
+    The corrected totals are spread back over the rows that are already
+    there, every `receivedAt` untouched.
+
+    The subtle part is the weighting. Spreading each leg in proportion to
+    **that leg's** prior distribution looks right and is wrong: a ₹1200
+    balance taken as ₹300 then ₹900, both cash, corrected to all UPI,
+    finds no prior UPI anywhere and dumps all ₹1200 on the later visit.
+    Weight by **how much of the balance each row closed** (cash + UPI +
+    goodwill cut) and each date keeps the money it held, in the new mix
+    of columns. The first version of this shipped the per-leg bug and
+    the test suite did not catch it, because every case in it had
+    cash-only priors, where the two rules happen to agree — see the
+    "a row's share is its whole contribution, not its cash" test, which
+    exists solely to tell them apart. Worth remembering as a test-design
+    lesson, not just a money one: a suite whose fixtures all have the
+    same shape cannot distinguish two rules that agree on that shape.
 
 18. **GitHub's scheduled workflows are delivering about 7 runs a day, whatever
     you ask for.** Not a challenges problem — every `cron-*.yml` in this repo

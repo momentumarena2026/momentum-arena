@@ -27,10 +27,8 @@ import { requireSuperadmin } from "@/lib/admin-auth";
  * ── Where each rupee's date comes from ──────────────────────────────
  *
  *  Bookings, advance   Payment.confirmedAt, method = Payment.method
- *  Bookings, remainder the LAST REMAINDER_COLLECTED edit-history row for
- *                      that booking; amounts from the structured
- *                      remainderCash/UpiAmount columns, never parsed out
- *                      of the note text
+ *  Bookings, remainder BookingSettlement.receivedAt — one row per
+ *                      instalment, with its own cash/UPI legs
  *  Passes              UserPass.purchasedAt
  *  Tournaments         TournamentTeam.paidAt / OrganizerPayment.receivedAt
  *  Camps               CampRegistration.paidAt
@@ -40,18 +38,25 @@ import { requireSuperadmin } from "@/lib/admin-auth";
  *
  * The booking remainder is the one with a story. Payment.confirmedAt is
  * stamped when the ADVANCE is confirmed and is then left alone, so it
- * cannot date money handed over at the venue days later — and about a
- * quarter of booking income arrives that way. The collection event IS
- * timestamped, in BookingEditHistory, but its amounts live only inside a
- * generated sentence ("Rs.200 Cash + Rs.500 UPI QR"). So this takes the
- * DATE from the history row and the AMOUNTS from the real columns: no
- * string parsing, nothing that a reworded note could silently break.
+ * cannot date money handed over at the venue days later — and about
+ * three quarters of booking cash arrives that way. This report
+ * originally had to mine BookingEditHistory for the date, because that
+ * audit row was the only timestamp anywhere; BookingSettlement now
+ * records each instalment properly, so the date and the per-visit split
+ * both come straight off a ledger row.
  *
- * 19 of 671 bookings were collected over two visits rather than one.
- * Their whole remainder is dated to the later visit, because the
- * per-visit amounts exist only in those sentences. `splitRemainders` on
- * the result reports how many rows that affected, so the approximation
- * is visible rather than assumed away.
+ * The LEGACY path is still here, and should stay: bookings collected
+ * before that ledger existed have no settlement rows until the prisma
+ * seed backfills them, and `prisma db push` lands in the Vercel build
+ * while the seed runs in its own path-filtered workflow. Without the
+ * fallback, every venue-side rupee would vanish from this screen in the
+ * window between the two. It matches nothing once the backfill has run.
+ *
+ * `splitRemainders` counts bookings taken over more than one visit whose
+ * per-visit amounts were never recorded — 19 at the time of writing, all
+ * backfilled as a single row dated to the later visit. It falls on its
+ * own as new collections record each instalment, so the approximation
+ * stays visible instead of being assumed away.
  *
  * ── Unattributed ────────────────────────────────────────────────────
  *
@@ -166,6 +171,29 @@ export async function getCollections(input: {
 
   const rows = await db.$queryRaw<Row[]>(Prisma.sql`
     WITH last_collection AS (${lastCollection}),
+    -- Venue-side booking money, one row per instalment. Settlement rows
+    -- are the truth; the second branch is the legacy fallback described
+    -- in the header and only fires for bookings that have none.
+    booking_remainder AS (
+      SELECT to_char(bs."receivedAt" + ${IST_SHIFT}, 'YYYY-MM-DD') AS day,
+             bs."cashAmount" AS cash,
+             bs."upiAmount" AS upi
+      FROM "BookingSettlement" bs
+
+      UNION ALL
+      SELECT to_char(COALESCE(lc.collected_at, p."confirmedAt") + ${IST_SHIFT}, 'YYYY-MM-DD'),
+             COALESCE(p."remainderCashAmount", 0),
+             COALESCE(p."remainderUpiAmount", 0)
+      FROM "Payment" p
+      LEFT JOIN last_collection lc ON lc."bookingId" = p."bookingId"
+      WHERE NOT EXISTS (
+              SELECT 1 FROM "BookingSettlement" bs2
+              WHERE bs2."bookingId" = p."bookingId"
+            )
+        AND (COALESCE(p."remainderCashAmount", 0) > 0
+             OR COALESCE(p."remainderUpiAmount", 0) > 0)
+        AND COALESCE(lc.collected_at, p."confirmedAt") IS NOT NULL
+    ),
     parts AS (
       -- Bookings: the advance, on the day it was confirmed.
       SELECT to_char(p."confirmedAt" + ${IST_SHIFT}, 'YYYY-MM-DD') AS day,
@@ -182,21 +210,16 @@ export async function getCollections(input: {
               - COALESCE(p."remainderUpiAmount", 0)) > 0
 
       UNION ALL
-      -- Bookings: the venue-side remainder, on the day it was handed over.
-      SELECT to_char(COALESCE(lc.collected_at, p."confirmedAt") + ${IST_SHIFT}, 'YYYY-MM-DD'),
-             'CASH', 'Bookings', p."remainderCashAmount"::bigint
-      FROM "Payment" p
-      LEFT JOIN last_collection lc ON lc."bookingId" = p."bookingId"
-      WHERE COALESCE(p."remainderCashAmount", 0) > 0
-        AND COALESCE(lc.collected_at, p."confirmedAt") IS NOT NULL
+      -- Bookings: the venue-side remainder, on the day it was handed
+      -- over, per instalment.
+      SELECT br.day, 'CASH', 'Bookings', br.cash::bigint
+      FROM booking_remainder br
+      WHERE br.cash > 0
 
       UNION ALL
-      SELECT to_char(COALESCE(lc.collected_at, p."confirmedAt") + ${IST_SHIFT}, 'YYYY-MM-DD'),
-             'ONLINE', 'Bookings', p."remainderUpiAmount"::bigint
-      FROM "Payment" p
-      LEFT JOIN last_collection lc ON lc."bookingId" = p."bookingId"
-      WHERE COALESCE(p."remainderUpiAmount", 0) > 0
-        AND COALESCE(lc.collected_at, p."confirmedAt") IS NOT NULL
+      SELECT br.day, 'ONLINE', 'Bookings', br.upi::bigint
+      FROM booking_remainder br
+      WHERE br.upi > 0
 
       UNION ALL
       -- Passes. A null method with a gateway id is a self-serve online
@@ -302,12 +325,21 @@ export async function getCollections(input: {
     ORDER BY day DESC
   `);
 
+  // Multi-visit collections whose per-visit amounts were never
+  // recorded: more collection events than settlement rows. A booking
+  // collected over two visits SINCE the ledger landed has two of each
+  // and drops out of this count on its own.
   const splitRemainders = await db.$queryRaw<{ n: bigint }[]>(Prisma.sql`
     SELECT COUNT(*)::bigint AS n FROM (
-      SELECT "bookingId" FROM "BookingEditHistory"
+      SELECT "bookingId", COUNT(*) AS events
+      FROM "BookingEditHistory"
       WHERE "editType" = 'REMAINDER_COLLECTED'
       GROUP BY "bookingId" HAVING COUNT(*) > 1
     ) t
+    WHERE (
+      SELECT COUNT(*) FROM "BookingSettlement" bs
+      WHERE bs."bookingId" = t."bookingId"
+    ) < t.events
   `);
 
   const dayMap = new Map<string, CollectionsDay>();
