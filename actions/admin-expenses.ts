@@ -4,7 +4,6 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { Prisma, ExpenseOptionField } from "@prisma/client";
 import { db } from "@/lib/db";
-import { isVenturePayer } from "@/lib/expenses";
 import { requireAdmin as requireAdminBase } from "@/lib/admin-auth";
 
 /**
@@ -266,10 +265,26 @@ export async function getExpenseContributions(
 ): Promise<ExpenseContributions> {
   await requireExpenseAdmin();
 
-  const rows = await db.expense.findMany({
-    where: buildExpenseWhere(filters),
-    select: { date: true, doneBy: true, amount: true },
-  });
+  const moduleKey = filters.module ?? "GENERAL";
+  const [rows, ventureOptions] = await Promise.all([
+    db.expense.findMany({
+      where: buildExpenseWhere(filters),
+      select: { date: true, doneBy: true, amount: true },
+    }),
+    // Which payers are the venture itself, as configured in Dropdowns.
+    // isActive is deliberately NOT filtered: retiring an option must not
+    // reclassify the historical rows that still carry its label.
+    db.expenseOption.findMany({
+      where: { module: moduleKey, field: "DONE_BY", isVenture: true },
+      select: { label: true },
+    }),
+  ]);
+
+  const ventureLabels = new Set(
+    ventureOptions.map((o) => o.label.trim().toLowerCase()),
+  );
+  const isVenture = (person: string) =>
+    ventureLabels.has(person.trim().toLowerCase());
 
   const perPerson = new Map<string, { amount: number; count: number }>();
   const perMonth = new Map<string, Map<string, number>>();
@@ -301,8 +316,8 @@ export async function getExpenseContributions(
   // Split before anything is totalled. The venture's own spend is
   // already settled; folding it into the reimbursable figure would
   // propose a transfer from the company to itself.
-  const byPerson = allPayers.filter((p) => !isVenturePayer(p.person));
-  const venture = allPayers.filter((p) => isVenturePayer(p.person));
+  const byPerson = allPayers.filter((p) => !isVenture(p.person));
+  const venture = allPayers.filter((p) => isVenture(p.person));
   const ventureTotal = venture.reduce((sum, v) => sum + v.amount, 0);
   const reimbursableTotal = byPerson.reduce((sum, p) => sum + p.amount, 0);
 
@@ -316,7 +331,7 @@ export async function getExpenseContributions(
       let reimbursable = 0;
       let ventureAmount = 0;
       for (const [person, amount] of m) {
-        if (isVenturePayer(person)) ventureAmount += amount;
+        if (isVenture(person)) ventureAmount += amount;
         else reimbursable += amount;
       }
       return {
@@ -666,12 +681,15 @@ const optionInputSchema = z.object({
   // (RUNNING starts blank by design). Optional so existing callers stay
   // GENERAL unchanged.
   module: z.enum(["GENERAL", "RUNNING"]).optional().default("GENERAL"),
+  /** DONE_BY only — see ExpenseOption.isVenture. */
+  isVenture: z.boolean().optional().default(false),
 });
 
 export async function createExpenseOption(input: {
   field: ExpenseOptionField;
   label: string;
   module?: "GENERAL" | "RUNNING";
+  isVenture?: boolean;
 }) {
   await requireExpenseAdmin();
   const parsed = optionInputSchema.safeParse(input);
@@ -697,6 +715,10 @@ export async function createExpenseOption(input: {
         module: parsed.data.module,
         field: parsed.data.field,
         label,
+        // Only meaningful on the payer field; forced off elsewhere so a
+        // stray flag can never affect another dropdown.
+        isVenture:
+          parsed.data.field === "DONE_BY" ? parsed.data.isVenture : false,
         sortOrder: (last?.sortOrder ?? 0) + 10,
       },
     });
@@ -718,18 +740,38 @@ export async function createExpenseOption(input: {
 
 export async function updateExpenseOption(
   id: string,
-  data: { label?: string; isActive?: boolean; sortOrder?: number }
+  data: {
+    label?: string;
+    isActive?: boolean;
+    sortOrder?: number;
+    /** DONE_BY only — see ExpenseOption.isVenture. */
+    isVenture?: boolean;
+  }
 ) {
   await requireExpenseAdmin();
   try {
+    // Guard the flag at the write, not just in the UI: it is only
+    // meaningful on the payer field, and a flag set on SPENT_TYPE would
+    // sit there invisibly waiting to confuse the next reader.
+    let isVenture: boolean | undefined = data.isVenture;
+    if (isVenture !== undefined) {
+      const existing = await db.expenseOption.findUnique({
+        where: { id },
+        select: { field: true },
+      });
+      if (existing?.field !== "DONE_BY") isVenture = undefined;
+    }
+
     await db.expenseOption.update({
       where: { id },
       data: {
         ...(data.label !== undefined ? { label: data.label.trim() } : {}),
         ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
         ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
+        ...(isVenture !== undefined ? { isVenture } : {}),
       },
     });
+    revalidatePath("/admin/running-expenses");
     return { success: true as const };
   } catch (error) {
     if (

@@ -17,6 +17,7 @@ export default async function ExpenseConfigPage() {
       label: string;
       isActive: boolean;
       sortOrder: number;
+      isVenture: boolean;
     }[]
   > = {
     PAYMENT_TYPE: [],
@@ -32,6 +33,7 @@ export default async function ExpenseConfigPage() {
       label: o.label,
       isActive: o.isActive,
       sortOrder: o.sortOrder,
+      isVenture: o.isVenture,
     });
   }
 

@@ -2428,6 +2428,15 @@ model ExpenseOption {
   label     String
   isActive  Boolean            @default(true)
   sortOrder Int                @default(0)
+  // DONE_BY only: this payer is the venture's own account, not a person
+  // who fronted money and is owed it back. Drives the "to reimburse"
+  // figures on Running Expenses — a flagged payer is excluded from them,
+  // because the company does not transfer money to itself.
+  //
+  // Lives here rather than as a hardcoded name so renaming the option
+  // cannot silently move six figures into the reimbursable column.
+  // Meaningless on the other fields; the UI only offers it on DONE_BY.
+  isVenture Boolean            @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
